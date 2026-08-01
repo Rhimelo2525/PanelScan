@@ -1,0 +1,604 @@
+================================================================================
+PANELSCAN - PROJECT NOTES
+AR-powered e-commerce and project management system for Disenyo Interior Solution
+Last updated: 2026-08-01
+================================================================================
+
+--------------------------------------------------------------------------------
+1. CURRENT STATUS
+--------------------------------------------------------------------------------
+Phase 1 (Backend Foundation) is built and verified locally:
+- npm install, prisma generate, tsc --noEmit, and tsc (build) all pass cleanly.
+- Server boots successfully and /health responds 200.
+- POST /api/auth/register was test-fired with curl: request passed through
+  Express -> Zod validation -> AuthService correctly, and only failed at the
+  final step (no reachable database yet). This confirms the whole HTTP/
+  validation/service pipeline is wired correctly.
+- Not yet tested: a real database write (register/login) against an actual
+  CockroachDB instance, because no DATABASE_URL / credentials are available
+  yet (waiting on the team).
+
+The database layer has since been expanded far beyond the single User model
+(see section 3) into the full production schema for all three modules
+(Owner/Moderator/Customer): 21 models, 7 enums, and a seed script.
+- prisma validate / prisma format / prisma generate all pass cleanly against
+  the expanded schema.
+- `npx prisma migrate dev --name init_full_schema` was run on 2026-08-01 and
+  failed with `P1001: Can't reach database server at localhost:26257` - this
+  is the same "no real DB yet" blocker as above, not a schema problem. No
+  migration has actually been applied to any database yet, so
+  prisma/migrations/ still does not exist.
+- seed.ts (creates 1 OWNER, 1 MODERATOR, 5 categories, 10 products +
+  inventory) has not been run for real yet either, for the same reason.
+
+Since then, eight full API modules have been built on top of that schema:
+Auth, Users (Phase 1), Category, Product, Inventory (Phase 2), Cart, Order,
+Payment (Phase 3 - PayMongo integration), and Booking, Installer (Phase 4 -
+installation workflow). See section 3C for what each one does. A full
+Vitest + Supertest integration test suite now covers all of them: 135 tests
+across 9 test files (auth, category, product, inventory, cart, order,
+payment, booking, installer) - see section 3D. Every module's typecheck/
+build passes clean and every route has been smoke-tested live against a
+running server (auth guards, validation ordering, route collisions, etc.
+all confirmed correct - except the /all vs /:id route-ordering distinction
+in booking.routes.ts specifically, which couldn't be fully live-verified
+because `authenticate` itself needs a DB lookup before any route-specific
+logic runs; it's correct by construction, matching the exact pattern
+already proven live in Product's /search vs /:id). The one thing that has
+NOT changed since Phase 1: there is still no reachable real database, so
+none of this
+has ever been exercised against actual data - every test run gets exactly
+as far as the DB connection attempt and fails there, consistently, across
+all 9 modules. That remains the single blocker on everything below.
+
+--------------------------------------------------------------------------------
+2. LEFT BEHIND / STILL TO FIX (TODO)
+--------------------------------------------------------------------------------
+[BLOCKING - needed before real testing]
+- DATABASE_URL in backend/.env still points to a local placeholder
+  (postgresql://root@localhost:26257/panelscan). Replace with the team's real
+  CockroachDB connection string once received.
+- No Prisma migration has actually been run against a real database yet
+  (prisma/migrations/ folder does not exist). Run `npm run prisma:migrate`
+  (or `npx prisma migrate dev --name init_full_schema`) once DATABASE_URL is
+  real - already attempted once and confirmed to fail cleanly with P1001
+  (connection refused), i.e. the schema itself is not the blocker.
+- seed.ts has not been run against a real database yet either
+  (`npm run prisma:seed`) - same blocker.
+- JWT_SECRET in backend/.env is still the placeholder text from .env.example.
+  Must be replaced with a real random secret (32+ chars) before any real use,
+  and definitely before deploying anywhere shared.
+- Register/login/me and the users endpoints have not been tested end-to-end
+  against a live database yet. Do this as soon as DATABASE_URL is real.
+- backend/.env.test also still points at a local placeholder DB
+  (panelscan_test on localhost:26257). Needs its own dedicated test
+  database (never point it at the same DB as .env - the test suite
+  truncates every table after every single test). Once real, run
+  `npm run test:migrate` then `npm test` to get the first actual pass/fail
+  results across all 135 tests.
+- PAYMONGO_SECRET_KEY / PAYMONGO_WEBHOOK_SECRET are unset in backend/.env
+  (they're optional so the server still boots without them, but
+  POST /api/payments/create will 500 with "Payment provider is not
+  configured" until a real sandbox secret key is added). See section 3C
+  for full PayMongo setup steps.
+- The PayMongo webhook payload shape and signature header format
+  (payment.service.ts's extractReferenceNumber() and
+  verifyPaymongoSignature()) were implemented from documented conventions,
+  not verified against a live PayMongo test webhook event. Send one test
+  event from the PayMongo dashboard once real credentials exist and
+  confirm the payload actually matches before trusting this in production.
+  This now also covers the payment.failed event type added below - same
+  caveat applies to whatever PayMongo's actual failed-payment webhook
+  payload looks like.
+
+[BOOTSTRAPPING]
+- Public registration (POST /api/auth/register) always creates a CUSTOMER.
+  There is currently no way to create the first OWNER account through the
+  API (by design - role can't be self-assigned). RESOLVED via seed.ts, which
+  now creates a default OWNER (owner@panelscan.com / Owner@12345) and
+  MODERATOR (moderator@panelscan.com / Moderator@12345) on first setup, using
+  upsert so it's safe to re-run. Still TODO: change/rotate these default
+  seeded passwords before any shared/production use - they're committed in
+  plaintext in prisma/seed.ts for local dev convenience only.
+- RESOLVED (was: "only User has real endpoints"). Category, Product,
+  Inventory, Cart, Order, Payment, Booking, and Installer all have full
+  controller/service/route layers now - see section 3C. Still no endpoints
+  for: Measurement (AR), Feedback, ChatRoom/Message, Notification, Project
+  (has no dedicated API - a Project row is only ever touched as a side
+  effect of a booking completing, see section 3C's Booking entry), Request,
+  or Delivery - those 7 models exist in the schema (section 3B) but have no
+  API above them yet. That's the remaining Phase 4+ work.
+
+[SECURITY / HARDENING - not done yet, worth doing before production]
+- No rate limiting on /api/auth/register and /api/auth/login (brute-force /
+  spam risk). Consider express-rate-limit.
+- No refresh-token or token-revocation mechanism - JWTs are stateless and
+  only expire by time (JWT_EXPIRES_IN). If a token needs to be invalidated
+  early (e.g. user deactivated mid-session), it still works until it expires.
+- No email verification flow on registration.
+- No forgot-password / reset-password flow.
+- No account lockout after repeated failed login attempts.
+- CORS_ORIGIN is currently a single placeholder value
+  (http://localhost:3000) - update per environment (web dashboard origin,
+  mobile app origin if applicable) as those are built.
+- No rate limiting on POST /api/payments/webhook either. Low risk today
+  (unrecognized events are just ignored, and a bad signature is rejected
+  before any DB work), but still worth adding if this endpoint's URL ever
+  leaks/gets scanned.
+
+[ENGINEERING / QUALITY]
+- RESOLVED: automated tests now exist. Vitest + Supertest integration
+  suite, 135 tests across 9 files (auth, category, product, inventory,
+  cart, order, payment, booking, installer) - see section 3D. Still TODO:
+  none of them have ever actually been run against a real database (see
+  the BLOCKING section above), so "135 tests" currently means "135 tests
+  that are correctly discovered and fail only at the DB-connectivity step"
+  - not "135 passing tests." That distinction goes away the moment a real
+  test DB exists.
+- No CI/CD pipeline configured (lint/typecheck/test/build on push) - the
+  test suite exists now, but nothing runs it automatically yet.
+- No structured logging/observability beyond morgan console request logs
+  (no request IDs, no log shipping, no error tracking like Sentry).
+- bcrypt is a native module. It installed cleanly in this environment, but
+  if a teammate hits a build failure on `npm install` (commonly on Windows
+  without VS Build Tools / C++ workload), swap to bcryptjs (same API) in
+  backend/src/utils/password.ts and package.json as a fallback.
+
+[FUTURE PHASES - not started yet]
+Done as of this update: Category, Product, Inventory (Phase 2), Cart,
+Order, Payment/PayMongo (Phase 3.1-3.3), Booking, Installer (Phase 4) -
+see section 3C. Still remaining:
+- AR Measurement module (Measurement model exists, no API yet - this is
+  what the mobile app's AR scanning feature would read/write).
+- Delivery module (Delivery model exists, no API yet - shipment tracking
+  once an order is PROCESSING/SHIPPED).
+- Feedback module (product/order reviews - Feedback model exists, no API
+  yet).
+- Chat / Customer Support module (ChatRoom, ChatParticipant, Message
+  models exist, no API yet).
+- Notification module (Notification model exists, no API yet).
+- Project module (Project Monitoring for Owner, Project Tracking for
+  Moderator - Project model exists and now gets rows written to it as a
+  side effect of booking.service.ts completing a booking, see section 3C,
+  but there is still no dedicated Project API - can't list/view/update a
+  project directly yet).
+- Request Approval module (Request model exists, no API yet - Moderator
+  submits, Owner approves/rejects).
+- Owner-specific aggregate views: Dashboard, Sales Reports, Inventory
+  Assessment, Moderator Management - none of these need new DB models,
+  just new read-only endpoints/queries over what already exists.
+- Frontend apps entirely: React Native + Expo mobile app (TypeScript),
+  web dashboard/e-commerce (framework not chosen yet) - zero frontend
+  code exists at all, backend only so far.
+
+--------------------------------------------------------------------------------
+3. WHAT WE'VE BUILT SO FAR (PHASE 1 - BACKEND FOUNDATION)
+--------------------------------------------------------------------------------
+Location: d:\PanelScan\backend
+
+- Project scaffolding: package.json, strict tsconfig.json, .env.example,
+  .gitignore, README.md (full folder/API/setup/Postman documentation).
+- Prisma schema (prisma/schema.prisma): CockroachDB datasource, User model
+  (id, firstName, lastName, email [unique], password [hashed], phone, role,
+  isActive, createdAt, updatedAt). Later expanded into the full 21-model
+  production schema - see section 3B, that is the current source of truth
+  for the database layer.
+- Config layer:
+    - env.ts: loads and validates all environment variables with Zod at
+      startup, exits the process with a clear message if anything required
+      is missing/invalid.
+    - database.ts: singleton PrismaClient (avoids exhausting DB connections
+      during dev hot-reload).
+- Middleware:
+    - auth.middleware.ts: verifies the JWT from the Authorization header,
+      confirms the user still exists and is active, attaches req.user.
+    - role.middleware.ts: restrictTo(...roles) - role-based access guard.
+    - validate.middleware.ts: validates req.body/params/query against a Zod
+      schema, forwards failures to the error handler.
+    - notFound.middleware.ts: 404 handler for unmatched routes.
+    - error.middleware.ts: single global error handler - formats AppError,
+      Zod validation errors, Prisma known errors (unique constraint /
+      not-found), and JWT errors into one consistent JSON response shape.
+- Auth module (modules/auth):
+    - POST /api/auth/register - Zod-validated, hashes password with bcrypt,
+      always creates the user as CUSTOMER (role cannot be client-supplied),
+      returns { user, token }.
+    - POST /api/auth/login - validates credentials, compares hashed
+      password, returns { user, token }. Rejects deactivated accounts.
+    - GET /api/auth/me - returns the authenticated user's own profile.
+- Users module (modules/users), all routes require a valid JWT:
+    - GET /api/users - list all users (OWNER only).
+    - GET /api/users/:id - get one user (self, OWNER, or MODERATOR).
+    - PATCH /api/users/:id - update firstName/lastName/phone (self or
+      OWNER).
+    - DELETE /api/users/:id - soft-delete via isActive = false
+      (OWNER only).
+- Shared utils: AppError (operational error class with HTTP status code),
+  catchAsync (removes repeated try/catch from every controller), jwt.ts
+  (sign/verify), password.ts (hash/compare via bcrypt), response.ts
+  (standard success response envelope).
+- Shared types: Express Request augmented with req.user, JwtPayload,
+  ApiResponse/ApiErrorResponse contracts.
+- app.ts: Express app wiring - helmet, cors, morgan, JSON body parsing,
+  /health endpoint, /api routes, 404 handler, global error handler.
+- server.ts: starts the HTTP server, graceful shutdown on SIGTERM/SIGINT
+  (disconnects Prisma cleanly), handles unhandled promise rejections.
+- Verified: npm install, prisma generate, tsc --noEmit, tsc build, and a
+  live server boot (health check + a real register request that correctly
+  reached the DB layer) all succeeded.
+- Fixed one real bug during setup: CockroachDB's Prisma provider requires
+  the connection string to use the postgresql:// (or postgres://) protocol,
+  not cockroachdb://, even though the Prisma "provider" itself is set to
+  "cockroachdb". Both .env and .env.example were corrected.
+- Fixed a TypeScript deprecation warning: tsconfig.json's
+  moduleResolution was "Node" (aka the deprecated node10 strategy, flagged
+  by TS 5.9). Switched module/moduleResolution to "NodeNext" - the modern
+  equivalent for a plain CommonJS Node backend, no behavior change since
+  package.json has no "type": "module".
+
+--------------------------------------------------------------------------------
+3B. DATABASE LAYER - FULL SCHEMA (PRISMA + COCKROACHDB)
+--------------------------------------------------------------------------------
+prisma/schema.prisma was expanded from the single User model into the full
+production schema covering all three modules (Owner / Moderator / Customer,
+web + mobile). 21 models, 7 enums total.
+
+Enums: UserRole, OrderStatus, PaymentStatus, BookingStatus, ProjectStatus,
+NotificationType (all as originally specified), plus RequestType and
+RequestStatus (added - the Request Approval workflow needed a closed set of
+values and free-text would have let typos corrupt an approval flow).
+
+Models, grouped by domain:
+- Catalog: Category, Product, ProductImage, Inventory. Product carries
+  optional width/height/thickness (Decimal) specifically so the AR
+  Measurement / Panel Estimator features can calculate how many panels
+  cover a scanned area. Product has a deletedAt soft-delete column, because
+  OrderItem.product uses onDelete: Restrict (a product that's ever been
+  ordered can never be hard-deleted - discontinue it via deletedAt instead).
+- Cart: Cart (1:1 per customer), CartItem.
+- Orders/Payments/Fulfillment: Order, OrderItem (snapshots productName +
+  unitPrice at purchase time so historical orders stay accurate even if the
+  product is later renamed/repriced), Payment (1:1), Delivery (1:1).
+- Installation: Installer (a managed roster entity, NOT a User/login role -
+  only OWNER/MODERATOR/CUSTOMER are actual login roles), Booking,
+  Measurement (AR scan results: width/height/depth + imageUrl/arDataUrl).
+- Feedback: Feedback (rating + comment, optionally linked to an Order).
+- Communication: ChatRoom, ChatParticipant (explicit join table between User
+  and ChatRoom - not in the original model list, added because "users
+  communicate through chat rooms" (plural) needs a many-to-many, and an
+  explicit join table lets it carry joinedAt/lastReadAt for future unread-
+  message badges), Message, Notification (uses a Json metadata field rather
+  than one nullable FK column per possible notification source).
+- Projects & Approvals: Project (customer + optional owner + optional
+  moderator, all User relations), Request (generic approval workflow -
+  requestedBy/reviewedBy Users, type, status).
+
+Foreign key delete-behavior policy (deliberately not uniform):
+- Restrict on relations that protect financial/historical records: Order ->
+  customer, OrderItem -> product, Category -> Product, Message -> sender,
+  Notification -> user, Project -> customer, Request -> requestedBy.
+- Cascade on purely structural/derived data with no independent value once
+  the parent is gone: Cart, CartItem, ProductImage, Inventory, Order's
+  OrderItems/Payment/Delivery, ChatParticipant, ChatRoom's participants/
+  messages.
+- SetNull on optional relations where the child record should survive even
+  if the referenced record goes away: Booking -> installer, Feedback ->
+  order, Project -> owner/moderator, Request -> reviewedBy.
+
+prisma/seed.ts (idempotent - uses upsert throughout, safe to re-run):
+  - 1 OWNER (owner@panelscan.com / Owner@12345)
+  - 1 MODERATOR (moderator@panelscan.com / Moderator@12345)
+  - 5 categories (Wall/Ceiling/Flooring/Partition/Cladding Panels)
+  - 10 sample products (2 per category, realistic panel dimensions/prices)
+  - Inventory record for every seeded product
+Wired into package.json via "prisma": { "seed": "tsx prisma/seed.ts" } plus
+an "npm run prisma:seed" convenience script, so `prisma db seed` and
+`prisma migrate reset` both pick it up automatically.
+
+--------------------------------------------------------------------------------
+3C. API MODULES BUILT (PHASE 2 + PHASE 3)
+--------------------------------------------------------------------------------
+All follow the same layering as Phase 1 (routes -> controller -> service ->
+Prisma), each in its own src/modules/<name>/ folder with its own
+<name>.routes.ts / .controller.ts / .service.ts / .validation.ts (order and
+payment also get a .types.ts, for a shared Prisma `include` shape + derived
+type used by multiple service methods).
+
+Category (public reads, OWNER/MODERATOR writes):
+  GET /api/categories, GET /api/categories/:id (both public - no JWT, since
+  customers browse before logging in), POST/PATCH/DELETE (soft delete via
+  isActive - Category has no deletedAt column) restricted to OWNER/MODERATOR.
+  Auto-slugifies name if slug is omitted (src/utils/slugify.ts, new shared
+  util). Friendly 409 on duplicate name/slug (checked explicitly, not left
+  to the raw Prisma unique-constraint error).
+
+Product (public reads, OWNER/MODERATOR writes):
+  GET /api/products (search/filter/paginate all via one query-driven
+  endpoint) plus dedicated GET /api/products/search, /featured,
+  /category/:categoryId, /:id - all four thin wrappers around one
+  ProductService.getProducts() so the where/pagination/sort logic exists
+  in exactly one place. POST/PATCH/DELETE restricted to OWNER/MODERATOR.
+  Soft delete uses Product.deletedAt (not just isActive) specifically
+  because OrderItem.product is onDelete:Restrict - a product that's ever
+  been ordered can never be hard-deleted. Product images use the existing
+  ProductImage model via nested Prisma create/replace.
+
+Inventory (OWNER/MODERATOR only - no customer-facing routes at all):
+  GET /api/inventory, /low-stock, /:productId, PATCH .../add, /reduce,
+  /reserve, /release. Every mutation runs inside a Prisma $transaction
+  (read-then-conditional-write) so "inventory must never go negative"
+  holds under real concurrency - see the CockroachDB note in section 5.
+
+Cart (CUSTOMER only, self-service - "my cart", never addressed by a cart
+id in the URL):
+  GET /api/cart (auto-creates via upsert if none exists yet),
+  POST /api/cart/items, PATCH /api/cart/items/:productId,
+  DELETE /api/cart/items/:productId, DELETE /api/cart. Rejects
+  inactive/deleted products and quantities exceeding available inventory
+  (quantity - reservedQty) before ever writing a row.
+
+Order (CUSTOMER creates/views own/cancels; MODERATOR+OWNER view
+all/update status):
+  POST /api/orders converts the customer's current cart into an Order,
+  all inside one transaction: re-validate every item's
+  availability/inventory -> create Order + OrderItems (snapshotting
+  productName + unitPrice at that exact moment, so a later product
+  rename/repricing never changes a historical order) -> decrement
+  Inventory.quantity per item -> clear the cart. If any item fails, the
+  whole transaction rolls back - no partial order, no partial stock
+  change. GET /api/orders and /:id are role-scoped (CUSTOMER sees only
+  their own, 404 - not 403 - on someone else's, to avoid confirming it
+  exists). PATCH /:id/cancel (CUSTOMER, PENDING only) and PATCH
+  /:id/status (OWNER/MODERATOR) both restock inventory when the new
+  status is CANCELLED, via one shared restockOrderItems() helper so
+  stock is returned identically no matter who cancelled.
+
+Payment (CUSTOMER creates/views own; MODERATOR+OWNER view all; PayMongo
+integration):
+  POST /api/payments/create - verifies the order exists/belongs to the
+  requester/isn't already paid, then creates a real PayMongo Checkout
+  Session (HTTP call, Basic-Auth with the secret key) and upserts a
+  Payment row (PENDING, amount = order.totalAmount, transactionRef =
+  the checkout session id). GET /api/payments, /:id mirror Order's
+  role-scoping pattern exactly. POST /api/payments/webhook is the one
+  public, no-JWT route in the whole backend - PayMongo calls it directly,
+  authenticity comes from verifying the `Paymongo-Signature` header
+  (HMAC-SHA256) instead of a JWT. On a genuine `payment.paid` event:
+  Payment -> PAID + paidAt set, and if the Order is still PENDING it
+  advances to PROCESSING - both in one transaction, idempotent (a
+  redelivered webhook for an already-PAID payment is a silent no-op).
+  On a `payment.failed` event: Payment -> FAILED (only if it was still
+  PENDING - never downgrades an already-PAID payment on a late/redelivered
+  failure event), Order deliberately left untouched (a failed payment
+  doesn't cancel the order; the customer can retry via
+  POST /api/payments/create, which upserts the same Payment row). Added
+  during the QA test-suite pass specifically because the checklist
+  required testing it and the FAILED state already existed in the schema
+  (PaymentStatus enum) with no code path ever reaching it - a deliberate,
+  narrowly-scoped exception to "don't modify business logic," flagged and
+  confirmed with the user before making it.
+  Two small, deliberate touches outside src/modules/payment/:
+    - src/config/env.ts: 5 new PayMongo env vars, all optional/defaulted
+      (see .env.example) so a missing PayMongo key doesn't block the
+      whole server from booting - only payment creation itself 500s.
+    - src/app.ts: one line, `express.raw()` scoped to exactly
+      /api/payments/webhook, registered before the global
+      express.json() - needed because signature verification requires
+      the exact raw request bytes, which express.json() would otherwise
+      consume and transform before any route handler sees them.
+  IMPORTANT CAVEAT (also in section 2's TODO): the exact PayMongo
+  checkout-session/webhook payload shapes were implemented from
+  documented API conventions, not verified against a live PayMongo test
+  event - flagged as something to double-check once real credentials
+  exist, isolated to one small extraction function
+  (extractReferenceNumber() in payment.service.ts) if anything needs
+  adjusting.
+
+Booking (Phase 4 - installation workflow: PENDING -> APPROVED -> SCHEDULED
+-> COMPLETED, or CANCELLED):
+  POST /api/bookings (CUSTOMER creates their own, always PENDING).
+  GET /api/bookings (CUSTOMER's own only) is a SEPARATE route from
+  GET /api/bookings/all (MODERATOR+OWNER, every booking) - unlike every
+  other module here, this one uses two distinct URLs instead of one
+  role-aware endpoint, because that's what this module's spec explicitly
+  asked for. GET /api/bookings/:id is ownership-checked for CUSTOMER (404
+  on someone else's), open to MODERATOR/OWNER. PATCH /:id/cancel
+  (CUSTOMER, PENDING only). PATCH /:id/status (MODERATOR only - see below)
+  walks a fixed transition graph: PENDING->APPROVED, SCHEDULED->COMPLETED,
+  and CANCELLED from any non-terminal state; APPROVED->SCHEDULED is
+  deliberately NOT reachable through this endpoint (400 with a pointer to
+  assign-installer instead) since a "scheduled" booking with no installer
+  wouldn't make sense. PATCH /:id/assign-installer (MODERATOR only)
+  requires the booking to be APPROVED and the installer to exist and be
+  isActive, then sets installerId and flips status to SCHEDULED, both
+  atomically.
+  Authorization note - OWNER is READ-ONLY here, unlike every other module
+  in this backend: this module's spec explicitly lists OWNER's capability
+  as "monitor bookings/projects" only, separately from MODERATOR's broader
+  "view all bookings, update booking status, assign installers, manage
+  installers." So OWNER gets GET /api/bookings/all but 403s on
+  status-update/assign-installer, which is the opposite of how OWNER was
+  treated as a strict superset of MODERATOR in every earlier module
+  (Category/Product/Inventory/Order all give OWNER the same write access
+  as MODERATOR). Followed the explicit spec here rather than forcing
+  cross-module consistency.
+  Project connection: when a booking's status becomes COMPLETED,
+  booking.service.ts's syncProjectOnBookingCompleted() either updates the
+  customer's existing IN_PROGRESS Project to COMPLETED, or creates a new
+  one directly as COMPLETED if none exists. KNOWN LIMITATION: the schema
+  has no direct Booking<->Project foreign key (Project only carries
+  customerId/ownerId/moderatorId), so this correlates purely by
+  customerId - a customer with two simultaneous IN_PROGRESS projects would
+  be ambiguous. No schema change was made for this (out of scope for this
+  phase, and the module's own instructions said to use existing models
+  without creating duplicates) - flagged here rather than silently
+  accepted.
+
+Installer (Phase 4, MODERATOR-only across every endpoint - same reasoning
+as the Booking authorization note above, "manage installers" is listed
+only under MODERATOR):
+  POST /api/installers, GET /api/installers (active-only - isActive:false
+  installers are filtered out of the list, though still directly fetchable
+  by id), GET /api/installers/:id, PATCH /api/installers/:id (name/phone/
+  specialty/isActive), PATCH /api/installers/:id/deactivate (isActive:
+  false - the same effect as PATCH .../isActive:false but a dedicated,
+  more discoverable action). Installer is a managed roster entity, not a
+  User/login role - installers don't authenticate into this system.
+
+--------------------------------------------------------------------------------
+3D. TESTING INFRASTRUCTURE (VITEST + SUPERTEST)
+--------------------------------------------------------------------------------
+135 integration tests across 9 files: tests/auth/, tests/category/,
+tests/product/, tests/inventory/, tests/cart/, tests/order/,
+tests/payment/, tests/booking/, tests/installer/. All correctly discovered
+by Vitest and all fail only at the same DB-connectivity step (see section
+1) - never actually run
+against real data yet.
+
+Setup:
+  - Vitest (not Jest - better native TS/NodeNext support for this
+    project) + Supertest, wrapping the real `app` export from src/app.ts
+    directly (no server.listen(), no port).
+  - Separate .env.test (gitignored, .env.test.example committed as the
+    template), loaded via the `dotenv-cli` package at the npm-script
+    level (`dotenv -e .env.test -- vitest run`) so process.env is
+    correct before src/config/env.ts's own dotenv.config() call ever
+    runs - .env itself (dev) is completely untouched by any of this.
+  - vitest.config.ts forces `pool: 'forks', singleFork: true` - every
+    test file shares one CockroachDB test database and a global
+    afterEach cleanup, so parallel workers would let one file's cleanup
+    wipe another file's in-progress fixtures. Deliberately sequential,
+    not an oversight.
+  - tests/setup.ts: beforeAll fails fast with a clear "can't reach the
+    test DB, did you run test:migrate?" message instead of letting 135
+    tests each time out individually; afterEach truncates all 21 models
+    in FK-safe order (tests/helpers/db.ts) for isolation between tests.
+  - tests/helpers/factories.ts: createTestUser/Owner/Moderator/Customer
+    (bypasses register, signs a real JWT with the app's own signToken),
+    createTestCategory/Product (with optional Inventory/deletedAt),
+    createTestCart/addCartItem, createTestOrder(+ items, any status),
+    createTestPayment, createTestBooking(any status, optional installer),
+    createTestInstaller - all direct-Prisma fixture builders so each
+    test file can set up state without depending on other endpoints
+    already working.
+  - Payment tests stub global fetch() (vi.stubGlobal) instead of
+    calling the real PayMongo API - deterministic, no real network/
+    secrets needed. Webhook tests compute a real HMAC signature with
+    the same PAYMONGO_WEBHOOK_SECRET from .env.test, exercising the
+    actual verification code path rather than bypassing it.
+
+Scripts (package.json): npm test (one-shot), npm run test:watch,
+npm run test:coverage, npm run test:migrate (applies migrations to the
+test DB), npm run test:typecheck (strict tsc --noEmit over tests/ + src/
+via tests/tsconfig.json - a separate file, root tsconfig.json was never
+touched).
+
+--------------------------------------------------------------------------------
+4. TECHNOLOGIES USED
+--------------------------------------------------------------------------------
+Backend runtime      : Node.js (TypeScript, strict mode - no `any`, all
+                        async/await)
+Web framework         : Express 4
+Database              : CockroachDB (Postgres wire-compatible, distributed
+                        SQL)
+ORM                   : Prisma 5 (schema-first, typed client, migrations)
+Authentication        : JSON Web Tokens (jsonwebtoken)
+Password hashing      : bcrypt (12 salt rounds)
+Validation            : Zod (schema-based request validation with
+                        transforms, e.g. email lower-casing)
+Security middleware   : Helmet (HTTP security headers), cors
+                        (cross-origin control)
+Logging (dev)         : morgan (HTTP request logging)
+Env loading           : dotenv (+ dotenv-cli for test-only env loading)
+Dev runtime           : tsx (fast TS execution + watch/hot-reload, no
+                        separate ts-node/babel step)
+Compiler              : TypeScript 5 (compiled to CommonJS/ES2022 for
+                        production via `tsc`)
+Testing               : Vitest + Supertest (integration tests against the
+                        real Express app), @vitest/coverage-v8
+Payments              : PayMongo (Checkout Sessions API + signed
+                        webhooks), called via native fetch - no SDK
+                        dependency added
+Planned frontend       : React Native + Expo (mobile), TypeScript (web
+(not built yet)         dashboard framework not chosen yet)
+
+--------------------------------------------------------------------------------
+5. HOW IT WORKS (ARCHITECTURE / REQUEST FLOW)
+--------------------------------------------------------------------------------
+High-level request lifecycle:
+
+  Client request
+    -> app.ts global middleware: helmet (security headers) -> cors
+       -> morgan (logging) -> express.json (body parsing)
+    -> routes/index.ts routes the request to the matching module router
+       under /api (e.g. /api/auth/*, /api/users/*)
+    -> module route file (e.g. auth.routes.ts) applies, per route:
+         - validate(schema)   [Zod - checks/transforms body/params/query]
+         - authenticate        [if the route requires login - verifies the
+                                 JWT and loads req.user]
+         - restrictTo(...roles)[if the route requires specific roles]
+    -> controller (HTTP layer only): reads req, calls the matching service
+       method, sends the response via sendSuccess()
+    -> service (business logic layer): talks to the database via the
+       Prisma client, throws AppError for expected failure cases (e.g.
+       "email already exists" -> 409, "user not found" -> 404)
+    -> if anything throws anywhere in this chain, it is passed to
+       error.middleware.ts (the last middleware registered in app.ts),
+       which inspects the error type and returns one consistent JSON
+       error shape with the right HTTP status code.
+
+Authentication flow:
+  1. User registers (POST /api/auth/register) -> password is hashed with
+     bcrypt before being stored -> a JWT is signed containing
+     { userId, role } and returned alongside the created user.
+  2. User logs in (POST /api/auth/login) -> submitted password is compared
+     against the stored bcrypt hash -> on success, a new JWT is issued.
+  3. For any protected route, the client sends the JWT as
+     `Authorization: Bearer <token>`. The `authenticate` middleware
+     verifies the token's signature and expiry, re-fetches the user from
+     the database (to catch deleted/deactivated accounts even if the old
+     token is still technically valid), and attaches a minimal
+     { id, email, role } object to req.user for downstream handlers.
+  4. Role-restricted routes (e.g. only OWNER can list all users) run
+     `restrictTo(UserRole.OWNER)` after `authenticate`, which simply checks
+     req.user.role against the allowed list and rejects with 403 if it
+     doesn't match.
+
+Why the code is organized this way (clean architecture reasoning):
+  - Each business domain (auth, users, and later inventory/orders/etc.) is
+    a self-contained "module" with its own routes -> controller -> service
+    layering, so new features are added without touching unrelated code.
+  - Controllers only deal with HTTP concerns (reading the request, shaping
+    the response) and never talk to Prisma directly - all data access and
+    business rules live in the service layer, which makes services testable
+    in isolation and reusable outside of an HTTP context if ever needed
+    (e.g. from a background job or CLI script).
+  - Services are injected into controllers via the constructor
+    (e.g. `new AuthController(authService)`), a lightweight form of
+    dependency injection - this keeps controllers decoupled from how a
+    service instance is created, and makes it possible to swap in a mock
+    service for unit tests without changing the controller code.
+  - A single global error handler means every module throws the same
+    AppError type for expected failures instead of each controller
+    formatting its own error responses - this is what "no duplicated code"
+    means in practice here.
+  - Services reach across model boundaries directly via Prisma rather than
+    calling each other's service classes - e.g. order.service.ts writes
+    to Inventory directly when checking out/cancelling, payment.service.ts
+    writes to Order directly when a webhook confirms payment. No
+    service-to-service calls exist anywhere in the codebase; every service
+    only ever imports `prisma`. Keeps the dependency graph flat (nothing
+    to accidentally create a cycle) at the cost of duplicating a small
+    amount of "how do I touch this other model" knowledge across modules.
+  - Every mutation that must never leave data in a half-updated state
+    (Inventory add/reduce/reserve/release, Order checkout/cancel/status,
+    Payment create/webhook) runs inside `prisma.$transaction(...)`, using
+    a read-then-conditional-write pattern rather than raw SQL constraints.
+    This works correctly under real concurrency specifically because
+    CockroachDB uses SERIALIZABLE isolation for every transaction by
+    default (unlike Postgres's default READ COMMITTED) - two concurrent
+    transactions racing over the same row can't both succeed; one gets
+    aborted/retried. This is called out explicitly in each service file's
+    comments since it's a genuine correctness property being relied on,
+    not just defensive-looking boilerplate.
+================================================================================

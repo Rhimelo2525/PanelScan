@@ -1,0 +1,21 @@
+# Editor / AI tool config (not part of the project)
+.qodo/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+dist/
+dist-test/
+coverage/
+*.log
+npm-debug.log*
+
+# Env files - never commit secrets
+.env
+.env.local
+.env.test

@@ -1,0 +1,539 @@
+// PanelScan - Prisma schema
+// Database: CockroachDB
+// AR-powered E-commerce and Project Management System for Disenyo Interior Solution
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "cockroachdb"
+  url      = env("DATABASE_URL")
+}
+
+// ================================================================
+// ENUMS
+// ================================================================
+
+enum UserRole {
+  OWNER
+  MODERATOR
+  CUSTOMER
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  ORDER
+  PAYMENT
+  BOOKING
+  CHAT
+  SYSTEM
+}
+
+// The spec's enum list covers order/payment/booking/project/notification
+// workflows but the Request Approval feature also needs a closed set of
+// values for what is being requested and its review outcome. Modeling
+// these as free-text strings would allow typos and inconsistent values
+// to leak into a business-critical approval workflow, so two small enums
+// are added here for the same reason the other five exist.
+enum RequestType {
+  INVENTORY_RESTOCK
+  REFUND
+  DISCOUNT_APPROVAL
+  PROJECT_BUDGET_CHANGE
+  OTHER
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ================================================================
+// USERS
+// ================================================================
+
+model User {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  email     String   @unique
+  password  String
+  phone     String?
+  role      UserRole @default(CUSTOMER)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Customer-side relations
+  cart               Cart?
+  orders             Order[]
+  bookings           Booking[]
+  measurements       Measurement[]
+  feedbacks          Feedback[]
+  projectsAsCustomer Project[]     @relation("CustomerProjects")
+
+  // Staff-side relations
+  projectsAsOwner     Project[] @relation("OwnerManagedProjects")
+  projectsAsModerator Project[] @relation("ModeratorManagedProjects")
+  requestsSubmitted   Request[] @relation("RequestsSubmitted")
+  requestsReviewed    Request[] @relation("RequestsReviewed")
+
+  // Shared relations
+  chatParticipations ChatParticipant[]
+  messages           Message[]
+  notifications      Notification[]
+
+  @@index([role])
+  @@map("users")
+}
+
+// ================================================================
+// CATALOG: CATEGORY / PRODUCT / PRODUCT IMAGE / INVENTORY
+// ================================================================
+
+model Category {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  imageUrl    String?  @map("image_url")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  products Product[]
+
+  @@index([isActive])
+  @@map("categories")
+}
+
+model Product {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId  String    @map("category_id") @db.Uuid
+  name        String
+  slug        String    @unique
+  description String?
+  sku         String    @unique
+  price       Decimal   @db.Decimal(12, 2)
+  // Panel dimensions, used by the AR Measurement / Panel Estimator features
+  // to calculate how many units of a product are needed for a scanned area.
+  width       Decimal?  @db.Decimal(10, 2)
+  height      Decimal?  @db.Decimal(10, 2)
+  thickness   Decimal?  @db.Decimal(10, 2)
+  unit        String    @default("piece")
+  material    String?
+  isActive    Boolean   @default(true) @map("is_active")
+  isFeatured  Boolean   @default(false) @map("is_featured")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  // Soft delete: OrderItem.product uses onDelete: Restrict, so a product
+  // that has ever been ordered can never be hard-deleted. Discontinuing
+  // it should set deletedAt instead, preserving historical order data.
+  deletedAt   DateTime? @map("deleted_at")
+
+  category   Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images     ProductImage[]
+  inventory  Inventory?
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@index([categoryId])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  url       String
+  altText   String?  @map("alt_text")
+  isPrimary Boolean  @default(false) @map("is_primary")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model Inventory {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId         String    @unique @map("product_id") @db.Uuid
+  quantity          Int       @default(0)
+  reservedQty       Int       @default(0) @map("reserved_qty")
+  reorderLevel      Int       @default(10) @map("reorder_level")
+  warehouseLocation String?   @map("warehouse_location")
+  lastRestockedAt   DateTime? @map("last_restocked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([quantity])
+  @@map("inventory")
+}
+
+// ================================================================
+// CART
+// ================================================================
+
+model Cart {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String   @unique @map("customer_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  customer User       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items    CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cartId    String   @map("cart_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, productId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+// ================================================================
+// ORDERS / PAYMENTS / DELIVERY
+// ================================================================
+
+model Order {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderNumber     String      @unique @map("order_number")
+  customerId      String      @map("customer_id") @db.Uuid
+  status          OrderStatus @default(PENDING)
+  subtotal        Decimal     @db.Decimal(12, 2)
+  shippingFee     Decimal     @default(0) @map("shipping_fee") @db.Decimal(12, 2)
+  totalAmount     Decimal     @map("total_amount") @db.Decimal(12, 2)
+  shippingAddress String      @map("shipping_address")
+  notes           String?
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  // Historical/financial record: a customer can never be hard-deleted
+  // while they have orders on file.
+  customer  User        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items     OrderItem[]
+  payment   Payment?
+  delivery  Delivery?
+  feedbacks Feedback[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  // Snapshotted at purchase time so historical orders stay accurate even
+  // if the product is later renamed, repriced, or discontinued.
+  productName String   @map("product_name")
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(12, 2)
+  quantity    Int
+  lineTotal   Decimal  @map("line_total") @db.Decimal(12, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String        @unique @map("order_id") @db.Uuid
+  status         PaymentStatus @default(PENDING)
+  method         String
+  amount         Decimal       @db.Decimal(12, 2)
+  transactionRef String?       @unique @map("transaction_ref")
+  paidAt         DateTime?     @map("paid_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("payments")
+}
+
+model Delivery {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String    @unique @map("order_id") @db.Uuid
+  courierName    String?   @map("courier_name")
+  trackingNumber String?   @map("tracking_number")
+  address        String
+  scheduledDate  DateTime? @map("scheduled_date")
+  deliveredAt    DateTime? @map("delivered_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("deliveries")
+}
+
+// ================================================================
+// INSTALLERS / BOOKINGS / MEASUREMENTS
+// ================================================================
+
+model Installer {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  email     String?  @unique
+  phone     String
+  specialty String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  bookings Booking[]
+
+  @@index([isActive])
+  @@map("installers")
+}
+
+model Booking {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId    String        @map("customer_id") @db.Uuid
+  installerId   String?       @map("installer_id") @db.Uuid
+  status        BookingStatus @default(PENDING)
+  scheduledDate DateTime      @map("scheduled_date")
+  address       String
+  notes         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  customer  User       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  installer Installer? @relation(fields: [installerId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([installerId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@map("bookings")
+}
+
+model Measurement {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  label      String?
+  width      Decimal  @db.Decimal(10, 2)
+  height     Decimal  @db.Decimal(10, 2)
+  depth      Decimal? @db.Decimal(10, 2)
+  unit       String   @default("m")
+  // Reference photo and raw AR scan/point-cloud data used by the mobile
+  // app's AR Measurement + Panel Estimator features.
+  imageUrl   String?  @map("image_url")
+  arDataUrl  String?  @map("ar_data_url")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("measurements")
+}
+
+// ================================================================
+// FEEDBACK
+// ================================================================
+
+model Feedback {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  orderId    String?  @map("order_id") @db.Uuid
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  customer User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order    Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([orderId])
+  @@map("feedbacks")
+}
+
+// ================================================================
+// CHAT (CUSTOMER SUPPORT)
+// ================================================================
+
+model ChatRoom {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subject   String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  participants ChatParticipant[]
+  messages     Message[]
+
+  @@map("chat_rooms")
+}
+
+// Explicit join table (rather than an implicit Prisma many-to-many)
+// because it also needs to carry per-participant state, such as when
+// they joined and when they last read the conversation (for unread
+// message counts / badges in the UI).
+model ChatParticipant {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatRoomId String    @map("chat_room_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+  lastReadAt DateTime? @map("last_read_at")
+
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatRoomId, userId])
+  @@index([userId])
+  @@map("chat_participants")
+}
+
+model Message {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatRoomId String   @map("chat_room_id") @db.Uuid
+  senderId   String   @map("sender_id") @db.Uuid
+  content    String
+  isRead     Boolean  @default(false) @map("is_read")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  sender   User     @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([chatRoomId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+// ================================================================
+// NOTIFICATIONS
+// ================================================================
+
+model Notification {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false) @map("is_read")
+  // Flexible pointer to the related record (e.g. { "orderId": "..." } or
+  // { "bookingId": "..." }) so Notification doesn't need a nullable FK
+  // column per notification source.
+  metadata  Json?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ================================================================
+// PROJECTS
+// ================================================================
+
+model Project {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // The client the project is being carried out for. Required for
+  // Project Monitoring/Tracking to mean anything in an interior
+  // solutions business.
+  customerId  String        @map("customer_id") @db.Uuid
+  ownerId     String?       @map("owner_id") @db.Uuid
+  moderatorId String?       @map("moderator_id") @db.Uuid
+  name        String
+  description String?
+  status      ProjectStatus @default(PENDING)
+  startDate   DateTime?     @map("start_date")
+  endDate     DateTime?     @map("end_date")
+  budget      Decimal?      @db.Decimal(12, 2)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  customer  User  @relation("CustomerProjects", fields: [customerId], references: [id], onDelete: Restrict)
+  owner     User? @relation("OwnerManagedProjects", fields: [ownerId], references: [id], onDelete: SetNull)
+  moderator User? @relation("ModeratorManagedProjects", fields: [moderatorId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([ownerId])
+  @@index([moderatorId])
+  @@index([status])
+  @@map("projects")
+}
+
+// ================================================================
+// REQUESTS (OWNER REQUEST APPROVAL)
+// ================================================================
+
+model Request {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestedById String        @map("requested_by_id") @db.Uuid
+  reviewedById  String?       @map("reviewed_by_id") @db.Uuid
+  type          RequestType
+  status        RequestStatus @default(PENDING)
+  title         String
+  description   String?
+  reviewNote    String?       @map("review_note")
+  reviewedAt    DateTime?     @map("reviewed_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  requestedBy User  @relation("RequestsSubmitted", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy  User? @relation("RequestsReviewed", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([requestedById])
+  @@index([reviewedById])
+  @@index([status])
+  @@map("requests")
+}
