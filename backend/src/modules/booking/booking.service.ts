@@ -1,6 +1,7 @@
-import { BookingStatus, Prisma, ProjectStatus, UserRole } from '@prisma/client';
+import { BookingStatus, NotificationType, Prisma, ProjectStatus, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
+import { createNotification } from '../notifications/notification.service';
 import { AppError } from '../../utils/AppError';
 import { bookingInclude } from './booking.types';
 import type { BookingFilters, BookingWithRelations, PaginatedBookings } from './booking.types';
@@ -26,7 +27,7 @@ const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
 
 export class BookingService {
   async createBooking(customerId: string, input: CreateBookingInput): Promise<BookingWithRelations> {
-    return prisma.booking.create({
+    const booking = await prisma.booking.create({
       data: {
         customerId,
         scheduledDate: input.scheduledDate,
@@ -36,6 +37,16 @@ export class BookingService {
       },
       include: bookingInclude,
     });
+
+    await createNotification({
+      userId: customerId,
+      type: NotificationType.BOOKING,
+      title: 'Booking created',
+      message: `Your booking for ${booking.address} has been submitted and is pending approval.`,
+      metadata: { bookingId: booking.id },
+    });
+
+    return booking;
   }
 
   /** CUSTOMER's own bookings. */
@@ -91,11 +102,21 @@ export class BookingService {
       throw new AppError('Only pending bookings can be cancelled.', 400);
     }
 
-    return prisma.booking.update({
+    const updated = await prisma.booking.update({
       where: { id: bookingId },
       data: { status: BookingStatus.CANCELLED },
       include: bookingInclude,
     });
+
+    await createNotification({
+      userId: customerId,
+      type: NotificationType.BOOKING,
+      title: 'Booking cancelled',
+      message: `Your booking for ${booking.address} has been cancelled.`,
+      metadata: { bookingId: booking.id, status: BookingStatus.CANCELLED },
+    });
+
+    return updated;
   }
 
   async updateBookingStatus(bookingId: string, actingUserId: string, newStatus: BookingStatus): Promise<BookingWithRelations> {
@@ -114,6 +135,22 @@ export class BookingService {
       }
 
       const updated = await tx.booking.update({ where: { id: bookingId }, data: { status: newStatus } });
+
+      if (newStatus === BookingStatus.APPROVED || newStatus === BookingStatus.CANCELLED) {
+        await createNotification(
+          {
+            userId: booking.customerId,
+            type: NotificationType.BOOKING,
+            title: newStatus === BookingStatus.APPROVED ? 'Booking approved' : 'Booking cancelled',
+            message:
+              newStatus === BookingStatus.APPROVED
+                ? `Your booking for ${booking.address} has been approved.`
+                : `Your booking for ${booking.address} has been cancelled.`,
+            metadata: { bookingId: booking.id, status: newStatus },
+          },
+          tx,
+        );
+      }
 
       if (newStatus === BookingStatus.COMPLETED) {
         await this.syncProjectOnBookingCompleted(tx, updated, actingUserId);
@@ -176,10 +213,24 @@ export class BookingService {
         where: { id: existingProject.id },
         data: { status: ProjectStatus.COMPLETED, endDate: new Date() },
       });
+
+      await createNotification(
+        {
+          // NotificationType has no PROJECT value (only ORDER/PAYMENT/BOOKING/
+          // CHAT/SYSTEM exist) - SYSTEM is the closest fit without a schema
+          // change, disambiguated via metadata.event for API consumers.
+          userId: booking.customerId,
+          type: NotificationType.SYSTEM,
+          title: 'Project updated',
+          message: `Your project "${existingProject.name}" has been completed.`,
+          metadata: { projectId: existingProject.id, event: 'PROJECT_UPDATED' },
+        },
+        tx,
+      );
       return;
     }
 
-    await tx.project.create({
+    const project = await tx.project.create({
       data: {
         customerId: booking.customerId,
         moderatorId,
@@ -189,6 +240,17 @@ export class BookingService {
         endDate: new Date(),
       },
     });
+
+    await createNotification(
+      {
+        userId: booking.customerId,
+        type: NotificationType.SYSTEM,
+        title: 'Project updated',
+        message: `Your project "${project.name}" has been completed.`,
+        metadata: { projectId: project.id, event: 'PROJECT_UPDATED' },
+      },
+      tx,
+    );
   }
 }
 

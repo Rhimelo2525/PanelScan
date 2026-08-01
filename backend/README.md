@@ -180,6 +180,82 @@ All routes require `Authorization: Bearer <token>`.
 - `:id` must be a valid UUID (`400` otherwise).
 - A `CUSTOMER` may only view/update their own record; `OWNER` can act on anyone.
 
+### Chat — `/api/chat`
+
+Customer-support-style conversations between a `CUSTOMER` and staff. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/`      | `CUSTOMER` | Create a new conversation (creator is added as the first participant) |
+| GET    | `/`      | any  | `CUSTOMER`: own conversations only. `MODERATOR`/`OWNER`: every conversation. Supports `?search=`, `?page=`, `?limit=` |
+| GET    | `/:id`   | any  | Conversation details + participants. `CUSTOMER`: own only (`404` otherwise) |
+| POST   | `/:id/messages` | `CUSTOMER`, `MODERATOR` | Send a message. A `MODERATOR` replying to a room they haven't joined yet is auto-added as a participant |
+| GET    | `/:id/messages` | any | Message history. `?sort=desc` (default, newest first) or `?sort=asc`. Viewing marks the other party's unread messages as read |
+| PATCH  | `/messages/:id/read` | `CUSTOMER`, `MODERATOR` | Mark a specific message as read (the recipient only — you cannot mark your own sent message as read) |
+| DELETE | `/messages/:id` | `CUSTOMER`, `MODERATOR` | Delete your own message (hard delete — `Message` has no soft-delete column) |
+| GET    | `/unread/count` | any | Total unread message count across your conversations |
+
+- `OWNER` has read-only access (`GET` routes only) — matches this project's existing `OWNER`-is-read-only-for-support-style-domains policy (see the Booking module). `OWNER` gets `403` on every write route above.
+- A `CUSTOMER` can never reach another customer's conversation or messages — every ownership check returns `404`, not `403`, so a stranger's conversation ID can't be distinguished from one that doesn't exist.
+- `content` for a message: 1–2000 characters after trimming; empty or whitespace-only is rejected with `400`.
+
+**POST `/api/chat`**
+Body: `{ "subject": "Order help" }` (optional)
+
+**POST `/api/chat/:id/messages`**
+Body: `{ "content": "Hello, I need help with my order." }`
+
+### Notifications — `/api/notifications`
+
+Every role (`CUSTOMER`, `MODERATOR`, `OWNER`) only ever sees their own notifications — there is no "view all" mode for this module. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/`      | List your own notifications. Supports `?isRead=true\|false`, `?type=ORDER\|PAYMENT\|BOOKING\|CHAT\|SYSTEM`, `?search=`, `?sort=asc\|desc` (default `desc`), `?page=`, `?limit=` |
+| GET    | `/unread/count` | Your unread notification count |
+| PATCH  | `/:id/read` | Mark a single notification as read |
+| PATCH  | `/read-all` | Mark every one of your unread notifications as read; returns `{ count }` |
+| DELETE | `/:id`   | Delete a notification |
+
+- `:id` must be a valid UUID (`400` otherwise). A notification that exists but belongs to someone else returns `404` (not `403`), so notification IDs can't be enumerated.
+- Notifications are created automatically as a side effect of other modules' actions — there is no endpoint to create one directly:
+
+  | Trigger | Type | Recipient |
+  |---------|------|-----------|
+  | Order placed | `ORDER` | The ordering customer |
+  | Order status changed (including cancel) | `ORDER` | The order's customer |
+  | Payment initiated | `PAYMENT` | The paying customer |
+  | Payment successful (`payment.paid` webhook) | `PAYMENT` | The order's customer |
+  | Booking created | `BOOKING` | The booking's customer |
+  | Booking approved / cancelled | `BOOKING` | The booking's customer |
+  | Booking completed → project synced | `SYSTEM` | The project's customer |
+  | Chat message sent | `CHAT` | Every other participant in the conversation |
+
+  Two notes on scope: `NotificationType` has no dedicated `PROJECT` value (only `ORDER`/`PAYMENT`/`BOOKING`/`CHAT`/`SYSTEM` exist in the schema), so the booking-completion → project-sync notification uses `SYSTEM`, disambiguated via `metadata: { event: "PROJECT_UPDATED" }`. "Request approved/rejected" from the original feature list has no automatic trigger yet — no `Request` module/service exists in this codebase (only the Prisma `Request` model does), so there is nothing to hook a trigger into; this is a known gap, not an oversight.
+
+### Feedback — `/api/feedback`
+
+Customer reviews of their own completed (`DELIVERED`) orders. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/`      | `CUSTOMER` | Submit feedback for your own `DELIVERED` order. One feedback per customer per order. |
+| GET    | `/`      | any  | `CUSTOMER`: own feedback only. `MODERATOR`/`OWNER`: every entry, with search/filter (including by `customerId`). Supports `?rating=1-5`, `?customerId=`, `?orderId=`, `?productId=`, `?dateFrom=YYYY-MM-DD`, `?dateTo=YYYY-MM-DD`, `?search=` (comment text), `?sort=asc\|desc` (default `desc`), `?page=`, `?limit=` |
+| GET    | `/:id`   | any  | Single feedback entry. `CUSTOMER`: own only (`404` otherwise). `MODERATOR`/`OWNER`: any. |
+| PATCH  | `/:id`   | `CUSTOMER` | Update your own feedback's `rating`/`comment`. |
+| DELETE | `/:id`   | `CUSTOMER` | Delete your own feedback. |
+| GET    | `/product/:productId` | any | Every feedback entry left on an order that contained this product — see note below. |
+| GET    | `/order/:orderId` | any | Feedback for a specific order. `CUSTOMER`: own order only (`404` otherwise). `MODERATOR`/`OWNER`: any order. |
+
+- `rating`: integer 1–5. `comment`: optional, 3–1000 characters after trimming if provided.
+- Feedback can only be submitted for an order in `DELIVERED` status (`400` otherwise) that belongs to the requesting customer (`404` on someone else's order, same ID-enumeration-prevention policy as every other module). A second feedback for the same order is rejected with `400`.
+- The `Feedback` model has no `productId` column (only `customerId` and an optional `orderId`), so `GET /api/feedback/product/:productId` is implemented as a join through `Order → OrderItem.productId` rather than a schema change — it returns feedback for every order that contained the given product.
+- Submitting feedback automatically notifies every active `MODERATOR` and `OWNER` via the existing Notification module (`type: SYSTEM`, since `NotificationType` has no dedicated `FEEDBACK` value — same `metadata.event` disambiguation pattern used for the Project-updated notification above; here `event: "FEEDBACK_SUBMITTED"`).
+- "Owner analytics access" is served by the same `GET /api/feedback` endpoint (unrestricted for `OWNER`) rather than a separate analytics endpoint — no aggregate-stats route was in this module's endpoint list.
+
+**POST `/api/feedback`**
+Body: `{ "orderId": "<uuid>", "rating": 5, "comment": "Excellent installation work." }`
+
 ---
 
 ## 4. Environment Variables
@@ -378,6 +454,116 @@ Content-Type: application/json
 ### Deactivate a user (OWNER only)
 ```
 DELETE http://localhost:4000/api/users/<uuid>
+Authorization: Bearer {{token}}
+```
+
+### Chat: create a conversation (CUSTOMER)
+```
+POST http://localhost:4000/api/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "subject": "Order help" }
+```
+Save the returned id as a collection variable (`pm.collectionVariables.set('chatId', pm.response.json().data.conversation.id)`).
+
+### Chat: send a message
+```
+POST http://localhost:4000/api/chat/{{chatId}}/messages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "content": "Hello, I need help with my order." }
+```
+
+### Chat: list conversations (search + pagination)
+```
+GET http://localhost:4000/api/chat?search=order&page=1&limit=10
+Authorization: Bearer {{token}}
+```
+Each entry includes `latestMessage` and `unreadCount` for a conversation-list UI.
+
+### Chat: view messages (newest first by default)
+```
+GET http://localhost:4000/api/chat/{{chatId}}/messages?sort=desc
+Authorization: Bearer {{token}}
+```
+> Viewing marks the other party's unread messages as read — call this as
+> the *other* party (e.g. a moderator token) to see `isRead` flip to `true`.
+
+### Chat: mark a message read / delete your own message
+```
+PATCH http://localhost:4000/api/chat/messages/<messageId>/read
+Authorization: Bearer {{token}}
+
+DELETE http://localhost:4000/api/chat/messages/<messageId>
+Authorization: Bearer {{token}}
+```
+
+### Chat: unread count
+```
+GET http://localhost:4000/api/chat/unread/count
+Authorization: Bearer {{token}}
+```
+
+### Notifications: list (filter + search + pagination)
+```
+GET http://localhost:4000/api/notifications?isRead=false&type=ORDER&search=order&page=1&limit=10
+Authorization: Bearer {{token}}
+```
+
+### Notifications: unread count
+```
+GET http://localhost:4000/api/notifications/unread/count
+Authorization: Bearer {{token}}
+```
+
+### Notifications: mark one read / mark all read / delete
+```
+PATCH http://localhost:4000/api/notifications/<notificationId>/read
+Authorization: Bearer {{token}}
+
+PATCH http://localhost:4000/api/notifications/read-all
+Authorization: Bearer {{token}}
+
+DELETE http://localhost:4000/api/notifications/<notificationId>
+Authorization: Bearer {{token}}
+```
+> Notifications aren't created directly — place an order, pay for it, create/approve/cancel a booking, or send a chat message as the other party, then list notifications for the recipient to see them appear.
+
+### Feedback: submit feedback for a completed order (CUSTOMER)
+```
+POST http://localhost:4000/api/feedback
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "orderId": "<uuid of a DELIVERED order you own>", "rating": 5, "comment": "Excellent installation work." }
+```
+
+### Feedback: list (filter + search + pagination)
+```
+GET http://localhost:4000/api/feedback?rating=5&search=excellent&page=1&limit=10
+Authorization: Bearer {{token}}
+```
+
+### Feedback: update / delete your own feedback
+```
+PATCH http://localhost:4000/api/feedback/<feedbackId>
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "rating": 4, "comment": "Updating my review after a follow-up visit." }
+
+DELETE http://localhost:4000/api/feedback/<feedbackId>
+Authorization: Bearer {{token}}
+```
+
+### Feedback: product reviews / order feedback
+```
+GET http://localhost:4000/api/feedback/product/<productId>
+Authorization: Bearer {{token}}
+
+GET http://localhost:4000/api/feedback/order/<orderId>
 Authorization: Bearer {{token}}
 ```
 

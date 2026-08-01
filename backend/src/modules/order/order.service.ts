@@ -1,6 +1,7 @@
-import { OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
+import { createNotification } from '../notifications/notification.service';
 import { AppError } from '../../utils/AppError';
 import type { CreateOrderInput } from './order.validation';
 import { orderInclude } from './order.types';
@@ -115,6 +116,17 @@ export class OrderService {
 
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
 
+      await createNotification(
+        {
+          userId: customerId,
+          type: NotificationType.ORDER,
+          title: 'Order placed',
+          message: `Your order ${order.orderNumber} has been placed successfully.`,
+          metadata: { orderId: order.id, orderNumber: order.orderNumber },
+        },
+        tx,
+      );
+
       return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
     });
   }
@@ -178,6 +190,17 @@ export class OrderService {
       await restockOrderItems(tx, orderId);
       await tx.order.update({ where: { id: orderId }, data: { status: OrderStatus.CANCELLED } });
 
+      await createNotification(
+        {
+          userId: order.customerId,
+          type: NotificationType.ORDER,
+          title: 'Order status updated',
+          message: `Your order ${order.orderNumber} is now cancelled.`,
+          metadata: { orderId: order.id, orderNumber: order.orderNumber, status: OrderStatus.CANCELLED },
+        },
+        tx,
+      );
+
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
     });
   }
@@ -200,6 +223,17 @@ export class OrderService {
       }
 
       await tx.order.update({ where: { id: orderId }, data: { status } });
+
+      await createNotification(
+        {
+          userId: order.customerId,
+          type: NotificationType.ORDER,
+          title: 'Order status updated',
+          message: `Your order ${order.orderNumber} is now ${status.toLowerCase()}.`,
+          metadata: { orderId: order.id, orderNumber: order.orderNumber, status },
+        },
+        tx,
+      );
 
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
     });

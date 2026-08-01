@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-import { OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
+import { NotificationType, OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
+import { createNotification } from '../notifications/notification.service';
 import { AppError } from '../../utils/AppError';
 import {
   paymentInclude,
@@ -101,6 +102,14 @@ export class PaymentService {
         transactionRef: checkoutSession.id,
       },
       include: paymentInclude,
+    });
+
+    await createNotification({
+      userId: customerId,
+      type: NotificationType.PAYMENT,
+      title: 'Payment initiated',
+      message: `A payment for order ${order.orderNumber} has been initiated.`,
+      metadata: { paymentId: payment.id, orderId: order.id },
     });
 
     return { payment, checkoutUrl: checkoutSession.attributes.checkout_url };
@@ -213,6 +222,19 @@ export class PaymentService {
         const order = await tx.order.findUnique({ where: { id: payment.orderId } });
         if (order && order.status === OrderStatus.PENDING) {
           await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.PROCESSING } });
+        }
+
+        if (order) {
+          await createNotification(
+            {
+              userId: order.customerId,
+              type: NotificationType.PAYMENT,
+              title: 'Payment successful',
+              message: `Your payment for order ${order.orderNumber} was successful.`,
+              metadata: { paymentId: payment.id, orderId: order.id },
+            },
+            tx,
+          );
         }
       });
       return;

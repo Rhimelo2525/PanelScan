@@ -1,7 +1,7 @@
 ================================================================================
 PANELSCAN - PROJECT NOTES
 AR-powered e-commerce and project management system for Disenyo Interior Solution
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -31,13 +31,14 @@ The database layer has since been expanded far beyond the single User model
 - seed.ts (creates 1 OWNER, 1 MODERATOR, 5 categories, 10 products +
   inventory) has not been run for real yet either, for the same reason.
 
-Since then, eight full API modules have been built on top of that schema:
+Since then, nine full API modules have been built on top of that schema:
 Auth, Users (Phase 1), Category, Product, Inventory (Phase 2), Cart, Order,
-Payment (Phase 3 - PayMongo integration), and Booking, Installer (Phase 4 -
-installation workflow). See section 3C for what each one does. A full
-Vitest + Supertest integration test suite now covers all of them: 135 tests
-across 9 test files (auth, category, product, inventory, cart, order,
-payment, booking, installer) - see section 3D. Every module's typecheck/
+Payment (Phase 3 - PayMongo integration), Booking, Installer (Phase 4 -
+installation workflow), and Chat (Phase 5 - customer/staff conversations).
+See section 3C for what each one does. A full Vitest + Supertest
+integration test suite now covers all of them: 166 tests across 10 test
+files (auth, category, product, inventory, cart, order, payment, booking,
+installer, chat) - see section 3D. Every module's typecheck/
 build passes clean and every route has been smoke-tested live against a
 running server (auth guards, validation ordering, route collisions, etc.
 all confirmed correct).
@@ -76,13 +77,37 @@ This is the first point in the project where "the tests pass" and "the
 server works" mean what they say, rather than "wired correctly but never
 actually exercised."
 
+Chat module added right after (still 2026-08-01, same session): no schema
+changes needed (ChatRoom/ChatParticipant/Message already existed from the
+original 21-model schema), so no new migration either. Built with the real
+database already live, so - unlike every module before it - typecheck,
+build, AND the full test suite (166/166, +31 new chat tests) were all run
+for real as part of building it, not left as a follow-up step. Zero test
+failures on the first real run this time (contrast with Order's fixture
+bug above) - see section 3C for what the module does.
+
+Notification module added 2026-08-02: no schema changes (the Notification
+model/NotificationType enum already existed). This module is different
+from every one before it in one respect - its own spec required
+"integrating notification creation into existing services," which is in
+direct tension with this project's usual "don't touch other modules"
+constraint. Resolved by asking the user how to handle the one genuinely
+sharp case (Chat, which had its own extra "do not rewrite" warning beyond
+the general one) before writing any code - user approved a small additive
+call inside chat.service.ts's sendMessage(), the same minimal footprint
+already used for Order/Payment/Booking. See section 3C for the full list
+of what got touched and why. Full suite run for real again: 196/196
+passing (166 previous + 30 new notification tests), zero failures on the
+first real run.
+
 --------------------------------------------------------------------------------
 2. LEFT BEHIND / STILL TO FIX (TODO)
 --------------------------------------------------------------------------------
 [BLOCKING - needed before real testing]
 - RESOLVED 2026-08-01: DATABASE_URL (both .env and .env.test), the first
-  real migration, the real seed run, JWT_SECRET, and the full 135-test
-  suite are all real now - see the MILESTONE note in section 1 and the
+  real migration, the real seed run, JWT_SECRET, and the full test suite
+  (166 tests as of the Chat module) are all real now - see the MILESTONE
+  note in section 1 and the
   full CockroachDB Cloud setup writeup in section 3E. Register/login/me
   and every other endpoint have now been exercised for real via the test
   suite (not manually poked one-by-one, but the tests cover them).
@@ -111,13 +136,25 @@ actually exercised."
   seeded passwords before any shared/production use - they're committed in
   plaintext in prisma/seed.ts for local dev convenience only.
 - RESOLVED (was: "only User has real endpoints"). Category, Product,
-  Inventory, Cart, Order, Payment, Booking, and Installer all have full
-  controller/service/route layers now - see section 3C. Still no endpoints
-  for: Measurement (AR), Feedback, ChatRoom/Message, Notification, Project
+  Inventory, Cart, Order, Payment, Booking, Installer, Chat, and
+  Notification all have full controller/service/route layers now - see
+  section 3C. Still no endpoints for: Measurement (AR), Feedback, Project
   (has no dedicated API - a Project row is only ever touched as a side
   effect of a booking completing, see section 3C's Booking entry), Request,
-  or Delivery - those 7 models exist in the schema (section 3B) but have no
-  API above them yet. That's the remaining Phase 4+ work.
+  or Delivery - those 5 models exist in the schema (section 3B) but have no
+  API above them yet. That's the remaining Phase 5+ work.
+- KNOWN GAP (Notification module, 2026-08-02): "Request approved" /
+  "Request rejected" was in the Notification module's own trigger list,
+  but there is no Request module/service anywhere in this codebase (only
+  the Prisma Request model exists) - nothing exists to hook a trigger
+  into, and building one was explicitly out of scope ("Build ONLY the
+  Notification Module"). Will need wiring once a Request module exists.
+- KNOWN GAP (Notification module, 2026-08-02): NotificationType has no
+  PROJECT value (only ORDER/PAYMENT/BOOKING/CHAT/SYSTEM), so the
+  booking-completion -> project-sync notification uses SYSTEM instead,
+  disambiguated via metadata.event = "PROJECT_UPDATED". No schema change
+  was made for this per "do NOT modify Prisma schema unless absolutely
+  necessary" - flagged here rather than silently decided.
 
 [SECURITY / HARDENING - not done yet, worth doing before production]
 - No rate limiting on /api/auth/register and /api/auth/login (brute-force /
@@ -138,11 +175,13 @@ actually exercised."
 
 [ENGINEERING / QUALITY]
 - RESOLVED: automated tests now exist AND pass for real. Vitest +
-  Supertest integration suite, 135 tests across 9 files (auth, category,
-  product, inventory, cart, order, payment, booking, installer) - see
-  section 3D. Run against the real panelscan_test CockroachDB Cloud
-  database as of 2026-08-01: 135/135 passing (one genuine test-fixture
-  bug was found and fixed on the first real run - see section 3E).
+  Supertest integration suite, 196 tests across 11 files (auth, category,
+  product, inventory, cart, order, payment, booking, installer, chat,
+  notifications) - see section 3D. Run against the real panelscan_test
+  CockroachDB Cloud database: 196/196 passing (one genuine test-fixture
+  bug was found and fixed on the pre-Chat 135-test run - see section 3E;
+  Chat's 31 and Notification's 30 tests both passed clean on their first
+  real run).
 - No CI/CD pipeline configured (lint/typecheck/test/build on push) - the
   test suite exists now, but nothing runs it automatically yet.
 - No structured logging/observability beyond morgan console request logs
@@ -154,17 +193,14 @@ actually exercised."
 
 [FUTURE PHASES - not started yet]
 Done as of this update: Category, Product, Inventory (Phase 2), Cart,
-Order, Payment/PayMongo (Phase 3.1-3.3), Booking, Installer (Phase 4) -
-see section 3C. Still remaining:
+Order, Payment/PayMongo (Phase 3.1-3.3), Booking, Installer (Phase 4),
+Chat, Notification (Phase 5) - see section 3C. Still remaining:
 - AR Measurement module (Measurement model exists, no API yet - this is
   what the mobile app's AR scanning feature would read/write).
 - Delivery module (Delivery model exists, no API yet - shipment tracking
   once an order is PROCESSING/SHIPPED).
 - Feedback module (product/order reviews - Feedback model exists, no API
   yet).
-- Chat / Customer Support module (ChatRoom, ChatParticipant, Message
-  models exist, no API yet).
-- Notification module (Notification model exists, no API yet).
 - Project module (Project Monitoring for Owner, Project Tracking for
   Moderator - Project model exists and now gets rows written to it as a
   side effect of booking.service.ts completing a booking, see section 3C,
@@ -453,15 +489,113 @@ only under MODERATOR):
   more discoverable action). Installer is a managed roster entity, not a
   User/login role - installers don't authenticate into this system.
 
+Chat (Phase 5 - customer/staff conversations; no schema changes needed,
+ChatRoom/ChatParticipant/Message already existed in the original schema):
+  POST /api/chat (CUSTOMER creates their own conversation, becomes its
+  first participant). GET /api/chat - one shared, role-aware endpoint
+  (CUSTOMER: own only; MODERATOR/OWNER: every conversation) with
+  ?search= (matches subject or any participant's name/email) and
+  ?page=/?limit= - this module followed Order/Payment/Cart's single-
+  endpoint pattern, not Booking's separate /all route, since Chat's given
+  endpoint list only specified one GET /api/chat. GET /api/chat/:id
+  (ownership-checked for CUSTOMER, 404 not 403). POST /api/chat/:id/messages
+  (CUSTOMER own room, or MODERATOR any room - a MODERATOR replying to a
+  room they haven't joined auto-adds them as a ChatParticipant via upsert,
+  idempotent so replying repeatedly never creates a duplicate row).
+  GET /api/chat/:id/messages (?sort=desc default/asc, paginated) - viewing
+  a conversation marks the other party's unread messages isRead:true and
+  bumps the viewer's ChatParticipant.lastReadAt, so the unread count
+  actually goes down without the client calling the mark-read endpoint on
+  every message. PATCH /api/chat/messages/:id/read (explicit single-
+  message mark-read, for a client that wants it without fetching full
+  history - rejects marking your own message as read, 400).
+  DELETE /api/chat/messages/:id (sender only, 403 otherwise) - HARD
+  delete, because Message has no soft-delete column (unlike Product's
+  deletedAt or User/Category/Installer's isActive) and adding one was
+  judged out of scope (no schema changes were requested for this module).
+  GET /api/chat/unread/count (total across all your conversations -
+  system-wide for MODERATOR/OWNER, own-conversations-only for CUSTOMER).
+  OWNER is read-only (same policy as Booking): can GET everything, 403s
+  on every write route (create room, send message, mark read, delete).
+  Docs: backend/README.md §3 and §7 got a Chat subsection each, in the
+  same format as the existing Auth/Users sections. Also added
+  backend/postman/PanelScan-Chat.postman_collection.json - the first real
+  importable Postman collection in this project (earlier modules only
+  ever got prose examples in README §7); scoped to Auth (just enough to
+  get a token) + Chat, not a full-API collection yet.
+
+Notification (Phase 5, continued - 2026-08-02; no schema changes, the
+Notification model/NotificationType enum already existed in the original
+21-model schema):
+  GET /api/notifications (own only - every role, CUSTOMER/MODERATOR/OWNER,
+  only ever sees their own notifications; no "view all" mode exists for
+  this module, unlike most others here). Supports ?isRead=true|false,
+  ?type=ORDER|PAYMENT|BOOKING|CHAT|SYSTEM, ?search= (title/message,
+  insensitive contains), ?sort=asc|desc (default desc), ?page=/?limit=.
+  GET /api/notifications/unread/count. PATCH /api/notifications/:id/read
+  and PATCH /api/notifications/read-all (returns { count }).
+  DELETE /api/notifications/:id. All ownership checks return 404 (not
+  403) on someone else's notification, same ID-enumeration-prevention
+  policy as every other module.
+  createNotification() (notification.service.ts) is exported as a
+  standalone function, not a method called through a service class - it
+  takes an optional $transaction client so callers already inside a
+  transaction can write the notification atomically with their own
+  change. This follows the existing "services reach across model
+  boundaries directly via Prisma, never through another service class"
+  architecture (section 5) rather than introducing a new
+  service-to-service coupling pattern just for this module.
+  Automatic triggers, wired as small additive calls (one import + one
+  call, no other logic touched) into the existing services named in this
+  module's own requirements:
+    - order.service.ts: createOrderFromCart (Order placed), cancelOwnOrder
+      and updateOrderStatus (Order status updated, including cancellation).
+    - payment.service.ts: createPayment (Payment initiated), and the
+      payment.paid branch of handleWebhook (Payment successful).
+    - booking.service.ts: createBooking (Booking created),
+      updateBookingStatus for APPROVED/CANCELLED (Booking approved/
+      cancelled), cancelOwnBooking (Booking cancelled), and
+      syncProjectOnBookingCompleted (Project updated - see gap note
+      below).
+    - chat.service.ts: sendMessage, notifying every other participant
+      (never the sender) - see the tension note below, this one required
+      a user decision before touching the file.
+  Tension flagged and resolved before writing any code: this module's own
+  spec requires "Chat message received" as a trigger, which needs some
+  code path inside chat.service.ts - but Chat separately carries its own
+  extra "do NOT rewrite Chat" warning, stricter than the general "do not
+  modify existing modules" rule the other three services share (and which
+  the module's own "integrate into existing services" line already
+  resolves for Order/Payment/Booking). Asked the user directly rather
+  than deciding unilaterally; approved answer: a small additive call
+  inside sendMessage(), same minimal shape as everywhere else - nothing
+  else in chat.service.ts changed.
+  Two scope gaps, both flagged rather than silently worked around (also
+  in section 2's TODO):
+    - NotificationType has no PROJECT value (ORDER/PAYMENT/BOOKING/CHAT/
+      SYSTEM only) - the project-sync notification uses SYSTEM, with
+      metadata.event = "PROJECT_UPDATED" so API consumers can still tell
+      it apart from a generic system notification. No schema change made
+      ("do NOT modify Prisma schema unless absolutely necessary").
+    - "Request approved/rejected" has no automatic trigger at all - no
+      Request module/service exists anywhere in this codebase (only the
+      Prisma Request model does), and building one was out of scope for
+      a task scoped to "Notification Module" only.
+  Docs: backend/README.md §3 and §7 got a Notifications subsection each.
+  Also added backend/postman/PanelScan-Notifications.postman_collection.json
+  - Auth (just enough to get a token) + a Trigger folder (create/approve a
+  booking, to produce a real automatic notification) + the Notifications
+  CRUD folder, same per-module-collection pattern Chat established.
+
 --------------------------------------------------------------------------------
 3D. TESTING INFRASTRUCTURE (VITEST + SUPERTEST)
 --------------------------------------------------------------------------------
-135 integration tests across 9 files: tests/auth/, tests/category/,
+196 integration tests across 11 files: tests/auth/, tests/category/,
 tests/product/, tests/inventory/, tests/cart/, tests/order/,
-tests/payment/, tests/booking/, tests/installer/. All correctly discovered
-by Vitest and all fail only at the same DB-connectivity step (see section
-1) - never actually run
-against real data yet.
+tests/payment/, tests/booking/, tests/installer/, tests/chat/,
+tests/notifications/. Run for real against the live panelscan_test
+CockroachDB Cloud database as of the MILESTONE in section 1 - 196/196
+passing, not just "correctly discovered."
 
 Setup:
   - Vitest (not Jest - better native TS/NodeNext support for this
@@ -478,7 +612,7 @@ Setup:
     wipe another file's in-progress fixtures. Deliberately sequential,
     not an oversight.
   - tests/setup.ts: beforeAll fails fast with a clear "can't reach the
-    test DB, did you run test:migrate?" message instead of letting 135
+    test DB, did you run test:migrate?" message instead of letting 166
     tests each time out individually; afterEach truncates all 21 models
     in FK-safe order (tests/helpers/db.ts) for isolation between tests.
   - tests/helpers/factories.ts: createTestUser/Owner/Moderator/Customer
@@ -486,9 +620,11 @@ Setup:
     createTestCategory/Product (with optional Inventory/deletedAt),
     createTestCart/addCartItem, createTestOrder(+ items, any status),
     createTestPayment, createTestBooking(any status, optional installer),
-    createTestInstaller - all direct-Prisma fixture builders so each
-    test file can set up state without depending on other endpoints
-    already working.
+    createTestInstaller, createTestChatRoom(+ optional participantIds),
+    addChatParticipant, createTestMessage(+ isRead),
+    createTestNotification(+ type/isRead/metadata) - all direct-Prisma
+    fixture builders so each test file can set up state without depending
+    on other endpoints already working.
   - Payment tests stub global fetch() (vi.stubGlobal) instead of
     calling the real PayMongo API - deterministic, no real network/
     secrets needed. Webhook tests compute a real HMAC signature with

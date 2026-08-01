@@ -1,5 +1,20 @@
-import { BookingStatus, OrderStatus, PaymentStatus, UserRole } from '@prisma/client';
-import type { Booking, Cart, CartItem, Category, Installer, Order, Payment, Product, User } from '@prisma/client';
+import { BookingStatus, NotificationType, OrderStatus, PaymentStatus, UserRole } from '@prisma/client';
+import type {
+  Booking,
+  Cart,
+  CartItem,
+  Category,
+  ChatParticipant,
+  ChatRoom,
+  Feedback,
+  Installer,
+  Message,
+  Notification,
+  Order,
+  Payment,
+  Product,
+  User,
+} from '@prisma/client';
 
 import { prisma } from '../../src/config/database';
 import { signToken } from '../../src/utils/jwt';
@@ -254,6 +269,95 @@ export const createTestInstaller = async (options: CreateTestInstallerOptions = 
       phone: options.phone ?? '09171234567',
       specialty: options.specialty,
       isActive: options.isActive ?? true,
+    },
+  });
+};
+
+export interface CreateTestChatRoomOptions {
+  subject?: string;
+  participantIds?: string[];
+}
+
+/**
+ * Creates a ChatRoom directly via Prisma, bypassing POST /api/chat, with an
+ * optional set of initial participants (nested create, one ChatParticipant
+ * row per id).
+ */
+export const createTestChatRoom = async (options: CreateTestChatRoomOptions = {}): Promise<ChatRoom> => {
+  return prisma.chatRoom.create({
+    data: {
+      subject: options.subject,
+      participants: options.participantIds
+        ? { create: options.participantIds.map((userId) => ({ userId })) }
+        : undefined,
+    },
+  });
+};
+
+export const addChatParticipant = async (chatRoomId: string, userId: string): Promise<ChatParticipant> => {
+  return prisma.chatParticipant.upsert({
+    where: { chatRoomId_userId: { chatRoomId, userId } },
+    update: {},
+    create: { chatRoomId, userId },
+  });
+};
+
+export interface CreateTestMessageOptions {
+  chatRoomId: string;
+  senderId: string;
+  content?: string;
+  isRead?: boolean;
+}
+
+export const createTestMessage = async (options: CreateTestMessageOptions): Promise<Message> => {
+  return prisma.message.create({
+    data: {
+      chatRoomId: options.chatRoomId,
+      senderId: options.senderId,
+      content: options.content ?? 'Test message content.',
+      isRead: options.isRead ?? false,
+    },
+  });
+};
+
+export interface CreateTestNotificationOptions {
+  userId: string;
+  type?: NotificationType;
+  title?: string;
+  message?: string;
+  isRead?: boolean;
+  metadata?: object;
+}
+
+/** Creates a Notification directly via Prisma, bypassing the automatic triggers, for testing the CRUD endpoints in isolation. */
+export const createTestNotification = async (options: CreateTestNotificationOptions): Promise<Notification> => {
+  return prisma.notification.create({
+    data: {
+      userId: options.userId,
+      type: options.type ?? NotificationType.SYSTEM,
+      title: options.title ?? 'Test notification',
+      message: options.message ?? 'Test notification message.',
+      isRead: options.isRead ?? false,
+      metadata: options.metadata,
+    },
+  });
+};
+
+export interface CreateTestFeedbackOptions {
+  customerId: string;
+  orderId?: string;
+  rating?: number;
+  comment?: string;
+}
+
+/** Creates a Feedback directly via Prisma, bypassing POST /api/feedback (and its completed-order/duplicate checks), for testing the other endpoints in isolation. */
+export const createTestFeedback = async (options: CreateTestFeedbackOptions): Promise<Feedback> => {
+  return prisma.feedback.create({
+    data: {
+      customerId: options.customerId,
+      orderId: options.orderId,
+      rating: options.rating ?? 5,
+      comment: options.comment ?? 'Great service, very satisfied.',
     },
   });
 };
