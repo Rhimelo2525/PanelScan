@@ -40,42 +40,52 @@ across 9 test files (auth, category, product, inventory, cart, order,
 payment, booking, installer) - see section 3D. Every module's typecheck/
 build passes clean and every route has been smoke-tested live against a
 running server (auth guards, validation ordering, route collisions, etc.
-all confirmed correct - except the /all vs /:id route-ordering distinction
-in booking.routes.ts specifically, which couldn't be fully live-verified
-because `authenticate` itself needs a DB lookup before any route-specific
-logic runs; it's correct by construction, matching the exact pattern
-already proven live in Product's /search vs /:id). The one thing that has
-NOT changed since Phase 1: there is still no reachable real database, so
-none of this
-has ever been exercised against actual data - every test run gets exactly
-as far as the DB connection attempt and fails there, consistently, across
-all 9 modules. That remains the single blocker on everything below.
+all confirmed correct).
+
+*** MILESTONE (2026-08-01): the real-database blocker is resolved. ***
+CockroachDB Cloud credentials were provided (cluster "panelscan", cluster
+host panelscan-17664.jxf.gcp-asia-southeast1.cockroachlabs.cloud) and are
+now live in backend/.env (dev, database `panelscan`) and backend/.env.test
+(database `panelscan_test`). Getting there required working around two
+CockroachDB Cloud-specific quirks - both documented in detail in section
+3E, since they'll bite again on any fresh CockroachDB Cloud cluster:
+  1. New databases in this cluster are provisioned with a default region,
+     which auto-creates an internal `crdb_internal_region` enum that
+     conflicts with `prisma migrate dev`'s auto-created shadow database.
+     Fixed by dropping the region from panelscan/panelscan_test, and by
+     using a dedicated, manually-prepared shadow database
+     (SHADOW_DATABASE_URL) instead of an auto-created one.
+  2. The cluster's `sql.defaults.create_table_with_schema_locked` setting
+     defaults to true, which blocks adding indexes/constraints right after
+     table creation. Fixed by setting it to false at the cluster level.
+Result, all verified for real (not just "wired correctly" - actually run):
+  - `npx prisma migrate dev` (well, the non-interactive equivalent - see
+    3E) created and applied the first real migration,
+    20260801130000_init_full_schema, now committed under prisma/migrations/.
+  - `npx prisma db seed` populated the real dev database (1 OWNER, 1
+    MODERATOR, 5 categories, 10 products, inventory for each) - confirmed
+    with a live query afterward.
+  - `npm test` ran all 135 tests against the real panelscan_test database:
+    134 passed, 1 failed on the first run. The failure was a genuine test
+    fixture bug (see section 3E) surfaced for the first time now that
+    tests actually execute instead of failing at the connectivity check -
+    fixed, and the full suite now passes 135/135 for real.
+  - `npm run build` and `npm run dev` both verified against the live DB
+    (GET /api/categories returned the real seeded categories).
+This is the first point in the project where "the tests pass" and "the
+server works" mean what they say, rather than "wired correctly but never
+actually exercised."
 
 --------------------------------------------------------------------------------
 2. LEFT BEHIND / STILL TO FIX (TODO)
 --------------------------------------------------------------------------------
 [BLOCKING - needed before real testing]
-- DATABASE_URL in backend/.env still points to a local placeholder
-  (postgresql://root@localhost:26257/panelscan). Replace with the team's real
-  CockroachDB connection string once received.
-- No Prisma migration has actually been run against a real database yet
-  (prisma/migrations/ folder does not exist). Run `npm run prisma:migrate`
-  (or `npx prisma migrate dev --name init_full_schema`) once DATABASE_URL is
-  real - already attempted once and confirmed to fail cleanly with P1001
-  (connection refused), i.e. the schema itself is not the blocker.
-- seed.ts has not been run against a real database yet either
-  (`npm run prisma:seed`) - same blocker.
-- JWT_SECRET in backend/.env is still the placeholder text from .env.example.
-  Must be replaced with a real random secret (32+ chars) before any real use,
-  and definitely before deploying anywhere shared.
-- Register/login/me and the users endpoints have not been tested end-to-end
-  against a live database yet. Do this as soon as DATABASE_URL is real.
-- backend/.env.test also still points at a local placeholder DB
-  (panelscan_test on localhost:26257). Needs its own dedicated test
-  database (never point it at the same DB as .env - the test suite
-  truncates every table after every single test). Once real, run
-  `npm run test:migrate` then `npm test` to get the first actual pass/fail
-  results across all 135 tests.
+- RESOLVED 2026-08-01: DATABASE_URL (both .env and .env.test), the first
+  real migration, the real seed run, JWT_SECRET, and the full 135-test
+  suite are all real now - see the MILESTONE note in section 1 and the
+  full CockroachDB Cloud setup writeup in section 3E. Register/login/me
+  and every other endpoint have now been exercised for real via the test
+  suite (not manually poked one-by-one, but the tests cover them).
 - PAYMONGO_SECRET_KEY / PAYMONGO_WEBHOOK_SECRET are unset in backend/.env
   (they're optional so the server still boots without them, but
   POST /api/payments/create will 500 with "Payment provider is not
@@ -127,14 +137,12 @@ all 9 modules. That remains the single blocker on everything below.
   leaks/gets scanned.
 
 [ENGINEERING / QUALITY]
-- RESOLVED: automated tests now exist. Vitest + Supertest integration
-  suite, 135 tests across 9 files (auth, category, product, inventory,
-  cart, order, payment, booking, installer) - see section 3D. Still TODO:
-  none of them have ever actually been run against a real database (see
-  the BLOCKING section above), so "135 tests" currently means "135 tests
-  that are correctly discovered and fail only at the DB-connectivity step"
-  - not "135 passing tests." That distinction goes away the moment a real
-  test DB exists.
+- RESOLVED: automated tests now exist AND pass for real. Vitest +
+  Supertest integration suite, 135 tests across 9 files (auth, category,
+  product, inventory, cart, order, payment, booking, installer) - see
+  section 3D. Run against the real panelscan_test CockroachDB Cloud
+  database as of 2026-08-01: 135/135 passing (one genuine test-fixture
+  bug was found and fixed on the first real run - see section 3E).
 - No CI/CD pipeline configured (lint/typecheck/test/build on push) - the
   test suite exists now, but nothing runs it automatically yet.
 - No structured logging/observability beyond morgan console request logs
@@ -492,6 +500,86 @@ npm run test:coverage, npm run test:migrate (applies migrations to the
 test DB), npm run test:typecheck (strict tsc --noEmit over tests/ + src/
 via tests/tsconfig.json - a separate file, root tsconfig.json was never
 touched).
+
+--------------------------------------------------------------------------------
+3E. GOING LIVE: COCKROACHDB CLOUD SETUP (2026-08-01)
+--------------------------------------------------------------------------------
+Cluster: "panelscan" on CockroachDB Cloud, host
+panelscan-17664.jxf.gcp-asia-southeast1.cockroachlabs.cloud:26257, SQL user
+"rhimelo". Two databases created for this project: `panelscan` (dev,
+backend/.env) and `panelscan_test` (backend/.env.test) - deliberately
+separate, since the test suite truncates all 21 tables after every single
+test and must never touch real data.
+
+Two CockroachDB Cloud-specific problems had to be worked around to get
+migrations running. Both will recur on any fresh CockroachDB Cloud
+cluster, so this is written up in full rather than just "it works now":
+
+1. Multi-region shadow database conflict (error P3006 / P3018:
+   `"crdb_internal_region" is a multi-region enum and cannot be modified
+   directly`). CockroachDB Cloud provisions new databases with a default
+   region/survival-goal, which auto-creates an internal
+   `crdb_internal_region` enum type. `prisma migrate dev` normally
+   auto-creates a temporary shadow database to validate a migration before
+   applying it - that auto-created shadow database inherits the same
+   cluster default, so Prisma's own migration SQL (which doesn't know
+   about this CockroachDB-specific type) conflicts with it. There is no
+   way to intercept Prisma's auto-created shadow database mid-creation to
+   fix it.
+   Fix, in order:
+     a. `ALTER DATABASE panelscan DROP REGION "gcp-asia-southeast1";`
+        (and the same for panelscan_test) - removes the region config and
+        the internal enum from the real databases.
+     b. Created a third, permanent, manually-prepared database
+        `panelscan_shadow`, immediately ran the same DROP REGION on it,
+        and pointed schema.prisma's new `shadowDatabaseUrl` datasource
+        field at it (via a new SHADOW_DATABASE_URL env var) instead of
+        letting Prisma auto-create one. This is a standard, Prisma-
+        documented pattern for cloud databases where the auto-shadow-db
+        lifecycle doesn't have the right defaults/permissions.
+     c. `SHADOW_DATABASE_URL` is CLI-time only - the running Express app
+        never reads it, so it was NOT added to src/config/env.ts's
+        runtime validation, only to backend/.env.
+
+2. Schema-locked tables blocking index creation (CockroachDB v26.2+):
+   `ERROR: this schema change is disallowed because table "users" is
+   locked`. New tables are created with `schema_locked = true` by default
+   (a changefeed-performance optimization), which then blocks adding
+   indexes/constraints in the same or a later schema-change batch.
+   Fix: `SET CLUSTER SETTING sql.defaults.create_table_with_schema_locked
+   = false;` (cluster-wide, applies to both panelscan and panelscan_test
+   automatically), plus manually unlocking the handful of tables that had
+   already been created locked before the setting was flipped
+   (`ALTER TABLE <name> SET (schema_locked = false);`).
+
+Because `prisma migrate dev` needs an interactive terminal to confirm a
+brand-new migration (not available when run through an automated shell),
+the first real migration was created via the non-interactive equivalent:
+`prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma
+--script` (pure schema-to-schema diff, no database involved) written
+directly into prisma/migrations/20260801130000_init_full_schema/, applied
+to the real dev database with `prisma db push --accept-data-loss` (safe -
+the tables were brand new and empty; "data loss" here just meant "adding a
+unique constraint," not deleting anything), then reconciled with
+`prisma migrate resolve --applied` so migration history matches reality.
+The test database got the same migration the normal way -
+`prisma migrate deploy` (via npm run test:migrate) - since `deploy` never
+uses a shadow database and isn't interactive.
+
+One genuine bug surfaced on the very first real test run (134/135 passed,
+1 failed) - not a service bug, a test-fixture bug: order.test.ts's
+"lets a CUSTOMER cancel their own PENDING order, restocking inventory"
+test seeded a product with quantity 10 and an order for 4 of it via
+createTestOrder (which writes Order/OrderItem rows directly via Prisma,
+unlike a real checkout, it never decrements Inventory), then expected
+cancellation's restock (+4) to bring quantity back to 10. Since the
+fixture never actually reduced inventory in the first place, the real
+result was 10 + 4 = 14, not 10. Fixed by seeding the product's quantity
+already reduced by the order amount (6, i.e. what a real post-checkout
+state would look like), so restocking correctly returns it to 10. This
+is exactly the kind of bug that can only ever be caught by running tests
+against a real database - it was invisible for the entire time every test
+run failed at the connectivity check instead of reaching real assertions.
 
 --------------------------------------------------------------------------------
 4. TECHNOLOGIES USED

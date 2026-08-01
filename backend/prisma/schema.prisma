@@ -7,8 +7,17 @@ generator client {
 }
 
 datasource db {
-  provider = "cockroachdb"
-  url      = env("DATABASE_URL")
+  provider          = "cockroachdb"
+  url               = env("DATABASE_URL")
+  // CockroachDB Cloud provisions new databases with a default region
+  // (survival goal), which auto-creates an internal `crdb_internal_region`
+  // enum. `prisma migrate dev`'s auto-created shadow database inherits the
+  // same default and conflicts with it (P3006: "crdb_internal_region is a
+  // multi-region enum and cannot be modified directly"). Using a dedicated,
+  // manually-prepared shadow database (region dropped once, see
+  // PROJECT_NOTES.txt) instead of letting Prisma auto-create one avoids
+  // this entirely.
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 // ================================================================

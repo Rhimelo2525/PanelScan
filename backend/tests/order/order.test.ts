@@ -389,7 +389,12 @@ describe('Order module', () => {
   describe('Cancellation', () => {
     it('lets a CUSTOMER cancel their own PENDING order, restocking inventory', async () => {
       const customer = await createCustomer();
-      const product = await createTestProduct({ withInventory: true, quantity: 10 });
+      // createTestOrder seeds Order/OrderItem rows directly via Prisma - unlike
+      // a real checkout, it never decrements Inventory. So the product here is
+      // seeded already reduced by the order's quantity (10 original - 4 for
+      // this order = 6 on hand), accurately representing what the database
+      // would actually look like for a real PENDING order with items reserved.
+      const product = await createTestProduct({ withInventory: true, quantity: 6 });
       const order = await createTestOrder({
         customerId: customer.user.id,
         status: OrderStatus.PENDING,
