@@ -1,0 +1,189 @@
+{
+  "info": {
+    "name": "PanelScan API — Analytics Dashboard Module",
+    "description": "Scoped to what's needed to exercise the Analytics module end to end: a minimal Auth folder (login an owner and a moderator - customers have no access to this module at all), and the full Analytics folder covering all 5 read-only reporting endpoints. Note the OWNER and MODERATOR requests hit the exact same URLs - the difference is in the response shape (MODERATOR responses omit financial fields), not the route. Follows the same per-module-collection pattern as PanelScan-Chat / PanelScan-Notifications / PanelScan-Feedback / PanelScan-Projects / PanelScan-Requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "moderatorToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Login (owner) - requires the seeded OWNER account (or one promoted via Prisma Studio)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@panelscan.com\",\n  \"password\": \"Owner@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('ownerToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (moderator) - requires a MODERATOR account already promoted via Prisma Studio or seeded",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Analytics - OWNER (full access)",
+      "item": [
+        {
+          "name": "Dashboard snapshot",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/analytics/dashboard", "host": ["{{baseUrl}}"], "path": ["analytics", "dashboard"] }
+          }
+        },
+        {
+          "name": "Sales (date range)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/sales?dateFrom=2027-01-01&dateTo=2027-01-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "sales"],
+              "query": [
+                { "key": "dateFrom", "value": "2027-01-01" },
+                { "key": "dateTo", "value": "2027-01-31" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Top-selling products (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/products?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Customers (top spenders, paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/customers?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "customers"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Projects (moderator workload, paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/analytics/projects?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "projects"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics - MODERATOR (operational statistics only)",
+      "item": [
+        {
+          "name": "Dashboard snapshot - compare to the OWNER response, no totalRevenue/averageOrderValue",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/analytics/dashboard", "host": ["{{baseUrl}}"], "path": ["analytics", "dashboard"] }
+          }
+        },
+        {
+          "name": "Sales - no revenue fields, order counts only",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/analytics/sales", "host": ["{{baseUrl}}"], "path": ["analytics", "sales"] }
+          }
+        },
+        {
+          "name": "Products - units sold only, no per-product revenue or inventory value",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/analytics/products", "host": ["{{baseUrl}}"], "path": ["analytics", "products"] }
+          }
+        },
+        {
+          "name": "Customers - counts only, no topCustomers list",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/analytics/customers", "host": ["{{baseUrl}}"], "path": ["analytics", "customers"] }
+          }
+        },
+        {
+          "name": "Projects - status/workload only, no budget fields",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/analytics/projects", "host": ["{{baseUrl}}"], "path": ["analytics", "projects"] }
+          }
+        }
+      ]
+    }
+  ]
+}

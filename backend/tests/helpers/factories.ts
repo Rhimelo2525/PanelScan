@@ -1,4 +1,4 @@
-import { BookingStatus, NotificationType, OrderStatus, PaymentStatus, UserRole } from '@prisma/client';
+import { BookingStatus, NotificationType, OrderStatus, PaymentStatus, ProjectStatus, RequestStatus, RequestType, UserRole } from '@prisma/client';
 import type {
   Booking,
   Cart,
@@ -8,11 +8,14 @@ import type {
   ChatRoom,
   Feedback,
   Installer,
+  Measurement,
   Message,
   Notification,
   Order,
   Payment,
   Product,
+  Project,
+  Request as RequestModel,
   User,
 } from '@prisma/client';
 
@@ -109,6 +112,8 @@ export interface CreateTestProductOptions {
   quantity?: number;
   reservedQty?: number;
   reorderLevel?: number;
+  width?: number;
+  height?: number;
 }
 
 export const createTestProduct = async (options: CreateTestProductOptions = {}): Promise<Product> => {
@@ -127,6 +132,8 @@ export const createTestProduct = async (options: CreateTestProductOptions = {}):
       isFeatured: options.isFeatured ?? false,
       isActive: options.isActive ?? true,
       deletedAt: options.deletedAt,
+      width: options.width,
+      height: options.height,
     },
   });
 
@@ -208,12 +215,17 @@ export interface CreateTestPaymentOptions {
   status?: PaymentStatus;
   amount?: number;
   transactionRef?: string;
+  paidAt?: Date;
 }
 
 /**
  * Creates a Payment directly via Prisma, bypassing POST /api/payments/create
  * (which calls out to PayMongo). Used to seed a pre-existing payment for
  * "already paid" validation tests and as the target row for webhook tests.
+ * `paidAt` defaults to "now" when status is PAID and no explicit value is
+ * given (mirroring what a real webhook-confirmed payment looks like), so
+ * analytics tests can rely on PAID payments always having a paidAt without
+ * every call site needing to set it manually.
  */
 export const createTestPayment = async (options: CreateTestPaymentOptions): Promise<Payment> => {
   return prisma.payment.create({
@@ -223,6 +235,7 @@ export const createTestPayment = async (options: CreateTestPaymentOptions): Prom
       method: 'PayMongo',
       amount: options.amount ?? 100,
       transactionRef: options.transactionRef,
+      paidAt: options.paidAt ?? (options.status === PaymentStatus.PAID ? new Date() : undefined),
     },
   });
 };
@@ -358,6 +371,91 @@ export const createTestFeedback = async (options: CreateTestFeedbackOptions): Pr
       orderId: options.orderId,
       rating: options.rating ?? 5,
       comment: options.comment ?? 'Great service, very satisfied.',
+    },
+  });
+};
+
+export interface CreateTestProjectOptions {
+  customerId: string;
+  ownerId?: string;
+  moderatorId?: string;
+  name?: string;
+  description?: string;
+  notes?: string;
+  status?: ProjectStatus;
+  budget?: number;
+  startDate?: Date;
+  endDate?: Date;
+}
+
+/** Creates a Project directly via Prisma, bypassing POST /api/projects (and its assignment-rule checks), for testing the other endpoints in isolation. */
+export const createTestProject = async (options: CreateTestProjectOptions): Promise<Project> => {
+  return prisma.project.create({
+    data: {
+      customerId: options.customerId,
+      ownerId: options.ownerId,
+      moderatorId: options.moderatorId,
+      name: options.name ?? 'Test Project',
+      description: options.description,
+      notes: options.notes,
+      status: options.status ?? ProjectStatus.PENDING,
+      budget: options.budget,
+      startDate: options.startDate,
+      endDate: options.endDate,
+    },
+  });
+};
+
+export interface CreateTestRequestOptions {
+  requestedById: string;
+  reviewedById?: string;
+  type?: RequestType;
+  status?: RequestStatus;
+  title?: string;
+  description?: string;
+  reviewNote?: string;
+  reviewedAt?: Date;
+}
+
+/** Creates a Request directly via Prisma, bypassing POST /api/requests (and its workflow checks), for testing the other endpoints in isolation. */
+export const createTestRequest = async (options: CreateTestRequestOptions): Promise<RequestModel> => {
+  return prisma.request.create({
+    data: {
+      requestedById: options.requestedById,
+      reviewedById: options.reviewedById,
+      type: options.type ?? RequestType.OTHER,
+      status: options.status ?? RequestStatus.PENDING,
+      title: options.title ?? 'Test Request',
+      description: options.description,
+      reviewNote: options.reviewNote,
+      reviewedAt: options.reviewedAt,
+    },
+  });
+};
+
+export interface CreateTestMeasurementOptions {
+  customerId: string;
+  label?: string;
+  width?: number;
+  height?: number;
+  depth?: number;
+  unit?: string;
+  imageUrl?: string;
+  arDataUrl?: string;
+}
+
+/** Creates a Measurement directly via Prisma, bypassing POST /api/ar/measurements, for testing the other endpoints in isolation. */
+export const createTestMeasurement = async (options: CreateTestMeasurementOptions): Promise<Measurement> => {
+  return prisma.measurement.create({
+    data: {
+      customerId: options.customerId,
+      label: options.label,
+      width: options.width ?? 3,
+      height: options.height ?? 2.5,
+      depth: options.depth,
+      unit: options.unit ?? 'm',
+      imageUrl: options.imageUrl,
+      arDataUrl: options.arDataUrl,
     },
   });
 };

@@ -256,6 +256,308 @@ Customer reviews of their own completed (`DELIVERED`) orders. All routes require
 **POST `/api/feedback`**
 Body: `{ "orderId": "<uuid>", "rating": 5, "comment": "Excellent installation work." }`
 
+### Projects — `/api/projects`
+
+Interior design projects: created by `OWNER`, assigned to a `MODERATOR`, monitored by their `CUSTOMER`. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/`      | `OWNER` | Create a project for a customer. Creator becomes the project's `owner`. Optionally assigns a `moderatorId` at creation. |
+| GET    | `/`      | any  | `OWNER`: every project. `MODERATOR`: assigned projects only. `CUSTOMER`: own projects only. Supports `?status=`, `?customerId=`, `?moderatorId=`, `?ownerId=`, `?dateFrom=YYYY-MM-DD`, `?dateTo=YYYY-MM-DD` (filters `createdAt`), `?search=` (project name), `?sortBy=name\|createdAt\|startDate\|endDate` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`, `?limit=` |
+| GET    | `/:id`   | any  | Single project. `OWNER`: any. `MODERATOR`: only if assigned (`404` otherwise). `CUSTOMER`: only their own (`404` otherwise). |
+| PATCH  | `/:id`   | `OWNER`, `MODERATOR` | `OWNER`: update `name`/`description`/`budget`/`startDate`/`endDate`/`notes`. `MODERATOR` (assigned project only): `startDate`/`endDate`/`notes` only — `name`/`description`/`budget` return `403`. `CUSTOMER` cannot call this route at all (`403`). |
+| PATCH  | `/:id/status` | `OWNER`, `MODERATOR` | Change project status along the allowed workflow (see below). `MODERATOR` limited to their assigned project. |
+| PATCH  | `/:id/assign` | `OWNER` | Reassign any combination of `customerId`/`moderatorId`/`ownerId` in one call. |
+| DELETE | `/:id`   | `OWNER` | Delete a project (hard delete — no soft-delete column, and nothing else references a project via foreign key). |
+
+**Status workflow** (`ProjectStatus`): `PENDING → IN_PROGRESS → COMPLETED`, with `CANCELLED` reachable from `PENDING` or `IN_PROGRESS`. `COMPLETED` and `CANCELLED` are both terminal — `COMPLETED → PENDING`, `COMPLETED → IN_PROGRESS`, and `CANCELLED → IN_PROGRESS` all return `400`.
+
+**Assignment rules** (enforced on both `POST /` and `PATCH /:id/assign`):
+- `customerId`: must exist and have the `CUSTOMER` role.
+- `moderatorId`: must exist, have the `MODERATOR` role, and be `isActive`.
+- `ownerId`: must exist and have the `OWNER` role.
+- Any violation returns `404` (user doesn't exist) or `400` (wrong role / inactive moderator).
+
+- `name`: 3–150 characters. `description`/`notes`: optional, up to 2000 characters each. `budget`: optional, must be greater than 0. `endDate` cannot be before `startDate` (checked against the incoming value merged with whatever's already stored, so a `PATCH` that only sets `endDate` is still checked against the existing `startDate`).
+- `description` (`OWNER`-owned project overview) and `notes` (`MODERATOR`-writable running work log) are two separate columns specifically so neither role's edits can overwrite the other's — see `prisma/migrations/20260801183803_add_project_notes/`.
+- Submitting a project automatically notifies the customer (`Project created`). Assigning a moderator (at creation or via `/assign`) notifies that moderator (`Moderator assigned`); assigning a different owner via `/assign` notifies that owner (`Owner assigned`). Every status transition notifies the customer (`Project started` / `Project completed` / `Project cancelled`). All via the existing Notification module, `type: SYSTEM` (no dedicated `PROJECT` value exists — see the Notifications section above), `metadata: { projectId, event, status? }`.
+- Note: `booking.service.ts`'s existing booking-completion → project-sync logic (documented in the Booking section, unchanged by this module) writes `Project` rows through its own code path, independent of this module's `POST /api/projects` — both simply operate on the same `Project` table, consistent with this codebase's "services reach across model boundaries directly via Prisma" pattern.
+
+**POST `/api/projects`**
+Body:
+```json
+{
+  "customerId": "<uuid>",
+  "moderatorId": "<uuid>",
+  "name": "Living Room Renovation",
+  "description": "Full panel installation for the living room.",
+  "budget": 50000,
+  "startDate": "2027-01-15",
+  "endDate": "2027-02-28"
+}
+```
+Response (`201`):
+```json
+{
+  "success": true,
+  "message": "Project created successfully.",
+  "data": {
+    "project": {
+      "id": "...",
+      "customerId": "...",
+      "ownerId": "...",
+      "moderatorId": "...",
+      "name": "Living Room Renovation",
+      "description": "Full panel installation for the living room.",
+      "notes": null,
+      "status": "PENDING",
+      "budget": "50000",
+      "startDate": "2027-01-15T00:00:00.000Z",
+      "endDate": "2027-02-28T00:00:00.000Z",
+      "createdAt": "...",
+      "updatedAt": "...",
+      "customer": { "id": "...", "firstName": "...", "lastName": "...", "email": "...", "phone": null },
+      "owner": { "id": "...", "firstName": "...", "lastName": "...", "email": "..." },
+      "moderator": { "id": "...", "firstName": "...", "lastName": "...", "email": "..." }
+    }
+  }
+}
+```
+
+**PATCH `/api/projects/:id/status`**
+Body: `{ "status": "IN_PROGRESS" }`
+
+**PATCH `/api/projects/:id/assign`**
+Body: `{ "moderatorId": "<uuid>" }` (any subset of `customerId`/`moderatorId`/`ownerId`)
+
+### Request Approval — `/api/requests`
+
+Internal approval workflow: a `MODERATOR` submits a request (inventory restock, refund, discount approval, project budget change, or other), and an `OWNER` reviews it. All routes require `Authorization: Bearer <token>`.
+
+**Role permissions**
+
+| Role | Can | Cannot |
+|------|-----|--------|
+| `CUSTOMER` | Nothing | Every endpoint in this module returns `403` — customers never have any access here. |
+| `MODERATOR` | Create requests; view/edit/cancel **their own** requests (edit and cancel only while `PENDING`); delete their own `PENDING`/`CANCELLED` requests | Approve, reject, view or act on another moderator's request, delete a request that's already been reviewed (`APPROVED`/`REJECTED`) |
+| `OWNER` | View every request (with full filtering); approve; reject; delete any request regardless of status | Create a request (submission is `MODERATOR`-only) |
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/`      | `MODERATOR` | Submit a request. Always starts `PENDING`. |
+| GET    | `/`      | `OWNER`, `MODERATOR` | `OWNER`: every request. `MODERATOR`: own requests only. Supports `?status=`, `?type=`, `?requestedById=`, `?reviewedById=`, `?dateFrom=YYYY-MM-DD`, `?dateTo=YYYY-MM-DD` (filters `createdAt`), `?search=` (title), `?sortBy=title\|createdAt\|reviewedAt` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`, `?limit=` |
+| GET    | `/:id`   | `OWNER`, `MODERATOR` | Single request. `MODERATOR`: own only (`404` otherwise). `OWNER`: any. |
+| PATCH  | `/:id`   | `MODERATOR` | Edit `type`/`title`/`description` on your own request — only while it's still `PENDING` (`409` once reviewed or cancelled). |
+| PATCH  | `/:id/approve` | `OWNER` | Approve a `PENDING` request. Optional `reviewNote`. |
+| PATCH  | `/:id/reject`  | `OWNER` | Reject a `PENDING` request. Optional `reviewNote`. |
+| PATCH  | `/:id/cancel`  | `MODERATOR` | Withdraw your own `PENDING` request. Never touches `reviewedById`/`reviewedAt` — a cancelled request was never reviewed by an `OWNER`. |
+| DELETE | `/:id`   | `OWNER`, `MODERATOR` | `OWNER`: any request, any status. `MODERATOR`: own request, only if `PENDING` or `CANCELLED` (`409` if `APPROVED`/`REJECTED` — reviewed requests are a preserved audit trail). |
+
+**Status workflow** (`RequestStatus`): `PENDING → APPROVED`, `PENDING → REJECTED`, or `PENDING → CANCELLED`. `APPROVED`, `REJECTED`, and `CANCELLED` are all terminal — approving/rejecting/cancelling a request that isn't `PENDING` returns `409` (a conflict with the resource's current state, not a validation error, hence `409` rather than `400`) — this covers double-approval, double-rejection, and cancelling an already-approved/rejected/cancelled request.
+
+- `title`: 3–150 characters. `description`: optional, up to 2000 characters. `reviewNote` (on approve/reject): optional, 3–1000 characters if provided.
+- `type` supports every `RequestType` value: `INVENTORY_RESTOCK`, `REFUND`, `DISCOUNT_APPROVAL`, `PROJECT_BUDGET_CHANGE`, `OTHER`.
+- `RequestStatus` did not previously have a `CANCELLED` value (only `PENDING`/`APPROVED`/`REJECTED`) — added via `prisma/migrations/20260801191503_add_request_cancelled_status/` specifically so an `OWNER`'s `REJECTED` decision and a `MODERATOR`'s own withdrawal stay distinguishable in the data, rather than conflating two different real-world events under one status.
+- Submitting a request notifies every active `OWNER` (`New request submitted`). Approving/rejecting notifies the requesting `MODERATOR`. Cancelling notifies every active `OWNER` again. All via the existing Notification module, `type: SYSTEM` (no dedicated `REQUEST` value exists), `metadata: { requestId, event, status, requestType }`.
+
+**POST `/api/requests`**
+Body:
+```json
+{ "type": "INVENTORY_RESTOCK", "title": "Restock cladding panels", "description": "Down to 3 units in the Quezon City warehouse." }
+```
+Response (`201`):
+```json
+{
+  "success": true,
+  "message": "Request submitted successfully.",
+  "data": {
+    "request": {
+      "id": "...",
+      "requestedById": "...",
+      "reviewedById": null,
+      "type": "INVENTORY_RESTOCK",
+      "status": "PENDING",
+      "title": "Restock cladding panels",
+      "description": "Down to 3 units in the Quezon City warehouse.",
+      "reviewNote": null,
+      "reviewedAt": null,
+      "createdAt": "...",
+      "updatedAt": "...",
+      "requestedBy": { "id": "...", "firstName": "...", "lastName": "...", "email": "...", "role": "MODERATOR" },
+      "reviewedBy": null
+    }
+  }
+}
+```
+
+**PATCH `/api/requests/:id/approve`**
+Body: `{ "reviewNote": "Approved - budget confirmed." }`
+Response (`200`): same shape as above, with `status: "APPROVED"`, `reviewedById` set to the approving owner, `reviewedAt` timestamped.
+
+**PATCH `/api/requests/:id/cancel`**
+No body required. Response has `status: "CANCELLED"`, `reviewedById`/`reviewedAt` still `null`.
+
+**Example conflict response (`409`) — approving twice**
+```json
+{ "success": false, "message": "Cannot approve a request that is already approved." }
+```
+
+### Analytics Dashboard — `/api/analytics`
+
+Read-only reporting over existing data - no new tables, purely Prisma aggregation (`count`/`groupBy`/`aggregate`, plus a handful of in-app-code aggregations where Prisma can't express the query - see notes below). All routes require `Authorization: Bearer <token>`.
+
+**Role permissions**
+
+| Role | Access |
+|------|--------|
+| `CUSTOMER` | None - every endpoint returns `403`. |
+| `MODERATOR` | "Operational statistics only" - every endpoint below, but financial fields (`totalRevenue`, `averageOrderValue`, `revenue`, `revenueByStatus`, `totalInventoryValue`, `topCustomers`, `totalBudget`, `averageBudget`) are **omitted entirely** from the response (not zeroed - a MODERATOR response is never mistaken for "$0"). |
+| `OWNER` | Full access - every field, on every endpoint. |
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/dashboard` | Live snapshot: customer/product/order/booking/project counts and status breakdowns, low-stock count, pending request count, average feedback rating. OWNER also gets `totalRevenue`/`averageOrderValue`. No date filter - always "right now." |
+| GET | `/sales` | Order counts by status (`?dateFrom=`/`?dateTo=`, filters `createdAt`). OWNER also gets `totalRevenue`/`averageOrderValue` (from PAID payments, filtered by `paidAt`) and `revenueByStatus` (order value by status). |
+| GET | `/products` | Paginated top-selling products by units sold (`?dateFrom=`/`?dateTo=` filters which orders count, `?page=`/`?limit=`), plus `totalActiveProducts`/`lowStockCount`. OWNER also gets `revenue` per product and `totalInventoryValue`. |
+| GET | `/customers` | `totalCustomers`/`activeCustomers`/`repeatCustomers` (customers with >1 order), `newCustomers` (signups in `?dateFrom=`/`?dateTo=`). OWNER also gets a paginated `topCustomers` list ranked by lifetime PAID spend (not date-filtered - a lifetime ranking, deliberately different scope from `newCustomers`). |
+| GET | `/projects` | Status breakdown, `unassignedProjects`, `averageDurationDays` (from COMPLETED projects with both dates set), and a paginated `moderatorWorkload` list (current `IN_PROGRESS` counts per moderator - never date-filtered, since workload is a present-state staffing question). `?dateFrom=`/`?dateTo=` filters everything else by `createdAt`. OWNER also gets `totalBudget`/`averageBudget`. |
+
+Notes on how a few numbers are actually computed:
+- **Low stock** (`lowStockCount` on `/dashboard` and `/products`) is computed in application code, not a Prisma `where` clause - Prisma can't compare two columns of the same row (`quantity <= reorderLevel`) without a raw query, the same limitation already documented on `inventory.service.ts`'s `getLowStockReport()`.
+- **`topCustomers`' spend** is summed in application code from every PAID `Payment`, because `Payment` has no `customerId` column (it lives on the related `Order`) - Prisma's `groupBy` can only group by a model's own scalar fields, not a related model's.
+- All money figures in analytics responses are plain JSON numbers (not Decimal strings like `Order.totalAmount` elsewhere in this API) - they're computed/derived reporting values, not raw model fields.
+
+**GET `/api/analytics/dashboard`** (OWNER)
+Response:
+```json
+{
+  "success": true,
+  "message": "Dashboard analytics retrieved successfully.",
+  "data": {
+    "totalCustomers": 42,
+    "totalActiveProducts": 18,
+    "lowStockCount": 2,
+    "totalOrders": 130,
+    "ordersByStatus": [{ "status": "DELIVERED", "count": 90 }, { "status": "PENDING", "count": 10 }],
+    "totalBookings": 25,
+    "bookingsByStatus": [{ "status": "COMPLETED", "count": 20 }],
+    "totalProjects": 12,
+    "projectsByStatus": [{ "status": "IN_PROGRESS", "count": 5 }],
+    "pendingRequests": 3,
+    "averageFeedbackRating": 4.6,
+    "totalRevenue": 458200,
+    "averageOrderValue": 3527.69
+  }
+}
+```
+
+**GET `/api/analytics/sales?dateFrom=2027-01-01&dateTo=2027-01-31`** (MODERATOR - note the missing financial fields)
+```json
+{
+  "success": true,
+  "message": "Sales analytics retrieved successfully.",
+  "data": {
+    "totalOrders": 40,
+    "ordersByStatus": [{ "status": "DELIVERED", "count": 30 }, { "status": "PROCESSING", "count": 10 }]
+  }
+}
+```
+
+### Reports — `/api/reports`
+
+Detailed, paginated, exportable record listings - complementary to the Analytics module above rather than a duplicate of it: Analytics answers "what are the KPIs right now," Reports answers "show me the actual rows behind that number." Every report returns `{ summary, <rows>, pagination }`. Same permission model as Analytics: `CUSTOMER` gets `403` everywhere; `OWNER` gets every field; `MODERATOR` gets the same reports with financial fields omitted entirely (not zeroed).
+
+| Method | Endpoint | Rows | Notes |
+|--------|----------|------|-------|
+| GET | `/sales` | Orders (`?dateFrom=`/`?dateTo=`, `?page=`/`?limit=`) | Financial view - OWNER-only `summary.totalRevenue`/`averageOrderValue` (from PAID payments) and per-row `totalAmount`. |
+| GET | `/inventory` | Every inventory record (`?dateFrom=`/`?dateTo=` filters `lastRestockedAt`, `?page=`/`?limit=`) | OWNER-only per-row `unitPrice` and `summary.totalInventoryValue`. |
+| GET | `/orders` | Orders (`?status=`, `?dateFrom=`/`?dateTo=`, `?page=`/`?limit=`) | Operational fulfillment-pipeline view - `summary` is status counts only, no revenue figure at all (that's what `/sales` is for). Per-row `totalAmount` still OWNER-only. |
+| GET | `/bookings` | Bookings (`?status=`, `?dateFrom=`/`?dateTo=`, `?page=`/`?limit=`) | Booking has no financial columns at all, so this report is byte-for-byte identical for OWNER and MODERATOR. |
+| GET | `/projects` | Projects (`?status=`, `?dateFrom=`/`?dateTo=`, `?page=`/`?limit=`) | OWNER-only per-row `budget` and `summary.totalBudget`/`averageBudget`. |
+
+**GET `/api/reports/sales`** (OWNER)
+Response:
+```json
+{
+  "success": true,
+  "message": "Sales report retrieved successfully.",
+  "data": {
+    "summary": {
+      "totalOrders": 3,
+      "ordersByStatus": [{ "status": "DELIVERED", "count": 1 }, { "status": "PENDING", "count": 1 }, { "status": "PROCESSING", "count": 1 }],
+      "totalRevenue": 300,
+      "averageOrderValue": 150
+    },
+    "orders": [
+      { "id": "...", "orderNumber": "PS-...", "customerId": "...", "customerName": "Juan Dela Cruz", "status": "DELIVERED", "itemCount": 1, "createdAt": "...", "totalAmount": 200 }
+    ],
+    "pagination": { "page": 1, "limit": 20, "total": 3, "totalPages": 1 }
+  }
+}
+```
+
+**GET `/api/reports/inventory`** (MODERATOR - note `unitPrice` and `totalInventoryValue` are both absent)
+```json
+{
+  "success": true,
+  "message": "Inventory report retrieved successfully.",
+  "data": {
+    "summary": { "totalItems": 2, "lowStockCount": 1 },
+    "inventory": [
+      { "productId": "...", "productName": "Product B", "sku": "...", "quantity": 5, "reservedQty": 0, "available": 5, "reorderLevel": 10, "isLowStock": true, "lastRestockedAt": null }
+    ],
+    "pagination": { "page": 1, "limit": 20, "total": 2, "totalPages": 1 }
+  }
+}
+```
+
+### AR Support — `/api/ar`
+
+**Not an AR rendering engine.** The Expo React Native app owns the camera and ARCore/ARKit scanning entirely; this module only stores the resulting width/height/depth measurements and turns them into a panel-count + cost estimate. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/measurements` | `CUSTOMER` | Save an AR scan result (`width`/`height` required, `depth` optional). |
+| GET    | `/measurements` | any  | `CUSTOMER`: own measurements only. `MODERATOR`/`OWNER`: every measurement (`?customerId=` to narrow). Supports `?search=` (label), `?dateFrom=`/`?dateTo=` (YYYY-MM-DD), `?page=`/`?limit=`. |
+| GET    | `/measurements/:id` | any | Single measurement. `CUSTOMER`: own only (`404` otherwise). `MODERATOR`/`OWNER`: any. |
+| PATCH  | `/measurements/:id` | `CUSTOMER` | Update your own measurement. |
+| DELETE | `/measurements/:id` | `CUSTOMER` | Delete your own measurement. |
+| POST   | `/estimate` | any | Panel count + cost estimate (see below) - a pure calculation, writes nothing to the database. |
+
+- `width`/`height`/`depth`: positive numbers, capped at 1000 to reject obviously-garbage input (`400` on zero, negative, or over the cap). `unit` defaults to `"m"`.
+- Reuses the existing `Measurement` and `Product` Prisma models exactly as they already were (`Product.width`/`height`/`price` were already there specifically for this feature, per the schema's own comment) - **no schema changes were needed for this module.**
+
+**POST `/api/ar/estimate`**
+Body — either a saved measurement:
+```json
+{ "productId": "<uuid>", "measurementId": "<uuid>" }
+```
+or raw dimensions from the app's current AR session, with nothing saved:
+```json
+{ "productId": "<uuid>", "width": 4, "height": 3 }
+```
+Calculation: `wallArea = width × height`, `panelArea = product.width × product.height`, `requiredPanels = ceil(wallArea / panelArea)`, `estimatedCost = requiredPanels × product.price`. Returns `404` if the product has no `width`/`height` configured (nothing to estimate against) or the referenced product/measurement doesn't exist; a `CUSTOMER` referencing another customer's `measurementId` gets `404` (not `403`), same ID-enumeration-prevention policy as every other module.
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Panel estimate calculated successfully.",
+  "data": {
+    "measurementId": "...",
+    "productId": "...",
+    "productName": "Cladding Panel A",
+    "width": 4,
+    "height": 3,
+    "wallArea": 12,
+    "panelArea": 2,
+    "requiredPanels": 6,
+    "unitPrice": 150,
+    "estimatedCost": 900
+  }
+}
+```
+
 ---
 
 ## 4. Environment Variables
@@ -565,6 +867,217 @@ Authorization: Bearer {{token}}
 
 GET http://localhost:4000/api/feedback/order/<orderId>
 Authorization: Bearer {{token}}
+```
+
+### Projects: create a project (OWNER)
+```
+POST http://localhost:4000/api/projects
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "customerId": "<uuid of a CUSTOMER>",
+  "moderatorId": "<uuid of an active MODERATOR>",
+  "name": "Living Room Renovation",
+  "description": "Full panel installation for the living room.",
+  "budget": 50000,
+  "startDate": "2027-01-15",
+  "endDate": "2027-02-28"
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "message": "Project created successfully.",
+  "data": { "project": { "id": "...", "status": "PENDING", "name": "Living Room Renovation", "...": "..." } }
+}
+```
+
+### Projects: list (filter + search + pagination + sorting)
+```
+GET http://localhost:4000/api/projects?status=IN_PROGRESS&search=renovation&sortBy=startDate&sortOrder=asc&page=1&limit=10
+Authorization: Bearer {{token}}
+```
+
+### Projects: update your assigned project's schedule/notes (MODERATOR)
+```
+PATCH http://localhost:4000/api/projects/<projectId>
+Authorization: Bearer {{moderatorToken}}
+Content-Type: application/json
+
+{ "notes": "Panels delayed until Friday due to a supplier issue.", "endDate": "2027-03-10" }
+```
+
+### Projects: change status
+```
+PATCH http://localhost:4000/api/projects/<projectId>/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "IN_PROGRESS" }
+```
+
+### Projects: reassign moderator/owner/customer (OWNER)
+```
+PATCH http://localhost:4000/api/projects/<projectId>/assign
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "moderatorId": "<uuid of a different active MODERATOR>" }
+```
+
+### Projects: delete (OWNER)
+```
+DELETE http://localhost:4000/api/projects/<projectId>
+Authorization: Bearer {{ownerToken}}
+```
+
+### Requests: submit a request (MODERATOR)
+```
+POST http://localhost:4000/api/requests
+Authorization: Bearer {{moderatorToken}}
+Content-Type: application/json
+
+{ "type": "INVENTORY_RESTOCK", "title": "Restock cladding panels", "description": "Down to 3 units in the Quezon City warehouse." }
+```
+
+### Requests: list (filter + search + pagination + sorting)
+```
+GET http://localhost:4000/api/requests?status=PENDING&type=REFUND&search=panel&sortBy=createdAt&sortOrder=desc&page=1&limit=10
+Authorization: Bearer {{token}}
+```
+
+### Requests: edit your own pending request (MODERATOR)
+```
+PATCH http://localhost:4000/api/requests/<requestId>
+Authorization: Bearer {{moderatorToken}}
+Content-Type: application/json
+
+{ "title": "Restock cladding + partition panels" }
+```
+
+### Requests: approve / reject (OWNER)
+```
+PATCH http://localhost:4000/api/requests/<requestId>/approve
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "reviewNote": "Approved - budget confirmed." }
+
+PATCH http://localhost:4000/api/requests/<requestId>/reject
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "reviewNote": "Budget not available this quarter." }
+```
+
+### Requests: cancel your own pending request (MODERATOR)
+```
+PATCH http://localhost:4000/api/requests/<requestId>/cancel
+Authorization: Bearer {{moderatorToken}}
+```
+
+### Requests: delete
+```
+DELETE http://localhost:4000/api/requests/<requestId>
+Authorization: Bearer {{token}}
+```
+
+### Analytics: dashboard snapshot
+```
+GET http://localhost:4000/api/analytics/dashboard
+Authorization: Bearer {{token}}
+```
+
+### Analytics: sales (date range)
+```
+GET http://localhost:4000/api/analytics/sales?dateFrom=2027-01-01&dateTo=2027-01-31
+Authorization: Bearer {{token}}
+```
+
+### Analytics: top-selling products (paginated)
+```
+GET http://localhost:4000/api/analytics/products?page=1&limit=10
+Authorization: Bearer {{token}}
+```
+
+### Analytics: customers (top spenders are OWNER-only)
+```
+GET http://localhost:4000/api/analytics/customers?dateFrom=2027-01-01&page=1&limit=10
+Authorization: Bearer {{ownerToken}}
+```
+
+### Analytics: projects (moderator workload, paginated)
+```
+GET http://localhost:4000/api/analytics/projects?page=1&limit=10
+Authorization: Bearer {{token}}
+```
+
+### Reports: sales (date range, paginated)
+```
+GET http://localhost:4000/api/reports/sales?dateFrom=2027-01-01&dateTo=2027-01-31&page=1&limit=20
+Authorization: Bearer {{token}}
+```
+
+### Reports: inventory (paginated)
+```
+GET http://localhost:4000/api/reports/inventory?page=1&limit=20
+Authorization: Bearer {{token}}
+```
+
+### Reports: orders (status filter)
+```
+GET http://localhost:4000/api/reports/orders?status=PROCESSING&page=1&limit=20
+Authorization: Bearer {{token}}
+```
+
+### Reports: bookings (status + date range)
+```
+GET http://localhost:4000/api/reports/bookings?status=APPROVED&dateFrom=2027-01-01&page=1&limit=20
+Authorization: Bearer {{token}}
+```
+
+### Reports: projects (status filter)
+```
+GET http://localhost:4000/api/reports/projects?status=IN_PROGRESS&page=1&limit=20
+Authorization: Bearer {{token}}
+```
+
+### AR: save a measurement (CUSTOMER)
+```
+POST http://localhost:4000/api/ar/measurements
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "label": "Living room wall", "width": 4, "height": 2.5, "depth": 0.1, "unit": "m" }
+```
+
+### AR: list / view / update / delete your measurements
+```
+GET http://localhost:4000/api/ar/measurements?page=1&limit=20
+Authorization: Bearer {{token}}
+
+GET http://localhost:4000/api/ar/measurements/<measurementId>
+Authorization: Bearer {{token}}
+
+PATCH http://localhost:4000/api/ar/measurements/<measurementId>
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "width": 5 }
+
+DELETE http://localhost:4000/api/ar/measurements/<measurementId>
+Authorization: Bearer {{token}}
+```
+
+### AR: panel estimate (from a saved measurement, or raw width/height)
+```
+POST http://localhost:4000/api/ar/estimate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "productId": "<uuid of a product with width/height configured>", "measurementId": "<measurementId>" }
 ```
 
 ### Example validation error response (`400`)

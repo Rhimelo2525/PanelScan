@@ -1,7 +1,7 @@
 ================================================================================
 PANELSCAN - PROJECT NOTES
 AR-powered e-commerce and project management system for Disenyo Interior Solution
-Last updated: 2026-08-02
+Last updated: 2026-08-02 (AR Support module)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -100,6 +100,73 @@ of what got touched and why. Full suite run for real again: 196/196
 passing (166 previous + 30 new notification tests), zero failures on the
 first real run.
 
+Feedback module added 2026-08-02: no schema changes. Customer reviews on
+their own DELIVERED orders, reusing createNotification() to alert every
+active MODERATOR/OWNER on submission. 234/234 passing (196 + 38 new).
+
+Project module added 2026-08-02: one schema change, approved by the user
+after a concrete before/after walkthrough - a `notes` column (nullable
+String) added to Project, kept separate from the existing `description`
+column specifically so OWNER's project overview and MODERATOR's running
+work-log can never clobber each other. Migration
+20260801183803_add_project_notes, applied to both panelscan and
+panelscan_test live databases. 298/298 passing (234 + 64 new).
+
+Request Approval module added 2026-08-02: one schema change, same
+approval pattern - RequestStatus had no CANCELLED value (only
+PENDING/APPROVED/REJECTED), but the module's own spec needed a
+MODERATOR-initiated withdrawal to stay distinguishable from an OWNER's
+REJECTED decision. Added CANCELLED via
+20260801191503_add_request_cancelled_status (a single `ALTER TYPE ADD
+VALUE`, no column/data changes). Also RESOLVES the two KNOWN GAP notes
+below from the Notification module writeup: Request now has its own
+real approve/reject/cancel triggers (built directly in
+request.service.ts via createNotification(), not retrofitted into the
+Notification module), and NotificationType.SYSTEM + metadata.event is
+now the established, repeated pattern for "no dedicated enum value
+exists yet" cases (Project, Feedback, and now Request all use it).
+357/357 passing (298 + 59 new).
+
+Analytics Dashboard module added 2026-08-02 - read-only reporting, no
+schema changes at all (first module in a while that didn't need one):
+GET /api/analytics/{dashboard,sales,products,customers,projects},
+OWNER/MODERATOR only (CUSTOMER 403 everywhere), using real Prisma
+aggregation (count/groupBy/aggregate) rather than the ad-hoc
+findMany-and-filter style used for reads elsewhere. MODERATOR gets every
+endpoint but with financial fields (revenue, spend, budget) omitted from
+the JSON entirely rather than zeroed - see section 3C for the full field
+list per role. 386/386 passing (357 + 29 new).
+
+Reports module added 2026-08-02 - no schema changes.
+GET /api/reports/{sales,inventory,orders,bookings,projects}, same
+OWNER-full/MODERATOR-operational/CUSTOMER-403 permission model as
+Analytics, but a deliberately different shape: every report returns
+{ summary, <rows>, pagination } - paginated, itemized row listings (the
+actual orders/inventory/bookings/projects behind a number), not just
+aggregate KPIs. Positioned explicitly as complementary to Analytics
+rather than a duplicate of it - see section 3C for how the two modules'
+scopes were kept distinct (e.g. /reports/sales is the financial view,
+/reports/orders is the operational fulfillment-pipeline view with no
+revenue figure at all, on the same underlying Order data).
+417/417 passing (386 + 31 new).
+
+AR Support module added 2026-08-02 (this update) - no schema changes at
+all, the first module built where the Prisma model (Measurement) and the
+fields needed for its calculation (Product.width/height/price) already
+existed exactly as required, down to the schema's own pre-existing
+comment naming "AR Measurement / Panel Estimator" as their purpose.
+Explicitly NOT an AR engine - the Expo app owns the camera/ARCore/ARKit
+scanning entirely; this module only persists the resulting width/height/
+depth and turns them into a panel-count + cost estimate
+(POST /api/ar/estimate: wallArea = width*height, panelArea = product.
+width*product.height, requiredPanels = ceil(wallArea/panelArea),
+estimatedCost = requiredPanels*product.price - a pure calculation, no
+row written). CUSTOMER owns full CRUD on their own measurements only
+(POST/GET/PATCH/DELETE /api/ar/measurements); MODERATOR/OWNER get
+read-only visibility across every customer's measurements, matching the
+"Owner/Moderator can view measurements if needed" instruction.
+455/455 passing (417 + 38 new).
+
 --------------------------------------------------------------------------------
 2. LEFT BEHIND / STILL TO FIX (TODO)
 --------------------------------------------------------------------------------
@@ -136,25 +203,24 @@ first real run.
   seeded passwords before any shared/production use - they're committed in
   plaintext in prisma/seed.ts for local dev convenience only.
 - RESOLVED (was: "only User has real endpoints"). Category, Product,
-  Inventory, Cart, Order, Payment, Booking, Installer, Chat, and
-  Notification all have full controller/service/route layers now - see
-  section 3C. Still no endpoints for: Measurement (AR), Feedback, Project
-  (has no dedicated API - a Project row is only ever touched as a side
-  effect of a booking completing, see section 3C's Booking entry), Request,
-  or Delivery - those 5 models exist in the schema (section 3B) but have no
-  API above them yet. That's the remaining Phase 5+ work.
-- KNOWN GAP (Notification module, 2026-08-02): "Request approved" /
-  "Request rejected" was in the Notification module's own trigger list,
-  but there is no Request module/service anywhere in this codebase (only
-  the Prisma Request model exists) - nothing exists to hook a trigger
-  into, and building one was explicitly out of scope ("Build ONLY the
-  Notification Module"). Will need wiring once a Request module exists.
-- KNOWN GAP (Notification module, 2026-08-02): NotificationType has no
-  PROJECT value (only ORDER/PAYMENT/BOOKING/CHAT/SYSTEM), so the
-  booking-completion -> project-sync notification uses SYSTEM instead,
-  disambiguated via metadata.event = "PROJECT_UPDATED". No schema change
-  was made for this per "do NOT modify Prisma schema unless absolutely
-  necessary" - flagged here rather than silently decided.
+  Inventory, Cart, Order, Payment, Booking, Installer, Chat, Notification,
+  Feedback, Project, Request Approval, Analytics, Reports, and AR
+  Support (Measurement) all have full controller/service/route layers
+  now - see section 3C. Still no endpoint for Delivery - that's the only
+  model left in the schema (section 3B) with no API above it.
+- RESOLVED 2026-08-02 (Request Approval module): "Request approved" /
+  "Request rejected" now has a real automatic trigger - built directly
+  into request.service.ts's approveRequest()/rejectRequest()/
+  cancelOwnRequest() via the existing createNotification() helper, not
+  retrofitted into the Notification module itself. This closes the gap
+  originally flagged when the Notification module was built (no Request
+  module existed yet at that time).
+- RESOLVED 2026-08-02 (Project module): NotificationType still has no
+  PROJECT value, but this is no longer a gap worth tracking separately -
+  SYSTEM + metadata.event is now the established, repeatedly-used pattern
+  for "no dedicated enum value exists yet" (Project's PROJECT_UPDATED/
+  PROJECT_STATUS_CHANGED, Feedback's FEEDBACK_SUBMITTED, Request's
+  REQUEST_SUBMITTED/APPROVED/REJECTED/CANCELLED all use it consistently).
 
 [SECURITY / HARDENING - not done yet, worth doing before production]
 - No rate limiting on /api/auth/register and /api/auth/login (brute-force /
@@ -175,13 +241,15 @@ first real run.
 
 [ENGINEERING / QUALITY]
 - RESOLVED: automated tests now exist AND pass for real. Vitest +
-  Supertest integration suite, 196 tests across 11 files (auth, category,
+  Supertest integration suite, 455 tests across 17 files (auth, category,
   product, inventory, cart, order, payment, booking, installer, chat,
-  notifications) - see section 3D. Run against the real panelscan_test
-  CockroachDB Cloud database: 196/196 passing (one genuine test-fixture
-  bug was found and fixed on the pre-Chat 135-test run - see section 3E;
-  Chat's 31 and Notification's 30 tests both passed clean on their first
-  real run).
+  notifications, feedback, project, request, analytics, reports, ar) -
+  see section 3D. Run against the real panelscan_test CockroachDB Cloud
+  database: 455/455 passing (one genuine test-fixture bug was found and
+  fixed on the pre-Chat 135-test run - see section 3E; every module built
+  since Chat - Notification/Feedback/Project/Request/Analytics/Reports/
+  AR Support - has passed its own new tests clean on the first real run
+  against the live database).
 - No CI/CD pipeline configured (lint/typecheck/test/build on push) - the
   test suite exists now, but nothing runs it automatically yet.
 - No structured logging/observability beyond morgan console request logs
@@ -194,26 +262,17 @@ first real run.
 [FUTURE PHASES - not started yet]
 Done as of this update: Category, Product, Inventory (Phase 2), Cart,
 Order, Payment/PayMongo (Phase 3.1-3.3), Booking, Installer (Phase 4),
-Chat, Notification (Phase 5) - see section 3C. Still remaining:
-- AR Measurement module (Measurement model exists, no API yet - this is
-  what the mobile app's AR scanning feature would read/write).
+Chat, Notification, Feedback, Project, Request Approval, Analytics
+Dashboard, Reports, AR Support (Phase 5) - see section 3C. Still
+remaining:
 - Delivery module (Delivery model exists, no API yet - shipment tracking
-  once an order is PROCESSING/SHIPPED).
-- Feedback module (product/order reviews - Feedback model exists, no API
-  yet).
-- Project module (Project Monitoring for Owner, Project Tracking for
-  Moderator - Project model exists and now gets rows written to it as a
-  side effect of booking.service.ts completing a booking, see section 3C,
-  but there is still no dedicated Project API - can't list/view/update a
-  project directly yet).
-- Request Approval module (Request model exists, no API yet - Moderator
-  submits, Owner approves/rejects).
-- Owner-specific aggregate views: Dashboard, Sales Reports, Inventory
-  Assessment, Moderator Management - none of these need new DB models,
-  just new read-only endpoints/queries over what already exists.
-- Frontend apps entirely: React Native + Expo mobile app (TypeScript),
-  web dashboard/e-commerce (framework not chosen yet) - zero frontend
-  code exists at all, backend only so far.
+  once an order is PROCESSING/SHIPPED). The only model left in the
+  21-model schema with no API above it.
+- Frontend apps entirely: React Native + Expo mobile app (TypeScript) -
+  this is the app that will actually own the AR camera/ARCore/ARKit
+  scanning and call this backend's /api/ar endpoints - web dashboard/
+  e-commerce (framework not chosen yet). Zero frontend code exists at
+  all, backend only so far.
 
 --------------------------------------------------------------------------------
 3. WHAT WE'VE BUILT SO FAR (PHASE 1 - BACKEND FOUNDATION)
@@ -291,6 +350,15 @@ Enums: UserRole, OrderStatus, PaymentStatus, BookingStatus, ProjectStatus,
 NotificationType (all as originally specified), plus RequestType and
 RequestStatus (added - the Request Approval workflow needed a closed set of
 values and free-text would have let typos corrupt an approval flow).
+Two small additive changes since, both approved by the user with a concrete
+before/after walkthrough first (see section 1 and 3C for the Project/Request
+module writeups):
+  - Project gained a `notes` column (nullable String), separate from the
+    existing `description` column, so OWNER's project overview and
+    MODERATOR's running work-log can never overwrite each other.
+  - RequestStatus gained a CANCELLED value (was PENDING/APPROVED/REJECTED
+    only), so a MODERATOR withdrawing their own request stays
+    distinguishable from an OWNER's REJECTED decision.
 
 Models, grouped by domain:
 - Catalog: Category, Product, ProductImage, Inventory. Product carries
@@ -587,15 +655,156 @@ Notification model/NotificationType enum already existed in the original
   booking, to produce a real automatic notification) + the Notifications
   CRUD folder, same per-module-collection pattern Chat established.
 
+Feedback (2026-08-02; no schema changes):
+  POST /api/feedback (CUSTOMER, own DELIVERED order only, one feedback per
+  order - enforced in application code since Feedback has no
+  @@unique([customerId, orderId])). GET /api/feedback (CUSTOMER: own only;
+  MODERATOR/OWNER: every entry, search/filter/pagination). GET /:id, PATCH
+  /:id and DELETE /:id (CUSTOMER, own only, 404 on someone else's). GET
+  /product/:productId - Feedback has no productId column, so this joins
+  through Order -> OrderItem.productId rather than a schema change. GET
+  /order/:orderId. Submitting feedback notifies every active
+  MODERATOR/OWNER via createNotification() (SYSTEM, metadata.event =
+  "FEEDBACK_SUBMITTED").
+
+Project (2026-08-02; one schema change - see section 3B):
+  POST /api/projects (OWNER only, creator becomes the project's owner).
+  GET /api/projects (OWNER: every project; MODERATOR: assigned only;
+  CUSTOMER: own only). GET/PATCH /:id (PATCH: OWNER can touch
+  name/description/budget/dates/notes; MODERATOR limited to their assigned
+  project's schedule/notes only - other fields return 403, not silently
+  dropped). PATCH /:id/status walks PENDING -> IN_PROGRESS -> COMPLETED,
+  with CANCELLED reachable from either non-terminal state (both terminal
+  states rejected with 400 on further transitions). PATCH /:id/assign
+  (OWNER only) reassigns any combination of customer/moderator/owner in
+  one call, validating each against role + (for moderator) isActive.
+  DELETE /:id (OWNER only). Notifications on create, moderator/owner
+  assignment, and every status transition - all SYSTEM type since
+  NotificationType has no PROJECT value, disambiguated via metadata.event.
+  Deliberately does NOT touch booking.service.ts's existing
+  syncProjectOnBookingCompleted() - both simply write to the same Project
+  table via independent code paths, consistent with this codebase's
+  "services reach across model boundaries directly via Prisma" pattern.
+
+Request Approval (2026-08-02; one schema change - see section 3B):
+  POST /api/requests (MODERATOR only - OWNER has no create capability in
+  this module's spec). GET /api/requests (OWNER: every request;
+  MODERATOR: own only). GET/PATCH /:id (PATCH: MODERATOR only, own
+  request, only while still PENDING - 409 once reviewed/cancelled).
+  PATCH /:id/approve and /:id/reject (OWNER only, PENDING only, sets
+  reviewedById/reviewedAt/reviewNote). PATCH /:id/cancel (MODERATOR only,
+  own PENDING request - deliberately never touches reviewedById/
+  reviewedAt, so a cancelled request can never be mistaken for one an
+  OWNER actually reviewed). DELETE /:id (OWNER: any status; MODERATOR:
+  own request, only if PENDING/CANCELLED - 409 if already
+  APPROVED/REJECTED, preserving the OWNER's decision as an untouchable
+  audit trail). Double-approval, double-rejection, and every invalid
+  cancel/delete all return 409 (state conflict) rather than 400 (pure
+  validation) - a deliberate distinction specific to this module's own
+  explicit error-handling requirements, differing from how Booking/Project
+  used 400 for their own status-transition violations. Notifications:
+  submission and cancellation notify every active OWNER; approval/
+  rejection notify the requesting MODERATOR.
+
+Analytics Dashboard (2026-08-02; no schema changes - first module in a
+while that didn't need one, being purely read-only reporting):
+  GET /api/analytics/{dashboard,sales,products,customers,projects}, all
+  OWNER/MODERATOR only (CUSTOMER 403 on every endpoint via restrictTo,
+  same as Request Approval). Every endpoint is reachable by both roles,
+  but MODERATOR ("operational statistics only" per spec) gets the
+  financial fields (totalRevenue, averageOrderValue, revenueByStatus,
+  revenue-per-product, totalInventoryValue, topCustomers, totalBudget,
+  averageBudget) omitted from the response entirely rather than zeroed,
+  so a MODERATOR payload is never mistaken for "genuinely $0." Built with
+  real Prisma aggregation (count/groupBy/aggregate) rather than the
+  fetch-then-filter style used for reads elsewhere in this codebase -
+  the one exception is low-stock counting (quantity <= reorderLevel),
+  filtered in application code because Prisma can't compare two columns
+  of the same row without a raw query - the exact same documented
+  limitation as inventory.service.ts's getLowStockReport(). Per-customer
+  spend (for /customers' topCustomers) is likewise summed in application
+  code from every PAID Payment, since Payment has no customerId column
+  (it lives on the related Order) and Prisma's groupBy can only group by
+  a model's own scalar fields. /dashboard is a live snapshot with no date
+  filter; /sales, /products, /customers, /projects all support
+  ?dateFrom=/?dateTo= (YYYY-MM-DD, filtering createdAt) with one
+  deliberate exception each - /customers' topCustomers is a lifetime
+  ranking (not date-scoped), and /projects' moderatorWorkload always
+  reflects *current* IN_PROGRESS assignments (a present-state staffing
+  question, not historical).
+
+Reports (2026-08-02; no schema changes):
+  GET /api/reports/{sales,inventory,orders,bookings,projects}, same
+  OWNER/MODERATOR/CUSTOMER-403 access pattern as Analytics, but every
+  endpoint returns { summary, <rows>, pagination } - a paginated listing
+  of the actual underlying records, not just aggregate numbers. Built as
+  a standalone service (reports.service.ts queries Prisma directly, same
+  as every other module - it does NOT import analyticsService, per this
+  codebase's "no service-to-service calls" architecture rule; a small
+  amount of aggregation logic is duplicated between the two modules as a
+  result, the same documented tradeoff already accepted in section 5).
+  Scope was deliberately split from Analytics rather than overlapping it:
+    - /sales: financial view of orders - summary.totalRevenue/
+      averageOrderValue (OWNER-only, from PAID payments, same "revenue =
+      money actually collected" definition as Analytics) plus per-row
+      totalAmount (also OWNER-only).
+    - /orders: operational fulfillment-pipeline view of the *same* Order
+      table - summary is status counts only, no revenue figure anywhere,
+      supports ?status= filtering that /sales doesn't. Two reports, two
+      audiences, one underlying model.
+    - /inventory: full inventory listing (not just top-sellers/low-stock
+      like Analytics) - low-stock detection is filtered in application
+      code for the same reason as inventory.service.ts's
+      getLowStockReport() and the Analytics module (Prisma can't compare
+      two columns of one row without a raw query). Date range filters
+      lastRestockedAt, not createdAt (inventory rows are rarely
+      recreated, so "restocked in range" is the meaningful filter here).
+    - /bookings: Booking has no financial columns at all, so this is the
+      one report with zero role-based field differences - byte-for-byte
+      identical response for OWNER and MODERATOR.
+    - /projects: budget/totalBudget/averageBudget OWNER-only, mirroring
+      the Project module's own field-hiding rule.
+  Every OWNER-only financial field is omitted from the JSON entirely
+  (never zeroed) for MODERATOR, exactly matching the Analytics module's
+  convention, so the two modules feel consistent to any API consumer
+  even though their response shapes differ.
+
+AR Support (2026-08-02; no schema changes - Measurement and
+Product.width/height/price already existed exactly as needed):
+  Explicitly not an AR rendering engine - the Expo React Native app owns
+  the camera and ARCore/ARKit scanning entirely; this module only stores
+  what the app already measured and turns it into a panel estimate.
+  POST /api/ar/measurements (CUSTOMER only - saves a scan result:
+  width/height required, depth/label/imageUrl/arDataUrl optional, unit
+  defaults to "m"). GET /api/ar/measurements (CUSTOMER: own only;
+  MODERATOR/OWNER: every measurement, optionally narrowed by
+  ?customerId=, matching the "Owner/Moderator can view measurements if
+  needed" instruction). GET/PATCH/DELETE /:id (CUSTOMER: own only, 404
+  on someone else's - PATCH/DELETE are CUSTOMER-only routes entirely,
+  MODERATOR/OWNER 403). All dimension fields are validated positive and
+  capped at 1000 (reject zero/negative/unrealistic input).
+  POST /api/ar/estimate is a pure calculation with no database write -
+  wallArea = width*height, panelArea = product.width*product.height,
+  requiredPanels = Math.ceil(wallArea/panelArea), estimatedCost =
+  requiredPanels*product.price. Accepts either a measurementId (reuses a
+  saved scan - ownership-checked the same way as the measurement CRUD
+  routes) or raw width/height directly in the body (ad-hoc estimate,
+  nothing saved) - Zod's refine() requires one or the other. Returns 400
+  if the referenced product has no width/height configured (nothing to
+  estimate against). Any authenticated role can call it (not
+  CUSTOMER-only), since staff estimating on a customer's behalf is a
+  reasonable use case and the endpoint has no side effects to restrict.
+
 --------------------------------------------------------------------------------
 3D. TESTING INFRASTRUCTURE (VITEST + SUPERTEST)
 --------------------------------------------------------------------------------
-196 integration tests across 11 files: tests/auth/, tests/category/,
+455 integration tests across 17 files: tests/auth/, tests/category/,
 tests/product/, tests/inventory/, tests/cart/, tests/order/,
 tests/payment/, tests/booking/, tests/installer/, tests/chat/,
-tests/notifications/. Run for real against the live panelscan_test
-CockroachDB Cloud database as of the MILESTONE in section 1 - 196/196
-passing, not just "correctly discovered."
+tests/notifications/, tests/feedback/, tests/project/, tests/request/,
+tests/analytics/, tests/reports/, tests/ar/. Run for real against the
+live panelscan_test CockroachDB Cloud database as of the MILESTONE in
+section 1 - 455/455 passing, not just "correctly discovered."
 
 Setup:
   - Vitest (not Jest - better native TS/NodeNext support for this
@@ -622,9 +831,18 @@ Setup:
     createTestPayment, createTestBooking(any status, optional installer),
     createTestInstaller, createTestChatRoom(+ optional participantIds),
     addChatParticipant, createTestMessage(+ isRead),
-    createTestNotification(+ type/isRead/metadata) - all direct-Prisma
+    createTestNotification(+ type/isRead/metadata),
+    createTestFeedback, createTestProject(+ notes/budget/dates),
+    createTestRequest(+ status/reviewedBy/reviewNote),
+    createTestMeasurement(+ width/height/depth/label) - all direct-Prisma
     fixture builders so each test file can set up state without depending
-    on other endpoints already working.
+    on other endpoints already working. createTestPayment also grew an
+    optional paidAt param (2026-08-02, for Analytics' date-range tests) -
+    defaults to "now" when status is PAID and no explicit value is given,
+    so every other existing call site keeps working unchanged.
+    createTestProduct similarly grew optional width/height params
+    (2026-08-02, for AR Support's panel-estimation tests), also
+    backward-compatible.
   - Payment tests stub global fetch() (vi.stubGlobal) instead of
     calling the real PayMongo API - deterministic, no real network/
     secrets needed. Webhook tests compute a real HMAC signature with
