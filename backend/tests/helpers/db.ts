@@ -10,6 +10,7 @@ import { prisma } from '../../src/config/database';
  */
 export const cleanDatabase = async (): Promise<void> => {
   await prisma.$transaction([
+    prisma.refreshToken.deleteMany(),
     prisma.chatParticipant.deleteMany(),
     prisma.message.deleteMany(),
     prisma.chatRoom.deleteMany(),

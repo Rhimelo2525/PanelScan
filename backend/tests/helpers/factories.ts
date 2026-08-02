@@ -6,6 +6,7 @@ import type {
   Category,
   ChatParticipant,
   ChatRoom,
+  Delivery,
   Feedback,
   Installer,
   Measurement,
@@ -15,6 +16,7 @@ import type {
   Payment,
   Product,
   Project,
+  RefreshToken,
   Request as RequestModel,
   User,
 } from '@prisma/client';
@@ -22,6 +24,7 @@ import type {
 import { prisma } from '../../src/config/database';
 import { signToken } from '../../src/utils/jwt';
 import { hashPassword } from '../../src/utils/password';
+import { generateRefreshToken, hashRefreshToken } from '../../src/utils/refreshToken';
 import { slugify } from '../../src/utils/slugify';
 
 export const TEST_PASSWORD = 'Password123';
@@ -152,6 +155,39 @@ export const createTestProduct = async (options: CreateTestProductOptions = {}):
 };
 
 export const authHeader = (token: string): { Authorization: string } => ({ Authorization: `Bearer ${token}` });
+
+export interface CreateTestRefreshTokenOptions {
+  userId: string;
+  expiresAt?: Date;
+  revokedAt?: Date;
+}
+
+export interface TestRefreshToken {
+  plainToken: string;
+  record: RefreshToken;
+}
+
+/**
+ * Creates a RefreshToken row directly via Prisma (bypassing login), hashing
+ * a freshly generated plaintext token the same way the real service does.
+ * Lets tests deterministically construct expired/revoked tokens without
+ * waiting on real time or going through rotation first.
+ */
+export const createTestRefreshToken = async (options: CreateTestRefreshTokenOptions): Promise<TestRefreshToken> => {
+  const plainToken = generateRefreshToken();
+  const tokenHash = hashRefreshToken(plainToken);
+
+  const record = await prisma.refreshToken.create({
+    data: {
+      userId: options.userId,
+      tokenHash,
+      expiresAt: options.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revokedAt: options.revokedAt,
+    },
+  });
+
+  return { plainToken, record };
+};
 
 /**
  * Gets-or-creates a customer's cart directly via Prisma, so cart tests can
@@ -456,6 +492,29 @@ export const createTestMeasurement = async (options: CreateTestMeasurementOption
       unit: options.unit ?? 'm',
       imageUrl: options.imageUrl,
       arDataUrl: options.arDataUrl,
+    },
+  });
+};
+
+export interface CreateTestDeliveryOptions {
+  orderId: string;
+  address?: string;
+  scheduledDate?: Date;
+  courierName?: string;
+  trackingNumber?: string;
+  deliveredAt?: Date;
+}
+
+/** Creates a Delivery directly via Prisma, bypassing POST /api/delivery (and its order-state checks), for testing the other endpoints in isolation. */
+export const createTestDelivery = async (options: CreateTestDeliveryOptions): Promise<Delivery> => {
+  return prisma.delivery.create({
+    data: {
+      orderId: options.orderId,
+      address: options.address ?? '123 Test Street, Test City, Test Province, 1234',
+      scheduledDate: options.scheduledDate ?? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+      courierName: options.courierName,
+      trackingNumber: options.trackingNumber,
+      deliveredAt: options.deliveredAt,
     },
   });
 };

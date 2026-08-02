@@ -7,6 +7,7 @@ import bookingRoutes from '../modules/booking/booking.routes';
 import cartRoutes from '../modules/cart/cart.routes';
 import categoryRoutes from '../modules/category/category.routes';
 import chatRoutes from '../modules/chat/chat.routes';
+import deliveryRoutes from '../modules/delivery/delivery.routes';
 import feedbackRoutes from '../modules/feedback/feedback.routes';
 import installerRoutes from '../modules/installer/installer.routes';
 import inventoryRoutes from '../modules/inventory/inventory.routes';
@@ -39,5 +40,6 @@ router.use('/requests', requestRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/ar', arRoutes);
+router.use('/delivery', deliveryRoutes);
 
 export default router;

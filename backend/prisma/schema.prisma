@@ -127,6 +127,7 @@ model User {
   chatParticipations ChatParticipant[]
   messages           Message[]
   notifications      Notification[]
+  refreshTokens      RefreshToken[]
 
   @@index([role])
   @@map("users")
@@ -556,4 +557,32 @@ model Request {
   @@index([reviewedById])
   @@index([status])
   @@map("requests")
+}
+
+// ================================================================
+// REFRESH TOKENS (Refresh Token Authentication)
+// ================================================================
+
+// Opaque, cryptographically-random tokens are handed to the client;
+// only a deterministic SHA-256 hash of the token is ever stored here
+// (never the plaintext), so a leaked database dump can't be replayed
+// as a live session. SHA-256 (not bcrypt, unlike User.password) is
+// intentional: refresh tokens are already high-entropy random values,
+// not human-chosen secrets, so they don't need slow salted hashing -
+// and a deterministic hash is required anyway, to look a token up by
+// exact match (tokenHash @unique) without scanning/comparing every row.
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  // Set on logout or on rotation (refresh issues a new token and revokes
+  // the one it was given). Null = still a valid, usable session.
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }

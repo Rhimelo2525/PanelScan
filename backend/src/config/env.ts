@@ -11,6 +11,13 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().default('*'),
 
+  // Refresh Token Authentication (backend/src/modules/auth). Governs how
+  // long an issued refresh token stays valid before it must be re-obtained
+  // via a fresh login. Access tokens (JWT_EXPIRES_IN above) are unrelated
+  // and unchanged by this - refresh tokens exist so a client can silently
+  // obtain a new access token without forcing the user to log in again.
+  REFRESH_TOKEN_EXPIRES_IN_DAYS: z.coerce.number().int().positive().default(7),
+
   // PayMongo (Payment module). Optional at the process level - unlike
   // DATABASE_URL/JWT_SECRET, no other module depends on these, so a missing
   // key shouldn't block the whole server from booting. payment.service.ts
@@ -21,6 +28,16 @@ const envSchema = z.object({
   PAYMONGO_API_URL: z.string().url().default('https://api.paymongo.com/v1'),
   PAYMENT_SUCCESS_URL: z.string().url().default('http://localhost:3000/payment/success'),
   PAYMENT_CANCEL_URL: z.string().url().default('http://localhost:3000/payment/cancel'),
+
+  // Rate limiting (backend/src/middleware/rateLimit.middleware.ts). Two
+  // buckets: a strict one for POST /api/auth/register + POST
+  // /api/auth/login (brute-force protection), and a looser one for every
+  // other /api/* route. Both are optional with production-appropriate
+  // defaults, so a fresh checkout works without any extra config.
+  RATE_LIMIT_AUTH_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_API_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(100),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

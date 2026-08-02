@@ -1,7 +1,7 @@
 ================================================================================
 PANELSCAN - PROJECT NOTES
 AR-powered e-commerce and project management system for Disenyo Interior Solution
-Last updated: 2026-08-02 (AR Support module)
+Last updated: 2026-08-02 (Refresh Token Authentication + Logout)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -167,6 +167,110 @@ read-only visibility across every customer's measurements, matching the
 "Owner/Moderator can view measurements if needed" instruction.
 455/455 passing (417 + 38 new).
 
+Delivery module added 2026-08-02 (this update) - no schema changes, the
+Delivery model (1:1 with Order via a unique orderId) already existed
+exactly as needed. The last model in the 21-model schema to get an API -
+every model now has one. POST/GET/GET-by-id/PATCH/PATCH-.../delivered/
+DELETE /api/delivery. MODERATOR has full management (create, update
+courier/tracking/address/schedule, mark delivered, delete while not yet
+delivered); OWNER is read-only (same philosophy as Booking/Chat);
+CUSTOMER sees only deliveries for their own orders, read-only. One
+genuine spec gap resolved by elimination rather than left ambiguous:
+neither role's "Can" list explicitly named "Delete," but OWNER and
+CUSTOMER were both explicitly listed as "Cannot" delete, so DELETE
+/api/delivery/:id was assigned to MODERATOR (the "Full Delivery
+management" role) by process of elimination - flagged in
+delivery.routes.ts's own comment rather than silently decided.
+Introduces this codebase's clearest 400-vs-409 split yet: order-not-found
+is 404, malformed input is 400, but "order already has a delivery,"
+"order is CANCELLED," "already marked delivered," and "delete an
+already-delivered delivery" are all 409 (conflicts with the resource's
+current state) - continuing the precedent Request Approval established.
+Deliberately does NOT flip Order.status to DELIVERED when a delivery is
+marked delivered - out of scope for this module's own spec, and doing so
+would mean reaching into Order's status-transition logic from outside
+it. 502/502 passing (455 + 47 new).
+
+Rate Limiting added 2026-08-02 (this update) - the first Security
+Hardening item tackled from section 2's list, and deliberately ONLY this
+one (explicit instruction: do not build refresh tokens, forgot-password,
+email verification, or account lockout in the same pass). Uses
+express-rate-limit, wired through src/middleware/rateLimit.middleware.ts:
+a strict 5-requests/15-minutes-per-IP bucket shared by POST
+/api/auth/register + POST /api/auth/login combined, and a looser
+100-requests/15-minutes-per-IP bucket covering every other /api/* route.
+/health is never touched by either (it's registered before app.use('/api',
+...), so it was never in scope to begin with - no special-casing needed).
+A throttled request is forwarded to the SAME global error handler as
+every other error in this API via `next(new AppError(message, 429))`,
+so the JSON envelope, and the "no schema/response-format changes" rule,
+both hold exactly.
+The one real design problem this raised, solved deliberately rather than
+glossed over: the existing 502-test suite shares ONE Express app instance
+and ONE IP across a single ~20-minute run - applying the real 5/100
+limits there would throttle hundreds of unrelated tests with unrelated
+429s (auth.test.ts alone makes 7 combined register+login calls, already
+over 5). Both exported limiters (authRateLimiter/apiRateLimiter) skip
+enforcement whenever NODE_ENV=test; the real, spec-exact behavior (5
+requests then 429, 100 requests then 429, headers, window reset) is
+verified separately in tests/rateLimit/rateLimit.test.ts against
+isolated throwaway Express apps built directly from the exported
+createRateLimiter() factory with `skip` deliberately omitted, so the
+actual numbers from the spec are genuinely exercised, just decoupled
+from the shared app/IP the other 502 tests depend on staying unthrottled.
+514/514 passing (502 + 12 new).
+
+Refresh Token Authentication + Logout (2026-08-02) is the next Security
+Hardening item, again scoped to ONLY this pair (explicit instruction: do
+not build forgot-password, email verification, account lockout, MFA, or
+OAuth in the same pass). Adds one new table, refresh_tokens
+(RefreshToken model, migration 20260802082341_add_refresh_tokens - the
+first schema change since rate limiting, and additive-only: a brand new
+table with a Cascade FK to users, nothing existing altered). POST
+/api/auth/login now also issues an opaque, cryptographically random
+refresh token (crypto.randomBytes(40), never a JWT) alongside the
+existing JWT access token - only a SHA-256 hash of it is ever stored
+(RefreshToken.tokenHash, @unique, for exact-match lookup), never the
+plaintext, and never with bcrypt (bcrypt's per-call random salt would
+make the deterministic lookup-by-hash this needs impossible; unlike
+User.password, a refresh token is already high-entropy random data, not
+a low-entropy human secret, so it doesn't need slow salted hashing).
+POST /api/auth/refresh exchanges a valid refresh token for a new access
+token AND a new refresh token, rotating in the same $transaction: the
+presented token is revoked and the replacement created atomically, so a
+crash mid-request can't strand a client with a dead token and no
+replacement, and - the actual point of rotation - the old token can
+never be redeemed a second time (replaying it after rotation returns
+401 "has been revoked", closing the replay-attack window a static,
+never-rotated refresh token would otherwise leave open). POST
+/api/auth/logout requires a valid access token and revokes exactly the
+one refresh token supplied in the body - other devices/sessions for the
+same user are untouched, since each login creates its own independent
+refresh_tokens row rather than the user having a single shared token.
+Unknown-token and someone-else's-token both return 404 (never 403),
+continuing this project's ownership-violation convention of never
+confirming to a caller whether a resource exists for someone else.
+POST /api/auth/register is deliberately UNCHANGED - it still returns
+only an access token, exactly as before; expanding its response wasn't
+part of this task's scope, so a newly registered user still needs to
+log in separately to start a refreshable session. The access token's
+lifetime (JWT_EXPIRES_IN) was also left unchanged for the same
+scoping reason ("existing access-token authentication must continue
+working exactly as it does today" was an explicit hard rule, even
+though shortening it - e.g. to 15 minutes - is the properly-paired
+next step now that a refresh flow exists to renew it silently; flagged
+in section 2 rather than done unasked). Both new endpoints share
+authRateLimiter's existing 5-requests/15-minutes-per-IP bucket with
+register/login (refresh was explicitly anticipated as a future rate-
+limiter consumer back when rate limiting was built - see that entry
+above). 16 new tests in tests/auth/refreshToken.test.ts cover
+issuance, rotation (old row revoked + new row created, verified
+directly via Prisma), replay rejection, expiry, pre-revocation, a
+tampered/unknown token, logout scoping (own token only, 404 on
+someone else's), post-logout refresh rejection, and multi-device
+independence (two logins -> two tokens -> revoking one leaves the
+other refreshable). 530/530 passing (514 + 16 new).
+
 --------------------------------------------------------------------------------
 2. LEFT BEHIND / STILL TO FIX (TODO)
 --------------------------------------------------------------------------------
@@ -204,10 +308,10 @@ read-only visibility across every customer's measurements, matching the
   plaintext in prisma/seed.ts for local dev convenience only.
 - RESOLVED (was: "only User has real endpoints"). Category, Product,
   Inventory, Cart, Order, Payment, Booking, Installer, Chat, Notification,
-  Feedback, Project, Request Approval, Analytics, Reports, and AR
-  Support (Measurement) all have full controller/service/route layers
-  now - see section 3C. Still no endpoint for Delivery - that's the only
-  model left in the schema (section 3B) with no API above it.
+  Feedback, Project, Request Approval, Analytics, Reports, AR Support
+  (Measurement), and Delivery all have full controller/service/route
+  layers now - see section 3C. Every model in the 21-model schema has an
+  API above it as of this update.
 - RESOLVED 2026-08-02 (Request Approval module): "Request approved" /
   "Request rejected" now has a real automatic trigger - built directly
   into request.service.ts's approveRequest()/rejectRequest()/
@@ -223,33 +327,57 @@ read-only visibility across every customer's measurements, matching the
   REQUEST_SUBMITTED/APPROVED/REJECTED/CANCELLED all use it consistently).
 
 [SECURITY / HARDENING - not done yet, worth doing before production]
-- No rate limiting on /api/auth/register and /api/auth/login (brute-force /
-  spam risk). Consider express-rate-limit.
-- No refresh-token or token-revocation mechanism - JWTs are stateless and
-  only expire by time (JWT_EXPIRES_IN). If a token needs to be invalidated
-  early (e.g. user deactivated mid-session), it still works until it expires.
+- RESOLVED 2026-08-02: rate limiting on /api/auth/register and
+  /api/auth/login (5 requests/15 min/IP, shared counter) via
+  express-rate-limit - see section 1 and 3C's Rate Limiting entry. As a
+  side effect, POST /api/payments/webhook is also now covered by the
+  general 100-requests/15-min/IP limiter (it's mounted on the whole
+  /api prefix, and the webhook route lives under /api/payments/...) -
+  the separate "no rate limiting on the webhook" bullet that used to be
+  here is resolved by the same change, not a second implementation.
+- RESOLVED 2026-08-02: refresh-token issuance, rotation, and logout/
+  revocation via a new refresh_tokens table - see section 1 and 3C's
+  Refresh Token Authentication entry. Note the scope boundary this left
+  behind: ACCESS tokens (JWT) still only expire by time (JWT_EXPIRES_IN,
+  still 7d by default) and still cannot be revoked early - deactivating
+  a user mid-session doesn't invalidate an access token already issued
+  to them, only blocks them from getting a new one (login/refresh both
+  check isActive). Only REFRESH tokens are now revocable. Shortening
+  JWT_EXPIRES_IN (e.g. to 15m, as the refresh-token task recommended)
+  would shrink that early-revocation gap to the access token's lifetime,
+  but wasn't done in this pass - it was explicitly optional ("recommended",
+  not required) and changing the default conflicted with that same
+  task's hard rule to keep existing access-token behavior exactly as-is;
+  left as a deliberate follow-up rather than a default flip. Doing so is
+  just an env var change (JWT_EXPIRES_IN=15m), no code changes needed.
 - No email verification flow on registration.
 - No forgot-password / reset-password flow.
 - No account lockout after repeated failed login attempts.
 - CORS_ORIGIN is currently a single placeholder value
   (http://localhost:3000) - update per environment (web dashboard origin,
   mobile app origin if applicable) as those are built.
-- No rate limiting on POST /api/payments/webhook either. Low risk today
-  (unrecognized events are just ignored, and a bad signature is rejected
-  before any DB work), but still worth adding if this endpoint's URL ever
-  leaks/gets scanned.
+- Rate limiting keys purely on `req.ip` with no `app.set('trust proxy', ...)`
+  configured - correct for direct traffic, but if this is ever deployed
+  behind a reverse proxy/load balancer, every request would appear to
+  come from the proxy's single IP (making the limiters either useless or
+  overly aggressive) until trust proxy is configured correctly for that
+  specific topology. Deliberately not set now - guessing at proxy
+  topology that doesn't exist yet risks trusting a spoofable
+  X-Forwarded-For header for no real benefit.
 
 [ENGINEERING / QUALITY]
 - RESOLVED: automated tests now exist AND pass for real. Vitest +
-  Supertest integration suite, 455 tests across 17 files (auth, category,
-  product, inventory, cart, order, payment, booking, installer, chat,
-  notifications, feedback, project, request, analytics, reports, ar) -
-  see section 3D. Run against the real panelscan_test CockroachDB Cloud
-  database: 455/455 passing (one genuine test-fixture bug was found and
-  fixed on the pre-Chat 135-test run - see section 3E; every module built
-  since Chat - Notification/Feedback/Project/Request/Analytics/Reports/
-  AR Support - has passed its own new tests clean on the first real run
-  against the live database).
+  Supertest integration suite, 530 tests across 20 files (auth,
+  refreshToken [new, still under tests/auth/], category, product,
+  inventory, cart, order, payment, booking, installer, chat,
+  notifications, feedback, project, request, analytics, reports, ar,
+  delivery, rateLimit) - see section 3D. Run against the real
+  panelscan_test CockroachDB Cloud database: 530/530 passing (one
+  genuine test-fixture bug was found and fixed on the pre-Chat 135-test
+  run - see section 3E; every module/feature built since Chat -
+  Notification/Feedback/Project/Request/Analytics/Reports/AR Support/
+  Delivery/Rate Limiting/Refresh Token Authentication - has passed its
+  own new tests clean on the first real run against the live database).
 - No CI/CD pipeline configured (lint/typecheck/test/build on push) - the
   test suite exists now, but nothing runs it automatically yet.
 - No structured logging/observability beyond morgan console request logs
@@ -263,11 +391,9 @@ read-only visibility across every customer's measurements, matching the
 Done as of this update: Category, Product, Inventory (Phase 2), Cart,
 Order, Payment/PayMongo (Phase 3.1-3.3), Booking, Installer (Phase 4),
 Chat, Notification, Feedback, Project, Request Approval, Analytics
-Dashboard, Reports, AR Support (Phase 5) - see section 3C. Still
+Dashboard, Reports, AR Support, Delivery (Phase 5) - see section 3C.
+Every model in the 21-model schema now has an API above it. Still
 remaining:
-- Delivery module (Delivery model exists, no API yet - shipment tracking
-  once an order is PROCESSING/SHIPPED). The only model left in the
-  21-model schema with no API above it.
 - Frontend apps entirely: React Native + Expo mobile app (TypeScript) -
   this is the app that will actually own the AR camera/ARCore/ARKit
   scanning and call this backend's /api/ar endpoints - web dashboard/
@@ -795,16 +921,186 @@ Product.width/height/price already existed exactly as needed):
   CUSTOMER-only), since staff estimating on a customer's behalf is a
   reasonable use case and the endpoint has no side effects to restrict.
 
+Delivery (2026-08-02; no schema changes - Delivery already existed 1:1
+with Order via a unique orderId, exactly as needed. The last model in
+the 21-model schema to get an API):
+  POST /api/delivery (MODERATOR only). GET /api/delivery (CUSTOMER: own
+  orders' deliveries only; MODERATOR/OWNER: every delivery) with
+  ?status=scheduled|delivered (derived from deliveredAt being null vs
+  set - Delivery has no separate status column), ?search= (tracking
+  number/courier/address), ?sortBy=scheduledDate|createdAt,
+  ?sortOrder=, ?page=/?limit=. GET/:id (CUSTOMER: own order only, 404
+  otherwise). PATCH /:id (MODERATOR only - courierName/trackingNumber/
+  address/scheduledDate; orderId is not in the update schema at all, so
+  it's structurally impossible to change, not just rejected). PATCH
+  /:id/delivered (MODERATOR only - sets deliveredAt, 409 if already
+  set). DELETE /:id (MODERATOR only - 409 if already delivered).
+  OWNER is read-only (same philosophy as Booking/Chat/Request's view
+  routes) - can GET everything, 403s on every write route.
+  One genuine spec gap resolved by elimination, not left ambiguous:
+  neither role's "Can" list in this module's own spec explicitly named
+  "Delete," but OWNER and CUSTOMER were both explicitly listed as
+  "Cannot" delete, so DELETE /api/delivery/:id was assigned to
+  MODERATOR (the "Full Delivery management" role) - flagged directly in
+  delivery.routes.ts's own comment.
+  Establishes the clearest 400-vs-409 split in the codebase yet:
+  malformed input is 400, but "order already has a delivery," "order is
+  CANCELLED," "already marked delivered," and "delete an
+  already-delivered delivery" are all 409 (conflicts with the
+  resource's current state) - continuing, not inventing, the precedent
+  Request Approval established.
+  Deliberately does NOT flip Order.status to DELIVERED when a delivery
+  is marked delivered - out of scope for this module's own spec, and
+  doing so would mean reaching into Order's own status-transition logic
+  from outside it (Order already has its own PATCH /:id/status route
+  for that).
+  Notifications (createNotification(), SYSTEM type): delivery created,
+  tracking number updated, delivery (re)scheduled, delivery marked
+  delivered - all to the order's customer. A single PATCH that updates
+  both trackingNumber and scheduledDate fires both notifications.
+
+Rate Limiting (2026-08-02; cross-cutting - not a module, no schema
+changes, no new routes):
+  src/middleware/rateLimit.middleware.ts exports createRateLimiter()
+  (a thin, reusable wrapper around express-rate-limit whose `handler`
+  forwards a 429 AppError into the existing global error handler rather
+  than writing its own response - no new response-shaping code anywhere)
+  plus two ready-made instances: authRateLimiter (5 requests/15 min/IP,
+  mounted on POST /api/auth/register and POST /api/auth/login only -
+  sharing ONE counter across both, not the whole /auth router, so GET
+  /api/auth/me is unaffected) and apiRateLimiter (100 requests/15 min/IP,
+  mounted on the whole /api prefix in app.ts). /health is registered
+  before app.use('/api', ...) in app.ts, so it was never in scope for
+  either limiter - no special-case exclusion code needed.
+  Both are configurable via new optional env vars (RATE_LIMIT_AUTH_
+  WINDOW_MS/MAX, RATE_LIMIT_API_WINDOW_MS/MAX - see section 3B... no,
+  see backend/README.md section 4) defaulting to the spec'd 5/100 if
+  unset.
+  The one real engineering problem this raised: the existing 502-test
+  suite shares ONE Express app instance and ONE IP across every test
+  file in a single ~20-minute run. Enforcing the real 5/100 limits
+  there would throttle hundreds of unrelated tests with unrelated 429s
+  (auth.test.ts alone makes 7 combined register+login calls, already
+  over 5, well before considering every OTHER file that also hits
+  /api/* repeatedly). Both exported limiters skip enforcement whenever
+  NODE_ENV=test. This does NOT mean rate limiting itself goes untested:
+  tests/rateLimit/rateLimit.test.ts builds isolated, throwaway Express
+  apps directly from the exported createRateLimiter() factory - each
+  with its own virgin in-memory counter, and deliberately without
+  `skip` - to genuinely exercise the exact 5-then-429 and 100-then-429
+  behavior, RateLimit-* headers, legacy-header omission, and window
+  reset, fully decoupled from the shared app/IP the other 502 tests
+  depend on staying unthrottled. A few lightweight checks (health never
+  limited, normal traffic still succeeds) run against the real shared
+  `app` too, since those don't risk tripping anything.
+  Explicitly scoped to ONLY rate limiting per the task's own
+  instructions - refresh tokens, forgot-password, email verification,
+  and account lockout (all still listed as open items in section 2)
+  were deliberately not touched in this pass.
+  KNOWN LIMITATION (flagged, not fixed): no app.set('trust proxy', ...)
+  is configured, so rate limiting keys purely on the direct connection's
+  req.ip. Correct for direct traffic; if this is ever deployed behind a
+  reverse proxy/load balancer, trust proxy will need to be configured
+  for that specific topology, or every request will appear to share the
+  proxy's one IP. Not set now since guessing at a proxy topology that
+  doesn't exist yet would mean trusting a spoofable X-Forwarded-For
+  header for no real benefit.
+
+Refresh Token Authentication + Logout (2026-08-02; part of auth, not a
+new module - src/modules/auth/*; one additive schema change, migration
+20260802082341_add_refresh_tokens):
+  New model RefreshToken (table refresh_tokens): id, userId, tokenHash
+  (@unique, SHA-256 of the opaque plaintext token - crypto.createHash,
+  not bcrypt, since the lookup needs a deterministic digest and the
+  token is already high-entropy, unlike a human password), expiresAt,
+  revokedAt (nullable - null means still usable), createdAt. FK to User
+  is onDelete: Cascade (matches the same-file precedent already used
+  for other purely-derived-from-a-user rows like Cart/Booking/
+  Measurement/Feedback, as opposed to Restrict, which is reserved for
+  durable business/audit records like Order/Project/Request).
+  src/utils/refreshToken.ts: generateRefreshToken() (crypto.randomBytes
+  (40).toString('hex') - a plain opaque string, deliberately NOT a JWT,
+  so it carries no decodable claims and is meaningless outside a
+  refresh_tokens row lookup) and hashRefreshToken() (SHA-256 hex
+  digest). No new dependency - both are Node's built-in `crypto`.
+  POST /api/auth/login (existing endpoint, response additive-only):
+  now also creates a refresh_tokens row and returns the plaintext once,
+  as data.refreshToken, alongside the pre-existing data.token (JWT
+  access token, unchanged). POST /api/auth/register was deliberately
+  left untouched - still access-token-only - since expanding it wasn't
+  part of this task's scope; a newly registered user logs in separately
+  to start a refreshable session.
+  POST /api/auth/refresh (new, public - no Authorization header, since
+  the whole point is recovering from an access token that's already
+  expired): looks the presented token up by its hash, checks it exists/
+  isn't expired/isn't revoked, then ROTATES it - revokes the presented
+  row and creates its replacement inside one prisma.$transaction([...])
+  array, alongside signing a new access token. Rotation is what makes
+  replay-of-a-stolen-refresh-token detectable/limited: redeeming the
+  same token twice is impossible (the second attempt hits
+  revokedAt != null and 401s with "has been revoked"), and unlike the
+  access token, revocation takes effect immediately rather than waiting
+  out an expiry window. Shares authRateLimiter (5/15min/IP) with
+  register+login - anticipated and called out explicitly back when rate
+  limiting was built ("Reuse authRateLimiter on Refresh Token... routes
+  when those are built" - see the Rate Limiting entry above).
+  POST /api/auth/logout (new, requires a valid, not-yet-expired access
+  token; body carries the refresh token to revoke): revokes ONLY that
+  one row, not every session belonging to the user - each login creates
+  its own independent refresh_tokens row, so multi-device sessions stay
+  independent by construction, not by extra bookkeeping. Unknown token
+  or a token that exists but belongs to a different userId both return
+  404 (never 403 or a distinguishing message), continuing this
+  project's established ownership-violation convention of never
+  confirming a resource's existence/ownership to a caller not entitled
+  to it.
+  Scope boundary worth remembering: access-token (JWT) lifetime and
+  revocability are UNCHANGED by this feature - JWT_EXPIRES_IN is still
+  7d by default, and an issued access token cannot be force-expired
+  early (only refresh tokens can now be revoked). See section 2's
+  SECURITY/HARDENING bracket for the follow-up note on why
+  JWT_EXPIRES_IN wasn't shortened in this same pass.
+  Tests: tests/auth/refreshToken.test.ts (16 tests, kept as a separate
+  new file rather than edited into the existing tests/auth/auth.test.ts,
+  so the already-passing, already-reviewed file for register/login/me
+  stays untouched). Covers issuance (login response shape, hash-not-
+  plaintext stored - verified directly via Prisma), rotation (old row's
+  revokedAt gets set, a second new row appears, its tokenHash matches
+  the newly-returned plaintext), replay rejection (reusing a
+  since-rotated token 401s), expired tokens (seeded directly via the
+  new createTestRefreshToken() factory with a past expiresAt, since
+  waiting 7 real days isn't practical), pre-revoked tokens, a
+  tampered/garbage token (plus a real token with one character flipped),
+  missing-field validation, logout requiring auth, logout revoking
+  exactly the right row and no others, 404s on unknown/someone-else's
+  token (with a DB-unchanged assertion), refresh-after-logout rejection,
+  and the multi-device case (two independent logins for one user, two
+  independent tokens, revoking one leaves the other refreshable).
+  tests/helpers/factories.ts grew createTestRefreshToken() (direct-
+  Prisma, hashes a freshly generated plaintext exactly like the real
+  service does, accepts optional expiresAt/revokedAt overrides) and
+  tests/helpers/db.ts's cleanDatabase() grew a refresh_tokens
+  deleteMany() (children-before-parents ordering, even though the
+  Cascade FK would eventually clean these up anyway when users are
+  deleted - explicit deletion matches the existing pattern used for
+  every other child table in that list).
+
 --------------------------------------------------------------------------------
 3D. TESTING INFRASTRUCTURE (VITEST + SUPERTEST)
 --------------------------------------------------------------------------------
-455 integration tests across 17 files: tests/auth/, tests/category/,
-tests/product/, tests/inventory/, tests/cart/, tests/order/,
-tests/payment/, tests/booking/, tests/installer/, tests/chat/,
-tests/notifications/, tests/feedback/, tests/project/, tests/request/,
-tests/analytics/, tests/reports/, tests/ar/. Run for real against the
-live panelscan_test CockroachDB Cloud database as of the MILESTONE in
-section 1 - 455/455 passing, not just "correctly discovered."
+530 integration tests across 20 files: tests/auth/ (auth.test.ts +
+refreshToken.test.ts), tests/category/, tests/product/,
+tests/inventory/, tests/cart/, tests/order/, tests/payment/,
+tests/booking/, tests/installer/, tests/chat/, tests/notifications/,
+tests/feedback/, tests/project/, tests/request/, tests/analytics/,
+tests/reports/, tests/ar/, tests/delivery/, tests/rateLimit/. Run for
+real against the live panelscan_test CockroachDB Cloud database as of
+the MILESTONE in section 1 - 530/530 passing, not just "correctly
+discovered." (502/502 through Delivery; +12 for Rate Limiting,
+tests/rateLimit/rateLimit.test.ts, run against isolated throwaway app
+instances rather than the live DB since rate-limiting doesn't touch
+Prisma; +16 for Refresh Token Authentication, tests/auth/
+refreshToken.test.ts, run against the live DB like the rest of auth.)
 
 Setup:
   - Vitest (not Jest - better native TS/NodeNext support for this
@@ -822,8 +1118,9 @@ Setup:
     not an oversight.
   - tests/setup.ts: beforeAll fails fast with a clear "can't reach the
     test DB, did you run test:migrate?" message instead of letting 166
-    tests each time out individually; afterEach truncates all 21 models
-    in FK-safe order (tests/helpers/db.ts) for isolation between tests.
+    tests each time out individually; afterEach truncates all 22 models
+    (21 + refresh_tokens, 2026-08-02) in FK-safe order (tests/helpers/
+    db.ts) for isolation between tests.
   - tests/helpers/factories.ts: createTestUser/Owner/Moderator/Customer
     (bypasses register, signs a real JWT with the app's own signToken),
     createTestCategory/Product (with optional Inventory/deletedAt),
@@ -834,9 +1131,13 @@ Setup:
     createTestNotification(+ type/isRead/metadata),
     createTestFeedback, createTestProject(+ notes/budget/dates),
     createTestRequest(+ status/reviewedBy/reviewNote),
-    createTestMeasurement(+ width/height/depth/label) - all direct-Prisma
-    fixture builders so each test file can set up state without depending
-    on other endpoints already working. createTestPayment also grew an
+    createTestMeasurement(+ width/height/depth/label),
+    createTestDelivery(+ courierName/trackingNumber/deliveredAt),
+    createTestRefreshToken(+ optional expiresAt/revokedAt, 2026-08-02,
+    for Refresh Token Authentication's expired/revoked-token tests) - all
+    direct-Prisma fixture builders so each test file can set up state
+    without depending on other endpoints already working. createTestPayment
+    also grew an
     optional paidAt param (2026-08-02, for Analytics' date-range tests) -
     defaults to "now" when status is PAID and no explicit value is given,
     so every other existing call site keeps working unchanged.
@@ -961,6 +1262,10 @@ Testing               : Vitest + Supertest (integration tests against the
 Payments              : PayMongo (Checkout Sessions API + signed
                         webhooks), called via native fetch - no SDK
                         dependency added
+Rate limiting         : express-rate-limit (5/15min on auth register+
+                        login+refresh, 100/15min on the rest of /api/*)
+Refresh tokens        : Node's built-in `crypto` (randomBytes + SHA-256)
+                        - no new dependency; see src/utils/refreshToken.ts
 Planned frontend       : React Native + Expo (mobile), TypeScript (web
 (not built yet)         dashboard framework not chosen yet)
 

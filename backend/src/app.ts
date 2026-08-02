@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import { env } from './config/env';
 import { globalErrorHandler } from './middleware/error.middleware';
 import { notFound } from './middleware/notFound.middleware';
+import { apiRateLimiter } from './middleware/rateLimit.middleware';
 import routes from './routes';
 
 const app: Application = express();
@@ -29,8 +30,8 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes
-app.use('/api', routes);
+// API routes - rate limiter scoped to /api so /health above is never throttled.
+app.use('/api', apiRateLimiter, routes);
 
 // 404 + global error handling (must be registered last)
 app.use(notFound);

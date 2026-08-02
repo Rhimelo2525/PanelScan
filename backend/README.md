@@ -136,9 +136,11 @@ All responses follow a standard envelope:
 
 | Method | Endpoint    | Auth required | Description                                  |
 |--------|-------------|:---:|-----------------------------------------------------|
-| POST   | `/register` | No  | Creates a new `CUSTOMER` account, returns user + JWT |
-| POST   | `/login`    | No  | Validates credentials, returns user + JWT            |
+| POST   | `/register` | No  | Creates a new `CUSTOMER` account, returns user + access token |
+| POST   | `/login`    | No  | Validates credentials, returns user + access token + refresh token |
 | GET    | `/me`       | Yes | Returns the authenticated user's profile             |
+| POST   | `/refresh`  | No  | Exchanges a valid refresh token for a new access token + a new (rotated) refresh token |
+| POST   | `/logout`   | Yes | Revokes the one refresh token supplied in the body    |
 
 **POST `/api/auth/register`**
 Body:
@@ -157,14 +159,29 @@ Body:
 - `phone`: optional
 - Role is **always** forced to `CUSTOMER` server-side — it cannot be set by the client.
 - `409` if the email is already registered.
+- Only issues an access token (`data.token`), not a refresh token — log in separately to start a refreshable session.
 
 **POST `/api/auth/login`**
 Body: `{ "email": "juan@example.com", "password": "Passw0rd123" }`
 - `401` on invalid credentials, `403` if the account has been deactivated.
+- Response: `{ "user": {...}, "token": "<JWT access token>", "refreshToken": "<opaque refresh token>" }`.
 
 **GET `/api/auth/me`**
 Header: `Authorization: Bearer <token>`
 - Returns the current authenticated user (password never included in any response).
+
+**POST `/api/auth/refresh`**
+Body: `{ "refreshToken": "<opaque refresh token>" }` — no `Authorization` header needed (that's the point: it works even after the access token has expired).
+- Validates the token exists, is unexpired, and is unrevoked (its stored hash must match).
+- **Rotates on every successful call**: the presented token is revoked and a brand-new refresh token is issued in the same database transaction, alongside a new access token. The old refresh token can never be redeemed again (replay protection) — reusing it returns `401`.
+- `401` if the token is unknown/tampered, expired, or already revoked. `403` if the token's owner account has since been deactivated.
+- Response: `{ "token": "<new JWT access token>", "refreshToken": "<new opaque refresh token>" }`.
+
+**POST `/api/auth/logout`**
+Header: `Authorization: Bearer <token>` (a still-valid access token).
+Body: `{ "refreshToken": "<opaque refresh token>" }`
+- Revokes **only** that one refresh token — other active sessions/devices for the same user are untouched.
+- `404` if the token doesn't exist or doesn't belong to the authenticated caller (never `403`, so a caller can't use the response to probe whether a token exists for someone else).
 
 ### Users — `/api/users`
 
@@ -558,6 +575,66 @@ Response:
 }
 ```
 
+### Delivery — `/api/delivery`
+
+Shipment tracking for an order once it's on its way. 1:1 with `Order` (`Delivery.orderId` is unique). All routes require `Authorization: Bearer <token>`.
+
+**Role permissions**
+
+| Role | Can | Cannot |
+|------|-----|--------|
+| `CUSTOMER` | View deliveries for their own orders (status, tracking info) | Create, update, delete, mark delivered |
+| `MODERATOR` | Full delivery management — create, update courier/tracking/address/schedule, mark delivered, view every delivery, delete (only while not yet delivered) | — |
+| `OWNER` | View every delivery (read-only — same philosophy as Booking/Chat) | Create, update, delete, mark delivered |
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/`      | `MODERATOR` | Create a delivery for an order. `scheduledDate` required and must be in the future. |
+| GET    | `/`      | any  | `CUSTOMER`: deliveries for their own orders only. `MODERATOR`/`OWNER`: every delivery. Supports `?status=scheduled\|delivered`, `?search=` (tracking number / courier / address), `?sortBy=scheduledDate\|createdAt` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`/`?limit=`. |
+| GET    | `/:id`   | any  | Single delivery. `CUSTOMER`: own order only (`404` otherwise). `MODERATOR`/`OWNER`: any. |
+| PATCH  | `/:id`   | `MODERATOR` | Update `courierName`/`trackingNumber`/`address`/`scheduledDate`. `orderId` can never be changed (not accepted by this endpoint at all). |
+| PATCH  | `/:id/delivered` | `MODERATOR` | Sets `deliveredAt` to now. `409` if already delivered. |
+| DELETE | `/:id`   | `MODERATOR` | Delete a delivery — only while `deliveredAt` is still `null` (`409` once delivered; a delivered record is a completed shipment, not erasable). |
+
+- Creating a delivery requires the order to exist (`404` otherwise), not already have a delivery (`409` — one delivery per order), and not be `CANCELLED` (`409`). Both are state-conflict errors, not validation errors, hence `409` rather than `400` — the same 400-vs-409 split already established by the Request Approval module.
+- `address`: 10–500 characters. `courierName`/`trackingNumber`: 2–150 / 2–100 characters if provided. `scheduledDate` on create must be a future date; on update it just needs to be a valid date (no future-only constraint on reschedules).
+- Submitting a delivery, updating its tracking number, (re)scheduling it, and marking it delivered all notify the order's customer via the existing Notification module (`type: SYSTEM`, `metadata: { deliveryId, orderId, event }`). A single `PATCH` that includes both `trackingNumber` and `scheduledDate` fires both notifications.
+- Marking a delivery delivered only sets `Delivery.deliveredAt` — it deliberately does **not** also flip `Order.status` to `DELIVERED`, since that wasn't part of this module's spec and doing so would mean reaching into Order's own status-transition logic from outside it.
+
+**POST `/api/delivery`**
+Body:
+```json
+{ "orderId": "<uuid>", "address": "123 Rizal Street, Quezon City, Metro Manila, 1100", "scheduledDate": "2027-02-01", "courierName": "LBC Express", "trackingNumber": "TRK-001" }
+```
+
+**PATCH `/api/delivery/:id/delivered`**
+No body required. Response has `deliveredAt` set to the current timestamp.
+
+### Rate Limiting
+
+Applies across the whole API, not to one module — brute-force and general abuse protection via [`express-rate-limit`](https://www.npmjs.com/package/express-rate-limit), implemented in `src/middleware/rateLimit.middleware.ts`.
+
+| Scope | Window | Limit | Applies to |
+|-------|--------|-------|------------|
+| Authentication | 15 minutes | 5 requests per IP | `POST /api/auth/register` + `POST /api/auth/login` + `POST /api/auth/refresh` **combined** (one shared counter). Reuse `authRateLimiter` on Forgot Password routes too, when that's built. |
+| General API | 15 minutes | 100 requests per IP | Every route under `/api/*`. |
+| `/health` | — | Unlimited | Not under `/api`, so it's never touched by either limiter. |
+
+- Exceeding a limit returns `429` through the same global error handler as every other error in this API — `{ "success": false, "message": "Too many requests. Please try again later." }` (or the auth-specific message), no `errors` array.
+- Responses carry modern `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` headers (plus `Retry-After` on a `429`). Legacy `X-RateLimit-*` headers are disabled — nothing extra for a client to fingerprint.
+- Both limiters are configurable via env vars (see below) and default to the numbers in the table above if unset.
+- **Automated tests**: both limiters skip enforcement whenever `NODE_ENV=test`, since the 500+ integration tests share one Express app instance and one IP across a single run — enforcing the real limits there would throttle unrelated tests with unrelated `429`s. The real configured behavior (5/window, 100/window, headers, reset) is verified directly in `tests/rateLimit/rateLimit.test.ts` using isolated middleware instances that don't skip.
+
+### Refresh Token Authentication
+
+Short-lived JWT access tokens (`JWT_EXPIRES_IN`) paired with longer-lived, rotating refresh tokens, so a client can silently obtain a new access token without forcing the user to log in again — and a compromised access token stops working quickly on its own.
+
+- **Access token**: unchanged JWT mechanism (`src/utils/jwt.ts`), still returned by both `/register` and `/login` as `data.token`.
+- **Refresh token**: a cryptographically random 40-byte value (`src/utils/refreshToken.ts`, `crypto.randomBytes`) — opaque to the client, never a JWT. Only its SHA-256 hash is stored (`RefreshToken.tokenHash`, `@unique`) — the plaintext is returned exactly once, at issuance, and never persisted anywhere. SHA-256 (not bcrypt) is deliberate: the token is already high-entropy random data, not a human-chosen secret, and the lookup (`findUnique({ where: { tokenHash } })`) needs a deterministic digest — bcrypt's per-call random salt would make that impossible.
+- **Rotation**: every successful `POST /api/auth/refresh` revokes the presented token and issues a brand-new one in the same database transaction. A refresh token can be redeemed exactly once — replaying an already-used (or already-revoked) token returns `401`.
+- **Logout**: `POST /api/auth/logout` revokes only the one refresh token supplied in the body. Logging out on one device never touches another device's session — each login issues its own independent refresh token row.
+- Expiration defaults to 7 days (`REFRESH_TOKEN_EXPIRES_IN_DAYS`, see below), checked against `RefreshToken.expiresAt` on every refresh.
+
 ---
 
 ## 4. Environment Variables
@@ -574,8 +651,13 @@ cp .env.example .env
 | `PORT`           | HTTP port                                                  | `4000`         |
 | `DATABASE_URL`   | CockroachDB connection string                              | —              |
 | `JWT_SECRET`     | Secret used to sign JWTs (min 32 chars)                    | —              |
-| `JWT_EXPIRES_IN` | JWT lifetime (e.g. `7d`, `1h`)                              | `7d`           |
+| `JWT_EXPIRES_IN` | Access token (JWT) lifetime (e.g. `7d`, `1h`, `15m`)        | `7d`           |
+| `REFRESH_TOKEN_EXPIRES_IN_DAYS` | Refresh token lifetime, in days               | `7`            |
 | `CORS_ORIGIN`    | Allowed origin for the frontend                             | `*`            |
+| `RATE_LIMIT_AUTH_WINDOW_MS` | Auth rate-limit window (ms)                       | `900000` (15 min) |
+| `RATE_LIMIT_AUTH_MAX`       | Max register+login requests per IP per window     | `5`            |
+| `RATE_LIMIT_API_WINDOW_MS`  | General API rate-limit window (ms)                | `900000` (15 min) |
+| `RATE_LIMIT_API_MAX`        | Max `/api/*` requests per IP per window            | `100`          |
 
 `src/config/env.ts` validates all of these at startup with Zod — the process exits immediately
 with a clear error message if anything required is missing or malformed.
@@ -714,11 +796,12 @@ Content-Type: application/json
   "password": "Passw0rd123"
 }
 ```
-Expected `200` with `data.token`. Save this token as a Postman **collection variable**
-(e.g. `{{token}}`) using the Postman **Tests** tab:
+Expected `200` with `data.token` and `data.refreshToken`. Save both as Postman **collection
+variables** (`{{token}}`, `{{refreshToken}}`) using the Postman **Tests** tab:
 ```js
 const body = pm.response.json();
 pm.collectionVariables.set('token', body.data.token);
+pm.collectionVariables.set('refreshToken', body.data.refreshToken);
 ```
 
 ### Get current user
@@ -726,6 +809,31 @@ pm.collectionVariables.set('token', body.data.token);
 GET http://localhost:4000/api/auth/me
 Authorization: Bearer {{token}}
 ```
+
+### Refresh the access token
+```
+POST http://localhost:4000/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+```
+Expected `200`, with both `data.token` and `data.refreshToken` replaced by new values (rotation) —
+update the saved `{{refreshToken}}` collection variable to the new one, since the old one is now
+revoked and cannot be reused.
+
+### Logout (revoke a refresh token)
+```
+POST http://localhost:4000/api/auth/logout
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+```
+Expected `200`. A subsequent `/api/auth/refresh` with the same `refreshToken` now returns `401`.
 
 ### List users (requires an OWNER account)
 ```
@@ -1080,6 +1188,39 @@ Content-Type: application/json
 { "productId": "<uuid of a product with width/height configured>", "measurementId": "<measurementId>" }
 ```
 
+### Delivery: create (MODERATOR)
+```
+POST http://localhost:4000/api/delivery
+Authorization: Bearer {{moderatorToken}}
+Content-Type: application/json
+
+{ "orderId": "<uuid>", "address": "123 Rizal Street, Quezon City, Metro Manila, 1100", "scheduledDate": "2027-02-01", "courierName": "LBC Express", "trackingNumber": "TRK-001" }
+```
+
+### Delivery: list (filter + search + pagination + sorting)
+```
+GET http://localhost:4000/api/delivery?status=scheduled&search=LBC&sortBy=scheduledDate&sortOrder=asc&page=1&limit=20
+Authorization: Bearer {{token}}
+```
+
+### Delivery: update tracking / reschedule (MODERATOR)
+```
+PATCH http://localhost:4000/api/delivery/<deliveryId>
+Authorization: Bearer {{moderatorToken}}
+Content-Type: application/json
+
+{ "trackingNumber": "TRK-999", "scheduledDate": "2027-02-05" }
+```
+
+### Delivery: mark delivered / delete (MODERATOR)
+```
+PATCH http://localhost:4000/api/delivery/<deliveryId>/delivered
+Authorization: Bearer {{moderatorToken}}
+
+DELETE http://localhost:4000/api/delivery/<deliveryId>
+Authorization: Bearer {{moderatorToken}}
+```
+
 ### Example validation error response (`400`)
 ```json
 {
@@ -1089,6 +1230,14 @@ Content-Type: application/json
     { "path": "email", "message": "Please provide a valid email address." },
     { "path": "password", "message": "Password must contain at least one uppercase letter." }
   ]
+}
+```
+
+### Example rate-limit error response (`429`)
+```json
+{
+  "success": false,
+  "message": "Too many authentication attempts. Please try again later."
 }
 ```
 
