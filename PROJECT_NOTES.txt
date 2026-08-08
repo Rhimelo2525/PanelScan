@@ -1,7 +1,7 @@
 ================================================================================
 PANELSCAN - PROJECT NOTES
 AR-powered e-commerce and project management system for Disenyo Interior Solution
-Last updated: 2026-08-02 (Refresh Token Authentication + Logout)
+Last updated: 2026-08-08 (GitHub Actions CI)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -271,6 +271,36 @@ someone else's), post-logout refresh rejection, and multi-device
 independence (two logins -> two tokens -> revoking one leaves the
 other refreshable). 530/530 passing (514 + 16 new).
 
+P0 Documentation Cleanup (2026-08-08; documentation only - no application code,
+schema, migrations, or tests touched, per explicit instruction on this task):
+a handoff-readiness inspection the same day had found three real, verified gaps
+- backend/README.md section 3 had no endpoint write-up for 8 early modules
+(Category, Product, Inventory, Cart, Order, Payment, Booking, Installer - all
+fully implemented and tested the whole time, just never documented), Postman
+coverage existed for only 9 of 19 business modules, and README section 8
+("What's next") still described Phase 1 as current status. All three closed
+in this pass: full README section 3 entries added for all 8 modules (base
+route, auth/role requirements, every endpoint, request/response shapes,
+business rules, ownership rules, status/workflow rules - written directly
+from the actual route/controller/validation/service files, not guessed), 10
+new Postman collections added (PanelScan-Auth, -Users, -Categories,
+-Products, -Inventory, -Cart, -Orders, -Payments, -Bookings, -Installers -
+Refresh Token rotation/logout folded into -Auth, plus a manual Rate Limiting
+verification request there too), and README section 8 rewritten as a
+verified COMPLETED/NEXT/LATER/DEFERRED breakdown. One genuine, pre-existing
+code quirk surfaced while writing the Payment section (not something this
+pass touched, since it's documentation-only): POST /api/payments/create
+returns 403, not this codebase's otherwise-universal 404, when a customer
+references someone else's order - verified directly in payment.service.ts,
+documented as-is in README section 3 and flagged in DEVELOPMENT_ROADMAP.md
+section 4 rather than silently smoothed over or "fixed." The three root-
+level docs from the prior handoff pass (DEVELOPMENT_ROADMAP.md,
+DEVELOPMENT_GUIDE.md, FRONTEND_HANDOFF.md) were updated in the same pass so
+none of them still describe these three items as open gaps. Test count
+unchanged at 530/530 (no new tests were required or added - documentation
+changes don't touch behavior); build and typecheck reverified clean after
+the README/Postman changes.
+
 --------------------------------------------------------------------------------
 2. LEFT BEHIND / STILL TO FIX (TODO)
 --------------------------------------------------------------------------------
@@ -378,8 +408,35 @@ other refreshable). 530/530 passing (514 + 16 new).
   Notification/Feedback/Project/Request/Analytics/Reports/AR Support/
   Delivery/Rate Limiting/Refresh Token Authentication - has passed its
   own new tests clean on the first real run against the live database).
-- No CI/CD pipeline configured (lint/typecheck/test/build on push) - the
-  test suite exists now, but nothing runs it automatically yet.
+- RESOLVED 2026-08-08: GitHub Actions CI added at
+  .github/workflows/backend-ci.yml - runs on every push/PR against main:
+  npm ci -> prisma generate -> test:typecheck -> build -> (ephemeral
+  CockroachDB container) -> test:migrate -> npm test. Every step blocks
+  (no continue-on-error anywhere). Deliberately does NOT point at the
+  real dev/test CockroachDB Cloud databases - that test cluster has
+  exhausted its monthly Request Unit quota (see the note two entries
+  below) and pointing CI at a quota-exhausted external cluster would
+  make every run fail on billing state, not on this repo's own code.
+  Instead each CI run starts its own short-lived, single-node
+  CockroachDB Docker container (cockroachdb/cockroach:latest-v24.3,
+  insecure mode), which is still genuinely CockroachDB (not SQLite,
+  not plain Postgres) and needs zero GitHub Secrets, since nothing
+  about a fresh private per-run container is sensitive - it copies
+  backend/.env.test.example to .env.test completely unmodified (that
+  file's DATABASE_URL already targets postgresql://root@localhost:
+  26257/panelscan_test, an exact match for the container CI just
+  started). Also defensively re-applies this project's own documented
+  fix for the schema_locked-tables-block-index-creation quirk (see
+  section 3E below) before running migrations, tolerated as a no-op if
+  the CockroachDB build CI happens to pull doesn't have that cluster
+  setting at all. Full design writeup and "how to read a failed CI
+  run" guide: DEVELOPMENT_GUIDE.md section 8.5. Could not be verified
+  end-to-end by actually pushing/triggering a real GitHub Actions run
+  as part of this task (no push was requested) - the YAML was validated
+  for correct syntax (PyYAML) and every step reuses an existing,
+  already-verified-working npm script or a directly-inspected file
+  (package.json, .env.test.example, migrations/), not invented from
+  guesswork.
 - No structured logging/observability beyond morgan console request logs
   (no request IDs, no log shipping, no error tracking like Sentry).
 - bcrypt is a native module. It installed cleanly in this environment, but

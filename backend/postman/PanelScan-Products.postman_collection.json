@@ -1,0 +1,186 @@
+{
+  "info": {
+    "name": "PanelScan API — Product Module",
+    "description": "Catalog products, including the panel width/height/thickness dimensions used by the AR Support module's panel estimator. Public list/search/featured/by-category/get; OWNER/MODERATOR create/update/soft-delete. Includes a minimal Auth folder and a Trigger folder that creates a category to attach the product to. Follows the same per-module-collection pattern as every other PanelScan-*.postman_collection.json file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "moderatorToken", "value": "" },
+    { "key": "categoryId", "value": "" },
+    { "key": "productId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Login (seeded MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trigger (produces a category to attach the product to)",
+      "item": [
+        {
+          "name": "Create category (MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/categories", "host": ["{{baseUrl}}"], "path": ["categories"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Product Module Test Category\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('categoryId', pm.response.json().data.category.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List products (public, filters)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products?sortBy=price&sortOrder=asc&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "sortBy", "value": "price" },
+                { "key": "sortOrder", "value": "asc" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search products (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/search?search=Panel",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "search"],
+              "query": [{ "key": "search", "value": "Panel" }]
+            }
+          }
+        },
+        {
+          "name": "Featured products (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products/featured", "host": ["{{baseUrl}}"], "path": ["products", "featured"] }
+          }
+        },
+        {
+          "name": "Products by category (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/category/{{categoryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "category", "{{categoryId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create product (MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/products", "host": ["{{baseUrl}}"], "path": ["products"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoryId\": \"{{categoryId}}\",\n  \"name\": \"Test Oak Veneer Wall Panel\",\n  \"sku\": \"WP-TEST-001\",\n  \"price\": 1850.00,\n  \"width\": 60,\n  \"height\": 240,\n  \"thickness\": 1.2,\n  \"material\": \"Oak Veneer\",\n  \"isFeatured\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('productId', pm.response.json().data.product.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "description": "Note: creating a product does NOT create an Inventory row for it. GET /api/inventory/{{productId}} will 404 until one is created directly (there is no POST /api/inventory endpoint either) - see the Inventory collection's description."
+        },
+        {
+          "name": "Get product by id (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}"] }
+          }
+        },
+        {
+          "name": "Update product (MODERATOR)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"price\": 1900.00,\n  \"isFeatured\": false\n}" }
+          }
+        },
+        {
+          "name": "Delete (soft) product (MODERATOR)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}"] }
+          },
+          "description": "Sets deletedAt + isActive: false. Permanent through this API - there is no un-delete endpoint."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+name: Backend CI
+
+# Runs on every push and every pull request. Both are scoped to `main` because that is
+# currently this repository's only branch (see DEVELOPMENT_GUIDE.md §8) - broaden the
+# `branches` lists below once feature branches are actually in use.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege: this workflow only reads the repo and runs checks - it never needs to
+# write to it, open issues/PRs, or touch packages/deployments.
+permissions:
+  contents: read
+
+# Cancel a stale run for the same branch/PR when new commits land, instead of letting
+# both finish.
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Build, typecheck, and test the backend
+    runs-on: ubuntu-latest
+
+    # backend/package.json declares no `engines` field, but README.md §5 ("Prerequisites")
+    # documents "Node.js 20+" and package.json's devDependencies pin @types/node to ^20.x -
+    # Node 20 (current LTS) is this repo's actual supported version.
+    env:
+      NODE_VERSION: '20'
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js using the repository's actual supported Node version
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      # 3. Install dependencies using the lockfile-safe command
+      #    (backend/package-lock.json exists with lockfileVersion 3 - `npm ci` is the
+      #    correct, reproducible install command; `npm install` is not lockfile-safe.)
+      - name: Install dependencies (npm ci)
+        run: npm ci
+
+      # 4. Generate Prisma Client
+      #    Reuses the existing `prisma:generate` script rather than calling `npx prisma
+      #    generate` directly.
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      # 5. Run TypeScript typecheck
+      #    `test:typecheck` (tests/tsconfig.json) extends the root tsconfig.json and
+      #    additionally includes `../src/**/*.ts` - it is a strict superset of the plainer
+      #    `npm run typecheck` script, so running both here would be a redundant duplicate
+      #    of the same check (verified directly against tests/tsconfig.json).
+      - name: Typecheck (src + tests)
+        run: npm run test:typecheck
+
+      # 6. Run production build
+      - name: Build
+        run: npm run build
+
+      # ----------------------------------------------------------------------------------
+      # Integration test database.
+      #
+      # The real dev/test databases for this project live on CockroachDB Cloud, and that
+      # test cluster has exhausted its monthly Request Unit quota (see PROJECT_NOTES.txt) -
+      # pointing CI at it would make every run fail on external infrastructure, not on this
+      # repository's own code. Instead, CI starts its own throwaway CockroachDB instance
+      # for the lifetime of the job: still genuinely CockroachDB (not SQLite, not plain
+      # PostgreSQL - the schema's `provider = "cockroachdb"` and the CockroachDB-specific
+      # behavior this app relies on are exercised for real), just not the shared Cloud
+      # cluster. This needs no GitHub Secrets at all, since nothing about a fresh, private,
+      # per-run container is sensitive.
+      #
+      # This is run as an explicit `docker run` step rather than a job-level `services:`
+      # entry, because GitHub Actions' `services:` block has no way to override a service
+      # image's default command - and cockroachdb/cockroach's default CMD does not start a
+      # node on its own. `docker run ... start-single-node --insecure` needs that explicit
+      # command, so it's started and waited-on manually instead.
+      # ----------------------------------------------------------------------------------
+
+      - name: Start CockroachDB (ephemeral, insecure single-node, for this CI run only)
+        run: |
+          docker run -d --name cockroachdb \
+            -p 26257:26257 -p 8080:8080 \
+            cockroachdb/cockroach:latest-v24.3 \
+            start-single-node --insecure --listen-addr=0.0.0.0
+
+      - name: Wait for CockroachDB to accept connections
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec cockroachdb cockroach sql --insecure -e "SELECT 1" > /dev/null 2>&1; then
+              echo "CockroachDB is ready."
+              exit 0
+            fi
+            echo "Waiting for CockroachDB... ($i/30)"
+            sleep 2
+          done
+          echo "CockroachDB did not become ready in time." >&2
+          exit 1
+
+      - name: Apply CockroachDB cluster settings required by this project's migrations
+        # CockroachDB Cloud (and some self-hosted versions - see PROJECT_NOTES.txt §3E,
+        # "Schema-locked tables blocking index creation") create new tables with
+        # `schema_locked = true` by default, which then blocks adding indexes/constraints
+        # in the same or a later migration batch - exactly what this project's committed
+        # migrations do. Applying the documented fix defensively here; tolerated as a
+        # no-op (not a build/test failure) on CockroachDB builds where the setting doesn't
+        # exist at all, since it genuinely does not apply to every version.
+        run: |
+          docker exec cockroachdb cockroach sql --insecure -e \
+            "SET CLUSTER SETTING sql.defaults.create_table_with_schema_locked = false;" \
+            || echo "Cluster setting not present on this CockroachDB build - not needed, continuing."
+
+      - name: Create the test database
+        run: docker exec cockroachdb cockroach sql --insecure -e "CREATE DATABASE IF NOT EXISTS panelscan_test;"
+
+      - name: Create .env.test for CI
+        # backend/.env.test.example is committed and intentionally contains no real
+        # secrets (see its own header comment): DATABASE_URL already targets
+        # postgresql://root@localhost:26257/panelscan_test?sslmode=disable - an exact
+        # match for the ephemeral CockroachDB container started above, so it's used
+        # verbatim, unmodified. JWT_SECRET and the PAYMONGO_* values in that file are
+        # documented fakes - the test suite stubs `fetch` for every PayMongo call and
+        # never sends them anywhere real.
+        run: cp .env.test.example .env.test
+
+      - name: Apply database migrations (prisma migrate deploy against the committed migrations)
+        # Reuses the existing `test:migrate` script (dotenv -e .env.test -- prisma migrate
+        # deploy) rather than inventing a new command. `migrate deploy` only applies
+        # already-generated, committed migrations from prisma/migrations/ - it never
+        # creates new ones and is safe to run non-interactively, unlike `migrate dev`.
+        run: npm run test:migrate
+
+      # 7. Run integration tests
+      #    No continue-on-error - a failure here fails the job, exactly like every other
+      #    step in this workflow.
+      - name: Run integration tests
+        run: npm test

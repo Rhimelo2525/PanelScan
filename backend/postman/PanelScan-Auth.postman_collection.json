@@ -1,0 +1,135 @@
+{
+  "info": {
+    "name": "PanelScan API — Auth Module",
+    "description": "Register, login, /me, refresh-token rotation, and logout. Also includes a small Rate Limiting folder demonstrating the 5-requests-per-15-minutes-per-IP limit shared by /register, /login, and /refresh (only enforced when NODE_ENV is development/production — the automated test suite runs with NODE_ENV=test, where both rate limiters are deliberately disabled). Follows the same per-module-collection pattern as every other PanelScan-*.postman_collection.json file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "token", "value": "" },
+    { "key": "refreshToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Juan\",\n  \"lastName\": \"Dela Cruz\",\n  \"email\": \"juan.auth@panelscan.test\",\n  \"password\": \"Passw0rd123\",\n  \"phone\": \"+63 912 345 6789\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Register only issues an access token, not a refresh token - log in",
+                  "// separately (below) to obtain one and start a refreshable session.",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('token', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"juan.auth@panelscan.test\",\n  \"password\": \"Passw0rd123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var data = pm.response.json().data;",
+                  "  pm.collectionVariables.set('token', data.token);",
+                  "  pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] },
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Rotation: this refresh token is now revoked; both stored values must",
+                  "// be replaced with the new pair returned here, or the next call 401s.",
+                  "if (pm.response.code === 200) {",
+                  "  var data = pm.response.json().data;",
+                  "  pm.collectionVariables.set('token', data.token);",
+                  "  pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] },
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          },
+          "description": "Revokes only this one refresh token - other devices/sessions for the same user are untouched. Run 'Refresh' again afterward with the same {{refreshToken}} to see it correctly return 401 ('has been revoked')."
+        }
+      ]
+    },
+    {
+      "name": "Rate Limiting (manual verification)",
+      "item": [
+        {
+          "name": "Login x6 rapidly - 6th call returns 429",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@panelscan.test\",\n  \"password\": \"WrongPassword123\"\n}"
+            }
+          },
+          "description": "POST /auth/register + /auth/login + /auth/refresh share ONE 5-requests-per-15-minutes-per-IP counter (RATE_LIMIT_AUTH_MAX / RATE_LIMIT_AUTH_WINDOW_MS). Use Postman's Runner (or the 'Send' button, 6 times fast) against a server started with `npm run dev` (NODE_ENV=development) to see the 6th response come back 429 with `{ \"success\": false, \"message\": \"Too many authentication attempts. Please try again later.\" }` and `RateLimit-*` response headers. This will NOT trigger against a server running under NODE_ENV=test - both rate limiters are deliberately disabled there so the ~530-test automated suite isn't throttled; see tests/rateLimit/rateLimit.test.ts for the isolated, fully-enforcing test coverage of this behavior instead."
+        }
+      ]
+    }
+  ]
+}

@@ -197,6 +197,214 @@ All routes require `Authorization: Bearer <token>`.
 - `:id` must be a valid UUID (`400` otherwise).
 - A `CUSTOMER` may only view/update their own record; `OWNER` can act on anyone.
 
+### Category — `/api/categories`
+
+Product catalog categories. `GET` routes are public (no `Authorization` header required); write routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET    | `/`      | Public | List every active category, sorted by name |
+| GET    | `/:id`   | Public | Get a single **active** category by id |
+| POST   | `/`      | `OWNER`, `MODERATOR` | Create a category |
+| PATCH  | `/:id`   | `OWNER`, `MODERATOR` | Update a category |
+| DELETE | `/:id`   | `OWNER`, `MODERATOR` | Soft-delete (sets `isActive: false`) |
+
+- `name`: 2–100 characters. `slug`: optional — defaults to a slugified version of `name` if omitted; must match `^[a-z0-9]+(-[a-z0-9]+)*$` if supplied. `description`: optional, up to 1000 characters. `imageUrl`: optional, must be a valid URL.
+- `name` and `slug` must both be unique — a conflict on either returns `409`.
+- `GET /` and `GET /:id` only ever return **active** categories — once soft-deleted, a category is no longer reachable through any read endpoint in this module (there is no "show inactive" query flag). `PATCH` can still target a soft-deleted category by id if you already have it (it isn't re-filtered by `isActive`), but you cannot look it back up afterward through this API.
+- `:id` must be a valid UUID (`400` otherwise); a well-formed but nonexistent/inactive id returns `404`.
+- Response shape: `{ "category": {...} }` for single-record endpoints; `{ "categories": [...] }` for the list (no pagination — `GET /` returns every active category in one response).
+
+**POST `/api/categories`**
+Body: `{ "name": "Wall Panels", "description": "Decorative and acoustic wall panels.", "imageUrl": "https://example.com/wall-panels.jpg" }`
+
+**PATCH `/api/categories/:id`**
+Body (any subset, at least one field required): `{ "name": "Wall Panels (Updated)", "isActive": false }`
+
+### Product — `/api/products`
+
+Catalog products, including the panel `width`/`height`/`thickness` dimensions used by the AR Support module's panel estimator. `GET` routes are public; write routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET    | `/`      | Public | List products. Supports `?page=`, `?limit=`, `?search=`, `?categoryId=`, `?isFeatured=true\|false`, `?minPrice=`, `?maxPrice=`, `?sortBy=price\|name\|createdAt`, `?sortOrder=asc\|desc` |
+| GET    | `/search`| Public | Same as `GET /`, but `?search=` is required |
+| GET    | `/featured` | Public | Featured products only (`isFeatured: true`); `?limit=` optional, defaults to 8 |
+| GET    | `/category/:categoryId` | Public | Products in a category (`404` if the category doesn't exist); same query filters as `GET /` |
+| GET    | `/:id`   | Public | A single active, non-deleted product, with category/images/inventory relations |
+| POST   | `/`      | `OWNER`, `MODERATOR` | Create a product |
+| PATCH  | `/:id`   | `OWNER`, `MODERATOR` | Update a product |
+| DELETE | `/:id`   | `OWNER`, `MODERATOR` | Soft-delete (`deletedAt` + `isActive: false`) |
+
+- `categoryId`: must reference an existing category (`404` otherwise). `name`: 2–150 characters. `slug`: optional, defaults to a slugified `name`, same regex as Category. `sku`: 2–50 characters, must be unique. `price`/`width`/`height`/`thickness`: positive numbers, all optional except `price`. `unit`: optional, max 20 characters (defaults to `"piece"` at the schema level). `material`: optional, max 100 characters. `isFeatured`: optional boolean. `images`: optional array, max 10, each `{ url (required, valid URL), altText?, isPrimary?, sortOrder? }`.
+- `slug` and `sku` must both be unique across all products — a conflict on either returns `409`.
+- All public read endpoints (`GET /`, `/search`, `/featured`, `/category/:categoryId`, `/:id`) only ever return products where `deletedAt IS NULL AND isActive = true` — a soft-deleted or deactivated product disappears from every public read, permanently (there is no way to un-delete through this API; `deletedAt` is never cleared once set).
+- `PATCH` with an `images` array **replaces** every existing image for that product (deletes all, then creates the new set) inside a transaction — it does not merge or append.
+- **Important, verified gap**: creating a product does **not** create an `Inventory` row for it. There is no `POST` endpoint in the Inventory module either (see below) — a brand-new product has zero inventory until a row is created for it directly via Prisma (e.g. a seed script or a future admin tool). Until then, `GET /api/inventory/:productId` returns `404`, and the Cart/Order modules treat "no inventory row" as 0 available stock (`"This product is out of stock."`). This is documented here as an accurate description of current behavior, not a bug to be silently patched — flagged for the roadmap instead.
+- Response shape: `{ "product": {...} }` / `{ "products": [...], "pagination": {...} }`. A product's `inventory` field is `null` if no inventory record exists for it yet (see the gap above).
+
+**POST `/api/products`**
+Body:
+```json
+{
+  "categoryId": "<uuid>",
+  "name": "Oak Veneer Wall Panel",
+  "sku": "WP-OAK-001",
+  "price": 1850.00,
+  "width": 60,
+  "height": 240,
+  "thickness": 1.2,
+  "material": "Oak Veneer",
+  "isFeatured": true
+}
+```
+
+**PATCH `/api/products/:id`**
+Body (any subset, at least one field required): `{ "price": 1900.00, "isFeatured": false }`
+
+### Inventory — `/api/inventory`
+
+Stock tracking, one row per product (`Inventory.productId` is unique). A back-office-only module — every route requires `Authorization: Bearer <token>` **and** `OWNER` or `MODERATOR` (unlike Category/Product, nothing here is public).
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET    | `/`      | `OWNER`, `MODERATOR` | List every inventory record. `?page=`, `?limit=` (default limit 50) |
+| GET    | `/low-stock` | `OWNER`, `MODERATOR` | Every record where `quantity <= reorderLevel` (not paginated) |
+| GET    | `/:productId` | `OWNER`, `MODERATOR` | Inventory for one product (`404` if no record exists) |
+| PATCH  | `/:productId/add` | `OWNER`, `MODERATOR` | Increase `quantity`; stamps `lastRestockedAt` |
+| PATCH  | `/:productId/reduce` | `OWNER`, `MODERATOR` | Decrease `quantity` |
+| PATCH  | `/:productId/reserve` | `OWNER`, `MODERATOR` | Increase `reservedQty` (stock held for pending carts/orders) |
+| PATCH  | `/:productId/release` | `OWNER`, `MODERATOR` | Decrease `reservedQty` |
+
+- Every `add`/`reduce`/`reserve`/`release` body is the same shape: `{ "quantity": <positive integer> }`.
+- `reduce`: rejected with `400` if `quantity` exceeds the current `quantity` on hand.
+- `reserve`: rejected with `400` if `quantity` exceeds **available** stock (`quantity - reservedQty`), not raw `quantity` — you cannot reserve stock that's already reserved for something else.
+- `release`: rejected with `400` if `quantity` exceeds the currently reserved amount.
+- Low-stock detection (`quantity <= reorderLevel`) is computed in application code, not a database query — Prisma cannot compare two columns of the same row in a `where` clause without a raw query, so `GET /low-stock` fetches every record and filters in memory. Fine at this data scale; worth knowing if the product catalog grows very large.
+- **There is no `POST /api/inventory` (create) endpoint anywhere in this module.** Inventory rows are only ever created outside the running API today (the seed script, or direct Prisma access) — see the Product section's gap note above for the downstream effect on checkout.
+- Response shape: `{ "inventory": {...} }` for single-record endpoints (including the mutation endpoints, which return the updated record); `{ "inventory": [...], "pagination": {...} }` for the paginated list; `{ "inventory": [...] }` (no pagination) for `/low-stock`.
+
+**PATCH `/api/inventory/:productId/add`**
+Body: `{ "quantity": 50 }`
+
+### Cart — `/api/cart`
+
+The authenticated customer's own shopping cart — always "my cart," never addressed by a cart id in the URL. Every route requires `Authorization: Bearer <token>` and the `CUSTOMER` role (`403` for `OWNER`/`MODERATOR`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/`      | Get (or auto-create, if none exists yet) the current customer's cart |
+| POST   | `/items` | Add a product to the cart, or increase its quantity if already present |
+| PATCH  | `/items/:productId` | Set a cart line's quantity to an exact value |
+| DELETE | `/items/:productId` | Remove one product line from the cart |
+| DELETE | `/`      | Remove every item, keeping the (now-empty) cart itself |
+
+- `POST /items` body: `{ "productId": "<uuid>", "quantity": <positive integer> }`. `PATCH /items/:productId` body: `{ "quantity": <positive integer> }`.
+- A product must exist and not be soft-deleted (`404`), and must be `isActive` (`400`, "This product is currently unavailable.") to be added or kept in the cart.
+- Availability is always checked against `quantity - reservedQty`, never raw `quantity`: `400` ("out of stock" / "Only N unit(s) ... are available.") if the requested total would exceed what's actually available. A product with no `Inventory` row at all is treated as 0 available (see the Product/Inventory gap notes above).
+- Adding a product already in the cart **combines** the quantities (existing + new), re-validated against availability as a whole — it does not create a second line for the same product (`CartItem` has a `@@unique([cartId, productId])` constraint).
+- `DELETE /items/:productId` / `PATCH /items/:productId` on a product not currently in the cart returns `404`.
+- Response shape: `{ "cart": { ..., "items": [ { ..., "product": { id, name, slug, sku, price, unit, isActive, deletedAt, images: [primary image only], inventory: { quantity, reservedQty } } } ] } }` on every endpoint in this module.
+
+**POST `/api/cart/items`**
+Body: `{ "productId": "<uuid>", "quantity": 2 }`
+
+### Order — `/api/orders`
+
+Checkout and order lifecycle. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET    | `/`      | any  | `CUSTOMER`: own orders only. `MODERATOR`/`OWNER`: every order. `?page=`, `?limit=`, `?status=` |
+| GET    | `/:id`   | any  | Order details + line items. `CUSTOMER`: own only (`404` otherwise) |
+| POST   | `/`      | `CUSTOMER` | Check out the customer's **current cart** into a new order |
+| PATCH  | `/:id/cancel` | `CUSTOMER` | Cancel your own order, only while it's `PENDING` |
+| PATCH  | `/:id/status` | `OWNER`, `MODERATOR` | Advance/change an order's status |
+
+- `POST /` body: `{ "shippingAddress": "<10–500 chars>", "notes": "<optional, up to 1000 chars>" }`. There is **no line-item input** — the order is built entirely from whatever is currently in the customer's cart; an empty cart returns `400` ("Your cart is empty.").
+- Checkout is one database transaction: every cart line is re-validated against live inventory and product status (an inactive/soft-deleted/insufficient-stock item aborts the **entire** order — nothing partial is ever created), `OrderItem.productName`/`unitPrice` are snapshotted from the product at that moment (later product renames/repricing never rewrite historical orders), `Inventory.quantity` is decremented per line, and the cart is cleared.
+- `shippingFee` is currently **always `0`** — there is no shipping-cost calculation implemented in this codebase yet. `totalAmount = subtotal + shippingFee` (i.e. `totalAmount` currently always equals `subtotal`).
+- `orderNumber` format: `PS-YYYYMMDD-<6-char random suffix>`.
+- Status values: `PENDING → PROCESSING → SHIPPED → DELIVERED`, or `→ CANCELLED` from a non-terminal state. `DELIVERED` and `CANCELLED` are both terminal — any further `PATCH /:id/status` on either returns `400`.
+- Cancelling (either the customer's own `PENDING`-only cancel, or a staff status change to `CANCELLED`) restocks every line item's `Inventory.quantity` identically, via the same shared logic either way.
+- Triggers `ORDER`-type notifications to the customer on both order placement and every subsequent status change (including cancellation).
+- Response shape: `{ "order": { ..., "items": [...], "customer": { id, firstName, lastName, email, phone } } }` / `{ "orders": [...], "pagination": {...} }`.
+
+**POST `/api/orders`**
+Body: `{ "shippingAddress": "123 Rizal Street, Quezon City, Metro Manila, 1100", "notes": "Please call on arrival." }`
+
+**PATCH `/api/orders/:id/status`**
+Body: `{ "status": "SHIPPED" }`
+
+### Payment — `/api/payments`
+
+PayMongo Checkout Sessions integration. Most routes require `Authorization: Bearer <token>`; the webhook route deliberately does not.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST   | `/webhook` | None (PayMongo calls this directly) | Receives PayMongo payment events |
+| GET    | `/`      | any  | `CUSTOMER`: own payments only. `MODERATOR`/`OWNER`: every payment. `?page=`, `?limit=` |
+| GET    | `/:id`   | any  | A single payment. `CUSTOMER`: own only. |
+| POST   | `/create`| `CUSTOMER` | Create a PayMongo Checkout Session for one of the customer's own orders |
+
+- `POST /create` body: `{ "orderId": "<uuid>" }`. The order must exist (`404` otherwise); if it exists but belongs to a **different** customer, this endpoint returns **`403`, not `404`** — this is the one exception to this API's otherwise-universal 404-for-ownership-violations convention, verified directly in `payment.service.ts`. An order that's `CANCELLED`, or already has a `PAID`/`REFUNDED` payment, returns `400`.
+- Requires `PAYMONGO_SECRET_KEY` to be configured; without it, `POST /create` fails with `500` ("Payment provider is not configured.").
+- `POST /create` response shape is deliberately narrow — **not** a full payment object: `{ "paymentId": "...", "status": "PENDING", "checkoutUrl": "https://..." }`. Redirect the customer's browser/webview to `checkoutUrl` to complete payment on PayMongo's hosted page.
+- `POST /webhook` verifies the `Paymongo-Signature` header (HMAC-SHA256, timing-safe comparison) against `PAYMONGO_WEBHOOK_SECRET` **only if that env var is set** — if it's left unconfigured, incoming webhook payloads are accepted **without signature verification**. Never leave this unset in a real deployment. On a verified `payment.paid` event: marks the matching `Payment` row `PAID`, advances the linked `Order` from `PENDING` to `PROCESSING` if it was still pending, and sends a `PAYMENT` notification. On `payment.failed`: only downgrades a still-`PENDING` payment to `FAILED` (never overwrites an already-resolved payment). Any other event type, or one that can't be correlated to a known payment, is acknowledged with `200` and ignored (so PayMongo doesn't retry indefinitely for something this integration doesn't act on).
+- `GET /:id` returns a narrower, explicit field set (`id`, `orderId`, `status`, `amount`, `method`, `transactionRef`, `paidAt`, `createdAt`) rather than the full payment-with-order-relation shape used by `GET /` — by design, verified in `payment.controller.ts`.
+
+**POST `/api/payments/create`**
+Body: `{ "orderId": "<uuid>" }`
+
+### Booking — `/api/bookings`
+
+Installation-service booking lifecycle. All routes require `Authorization: Bearer <token>`.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET    | `/all`   | `MODERATOR`, `OWNER` | Every booking (registered before `/:id` so `"all"` is never parsed as a booking id) |
+| GET    | `/`      | `CUSTOMER` | The customer's own bookings |
+| GET    | `/:id`   | any  | Booking details. `CUSTOMER`: own only (`404` otherwise) |
+| POST   | `/`      | `CUSTOMER` | Create a booking request |
+| PATCH  | `/:id/cancel` | `CUSTOMER` | Cancel your own booking, only while `PENDING` |
+| PATCH  | `/:id/status` | `MODERATOR` | Change a booking's status (not `OWNER` — see below) |
+| PATCH  | `/:id/assign-installer` | `MODERATOR` | Assign an installer to an `APPROVED` booking |
+
+- `POST /` body: `{ "scheduledDate": "<ISO date, must be in the future>", "address": "<10–500 chars>", "notes": "<optional, up to 1000 chars>" }`.
+- Status machine: `PENDING → APPROVED → SCHEDULED → COMPLETED`, or `→ CANCELLED` from `PENDING`/`APPROVED`/`SCHEDULED`. `SCHEDULED` is **not** directly reachable via `PATCH /:id/status` — attempting `APPROVED → SCHEDULED` there returns `400` ("Assign an installer to move this booking to SCHEDULED."). It's only reached as a side effect of `PATCH /:id/assign-installer` on an `APPROVED` booking.
+- `PATCH /:id/status` and `PATCH /:id/assign-installer` are **`MODERATOR`-only** — `OWNER` gets `403` on both, even though `OWNER` can read every booking via `GET /all`. This matches the same "OWNER has read-only oversight" pattern used in Chat.
+- `assign-installer` body: `{ "installerId": "<uuid>" }`. The booking must be `APPROVED` (`400` otherwise); the installer must exist (`404`) and be active (`400`, "Cannot assign an inactive installer.").
+- Completing a booking (`PATCH /:id/status` → `COMPLETED`) has a documented side effect: it syncs a `Project` record for that customer (completes their most recent `IN_PROGRESS` project, or creates a new `COMPLETED` one if none exists). There is no direct `Booking`↔`Project` foreign key — this is a best-effort correlation by `customerId` only, so a customer with multiple simultaneous `IN_PROGRESS` projects is an edge case this can't fully disambiguate.
+- Triggers `BOOKING`-type notifications on creation, approval, and cancellation.
+- Response shape: `{ "booking": { ..., "customer": {...}, "installer": {...} | null } }` / `{ "bookings": [...], "pagination": {...} }`.
+
+**POST `/api/bookings`**
+Body: `{ "scheduledDate": "2027-02-01", "address": "123 Rizal Street, Quezon City, Metro Manila, 1100", "notes": "Second floor unit." }`
+
+**PATCH `/api/bookings/:id/assign-installer`**
+Body: `{ "installerId": "<uuid>" }`
+
+### Installer — `/api/installers`
+
+The installer roster. Every route requires `Authorization: Bearer <token>` **and** the `MODERATOR` role specifically — not `OWNER` (per this module's explicit "installer management is MODERATOR-only" rule; `OWNER`'s stated capability is to monitor bookings/projects, which doesn't include managing installers).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET    | `/`      | List **active** installers only. `?page=`, `?limit=` |
+| GET    | `/:id`   | A single installer by id — **not** filtered by `isActive`, so a deactivated installer is still viewable here even though it's hidden from the list |
+| POST   | `/`      | Create an installer |
+| PATCH  | `/:id`   | Update an installer's fields |
+| PATCH  | `/:id/deactivate` | Set `isActive: false` |
+
+- `POST /` body: `{ "firstName", "lastName", "email"? (unique if provided), "phone" (required), "specialty"? }`.
+- `email` is optional but must be unique if supplied (`409` on conflict); installers with no email are allowed (multiple installers can have no email simultaneously — `null` doesn't collide with `@unique`).
+- `PATCH /:id` accepts any subset of `firstName`/`lastName`/`phone`/`specialty`/`isActive` (at least one field required). **There is no dedicated "reactivate" endpoint**, but `isActive` is a valid `PATCH /:id` field — setting `{ "isActive": true }` through the generic update endpoint does reactivate a previously deactivated installer.
+- `GET /` only ever lists active installers; a deactivated installer disappears from the list but remains reachable directly via `GET /:id`.
+- Response shape: `{ "installer": {...} }` / `{ "installers": [...], "pagination": {...} }`.
+
+**POST `/api/installers`**
+Body: `{ "firstName": "Juan", "lastName": "Dela Cruz", "phone": "09171234567", "specialty": "Wall panel installation" }`
+
 ### Chat — `/api/chat`
 
 Customer-support-style conversations between a `CUSTOMER` and staff. All routes require `Authorization: Bearer <token>`.
@@ -1243,9 +1451,52 @@ Authorization: Bearer {{moderatorToken}}
 
 ---
 
-## 8. What's next (later phases)
+## 8. What's next
 
-Phase 1 only builds the auth + users foundation. Subsequent phases will add, on top of this same
-`modules/` pattern: inventory management, product management, orders, installer management,
-project tracking/monitoring, feedback management, moderator management, and request approval —
-plus the React Native/Expo mobile app and the web dashboard.
+This section previously described Phase 1 (auth + users only) as the current state, with everything
+below listed as future work. That's stale — every module below has since been built, tested, and
+documented. This is the corrected, verified-against-the-repository status as of the P0 documentation
+cleanup (see `DEVELOPMENT_ROADMAP.md` at the repo root for the full breakdown, workflow trees, and
+discovered documentation gaps).
+
+**COMPLETED** — built, tested (530/530 passing), and documented in this README:
+- Auth (register/login/me, Refresh Tokens, Logout)
+- Users
+- Category
+- Product
+- Inventory
+- Cart
+- Order
+- Payment (PayMongo Checkout Sessions + webhook)
+- Booking
+- Installer
+- Chat
+- Notifications
+- Feedback
+- Project
+- Request Approval
+- Analytics
+- Reports
+- AR Support
+- Delivery
+- Rate Limiting (cross-cutting)
+
+**NEXT**
+- GitHub Actions / CI — no workflow exists yet in this repository (`.github/workflows/` is absent);
+  this is greenfield setup, not a fix.
+- Frontend development — the React Native/Expo mobile app and the web (moderator/owner) dashboard.
+  See `FRONTEND_HANDOFF.md` at the repo root for the API contract and per-role task trees.
+
+**LATER**
+- Email verification on registration
+- Forgot password / reset password flow
+- Account lockout after repeated failed login attempts
+- Other optional security hardening (e.g. shortening `JWT_EXPIRES_IN` now that refresh tokens exist to
+  renew access silently, or configuring `app.set('trust proxy', ...)` once a real deployment topology
+  with a reverse proxy/load balancer exists)
+
+**DEFERRED**
+- Real PayMongo production/live-key integration. The integration code is complete and tested against a
+  stubbed webhook signature — going live only requires real `PAYMONGO_SECRET_KEY` /
+  `PAYMONGO_WEBHOOK_SECRET` values and registering the webhook URL in the PayMongo dashboard, but this
+  is explicitly out of scope until the business is ready to accept real payments.
