@@ -24,7 +24,10 @@ project status and [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) for backend-inte
   every one of the 19 business modules — see the note below on one intentional exception).
 - **No AR camera/rendering code** — the backend persists measurement data and calculates panel
   estimates from it; the actual AR capture experience is 100% a mobile-app concern.
-- **No frontend exists yet.** This is a backend-only repository today.
+- **A frontend project scaffold exists** at `frontend/` (Expo + React Native + TypeScript,
+  added 2026-08-08) — architecture only, no screens implemented yet. See `frontend/README.md` for its
+  folder structure, role/navigation architecture, and how to add features. This document remains the
+  API contract that scaffold (and anyone building it out) must follow.
 
 `backend/README.md` §3 (the endpoint reference) previously had no entries for 8 early modules —
 Category, Product, Inventory, Cart, Order, Payment, Booking, and Installer. That gap was closed in a
