@@ -15,7 +15,7 @@ PanelScan/
 └── .github/     # GitHub Actions CI
 ```
 
-## Team Development
+## Team  Development
 
 New to this repository? Start here, in order:
 
