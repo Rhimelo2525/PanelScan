@@ -19,16 +19,16 @@ PanelScan/
 
 New to this repository? Start here, in order:
 
-1. **[TEAM_ONBOARDING.md](TEAM_ONBOARDING.md)** — clone the repo, install both
+1. **[TEAM_ONBOARDING.md](TEAM_ONBOARDING.md)** — Clone the repo, install both
    projects, configure your environment, and make your first commit. Start here.
-2. **[FRONTEND_HANDOFF.md](FRONTEND_HANDOFF.md)** — the API contract: authentication
+2. **[FRONTEND_HANDOFF.md](FRONTEND_HANDOFF.md)** — The API contract: authentication
    flow, roles, response/error format, Postman collections.
-3. **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** — backend architecture, the module
+3. **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** — Backend architecture, the module
    pattern, Git/CI workflow, testing philosophy, Definition of Done.
-4. **[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)** — current status, what's built,
+4. **[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)** — Current status, what's built,
    what's deliberately deferred, and priorities.
-5. **[backend/README.md](backend/README.md)** — the full backend API reference.
-6. **[frontend/README.md](frontend/README.md)** — the frontend project's stack, folder
+5. **[backend/README.md](backend/README.md)** — The full backend API reference.
+6. **[frontend/README.md](frontend/README.md)** — The frontend project's stack, folder
    structure, and how to add a feature.
 
 ---
