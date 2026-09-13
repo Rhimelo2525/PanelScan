@@ -1,0 +1,43 @@
+import type { CustomerMeasurementProject } from "@/types/customer-project"
+
+/** Fictional records for the explicitly labeled public project-results preview. */
+export const customerProjectFallback: CustomerMeasurementProject[] = [
+  {
+    id: "demo-project-living-room",
+    name: "Living room feature wall",
+    roomName: "Main living room",
+    surfaceType: "WALL",
+    measuredAt: "2026-08-24T09:30:00.000Z",
+    widthMeters: 4.8,
+    heightMeters: 2.7,
+    areaSquareMeters: 12.96,
+    selectedPanel: { id: "demo-walnut-panel", name: "Walnut Fluted PVC Panel", sku: "WP-WAL-240" },
+    requiredPanelQuantity: 22,
+    estimatedMaterialCost: 32780,
+    status: "READY_FOR_REVIEW",
+    measurementSource: "MOBILE_AR",
+    previewImageUrl: "/images/home/hero-fluted-interior.webp",
+    webPreviewStatus: "PROCESSING",
+    webPreviewAssetUrl: null,
+    estimationSummary: "Includes a planning allowance for edge trimming. Final quantities should be checked against the selected panel's installed coverage before purchase or cutting.",
+  },
+  {
+    id: "demo-project-kitchen-ceiling",
+    name: "Kitchen ceiling refresh",
+    roomName: "Kitchen and dining zone",
+    surfaceType: "CEILING",
+    measuredAt: "2026-08-18T13:15:00.000Z",
+    widthMeters: 4.6,
+    heightMeters: 4,
+    areaSquareMeters: 18.4,
+    selectedPanel: { id: "demo-white-ceiling", name: "White Linear Ceiling Panel", sku: "CP-WHT-300" },
+    requiredPanelQuantity: 34,
+    estimatedMaterialCost: 33320,
+    status: "ESTIMATED",
+    measurementSource: "MOBILE_AR",
+    previewImageUrl: "/images/categories/ceiling-panels.webp",
+    webPreviewStatus: "NOT_AVAILABLE",
+    webPreviewAssetUrl: null,
+    estimationSummary: "Material estimate covers the measured ceiling plane only. Trims, lighting cut-outs, substrate preparation, and installation labour require separate verification.",
+  },
+]

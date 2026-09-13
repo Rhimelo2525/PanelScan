@@ -1,5 +1,7 @@
 # PanelScan — Development Guide
 
+> Historical backend-focused reference. The current web setup is [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md); GitLab contribution guidance is [CONTRIBUTING.md](CONTRIBUTING.md). Backend commands, historical test results, and older GitHub instructions below do not describe current website validation.
+
 This is the reference for anyone continuing backend development on PanelScan: how the codebase is
 organized, how to add a new module without breaking anything, how testing works, how Git/GitHub should
 be used, and what "done" means for a feature. Everything here reflects the actual repository as

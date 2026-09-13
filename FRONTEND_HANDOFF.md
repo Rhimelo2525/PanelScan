@@ -1,5 +1,7 @@
 # PanelScan — Frontend Handoff
 
+> Historical API contract and integration roadmap, not the current web feature inventory. The implemented website is documented in [README](README.md) and [architecture](docs/ARCHITECTURE.md). Preview roles and API-dependent screens differ; see [roles](docs/ROLES_AND_PERMISSIONS.md). This document does not establish a live production backend connection.
+
 This document is for whoever starts building a frontend (mobile and/or web) against the PanelScan
 backend. It covers what the backend actually provides, how to authenticate against it, how responses
 and errors are shaped, and a suggested build order per role. Everything here was verified against the

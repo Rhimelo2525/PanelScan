@@ -1,5 +1,7 @@
 # PanelScan — Team Onboarding
 
+> Historical backend/mobile onboarding snapshot. For the current GitLab-hosted website, use [README](README.md), [development](docs/DEVELOPMENT.md), and [contributing](CONTRIBUTING.md). Older clone URLs, GitHub workflows, and status/test claims below are not current web instructions or validation evidence.
+
 A complete, beginner-friendly guide for a new teammate joining PanelScan development —
 starting from cloning the repository, through daily Git workflow, to their first pull
 request. Every command and file path below was verified directly against the actual

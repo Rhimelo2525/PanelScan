@@ -1,5 +1,7 @@
 # PanelScan — Development Roadmap
 
+> Archived backend status snapshot. Statements below about absent frontends, CI status, or successful historical checks are not a current repository/web status report. See [README](README.md), [features](docs/FEATURES.md), and [testing](docs/TESTING.md) for the existing website and its validation limits.
+
 Status snapshot and forward plan for the PanelScan backend, written for the team taking over
 development. Everything in this document was verified against the actual repository (package.json,
 `prisma/schema.prisma`, every route/service file, `tests/`, `postman/`) on **2026-08-08**, not assumed
