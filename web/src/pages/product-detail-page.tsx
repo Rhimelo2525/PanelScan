@@ -18,7 +18,6 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { usePreviewProducts } from "@/preview/product-store"
 import type { Product } from "@/types/product"
 
 export function ProductDetailPage() {
@@ -29,7 +28,6 @@ export function ProductDetailPage() {
   const [error, setError] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
-  const previewProducts = usePreviewProducts()
 
   useDocumentTitle(product ? `${product.name} | PanelScan` : "Product details | PanelScan")
 
@@ -68,7 +66,8 @@ export function ProductDetailPage() {
 
     void loadProduct()
     return () => controller.abort()
-  }, [id, retryKey, previewProducts])
+  }, [id, retryKey])
+
 
   if (isLoading) return <ProductDetailSkeleton />
 

@@ -38,15 +38,18 @@ const buildOrderBy = (
 };
 
 export class ProjectService {
-  async createProject(ownerId: string, input: CreateProjectInput): Promise<ProjectWithRelations> {
-    await this.assertCustomer(input.customerId);
+  async createProject(requesterId: string, requesterRole: UserRole, input: CreateProjectInput): Promise<ProjectWithRelations> {
+    const customerId = requesterRole === UserRole.CUSTOMER ? requesterId : (input.customerId ?? requesterId);
+    const ownerId = requesterRole === UserRole.OWNER ? requesterId : null;
+
+    await this.assertCustomer(customerId);
     if (input.moderatorId) {
       await this.assertActiveModerator(input.moderatorId);
     }
 
     const project = await prisma.project.create({
       data: {
-        customerId: input.customerId,
+        customerId,
         ownerId,
         moderatorId: input.moderatorId,
         name: input.name,
@@ -61,7 +64,7 @@ export class ProjectService {
     });
 
     await createNotification({
-      userId: input.customerId,
+      userId: customerId,
       type: NotificationType.SYSTEM,
       title: 'Project created',
       message: `Your project "${project.name}" has been created.`,
@@ -293,11 +296,17 @@ export class ProjectService {
     return updated;
   }
 
-  /** OWNER-only. Project has no soft-delete column and nothing else references it via FK, so this is a real delete. */
-  async deleteProject(projectId: string): Promise<void> {
+  /** OWNER can delete any project; CUSTOMER can delete their own project. */
+  async deleteProject(projectId: string, requesterId: string, requesterRole: UserRole): Promise<void> {
     const existing = await prisma.project.findUnique({ where: { id: projectId } });
     if (!existing) {
       throw new AppError('Project not found.', 404);
+    }
+    if (requesterRole === UserRole.CUSTOMER && existing.customerId !== requesterId) {
+      throw new AppError('Project not found.', 404);
+    }
+    if (requesterRole === UserRole.MODERATOR) {
+      throw new AppError('Moderators cannot delete projects.', 403);
     }
     await prisma.project.delete({ where: { id: projectId } });
   }

@@ -1,7 +1,7 @@
 import { UserRole } from '@prisma/client';
 import { Router } from 'express';
 
-import { authenticate } from '../../middleware/auth.middleware';
+import { authenticate, authenticateOptional } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { productController } from './product.controller';
@@ -17,22 +17,22 @@ import {
 
 const router = Router();
 
-const manageProducts = [authenticate, restrictTo(UserRole.OWNER, UserRole.MODERATOR)];
+const manageProducts = [authenticate, restrictTo(UserRole.MODERATOR)];
 
 // GET /api/products
-router.get('/', validate(listProductsSchema), productController.getAll);
+router.get('/', authenticateOptional, validate(listProductsSchema), productController.getAll);
 
 // GET /api/products/search
-router.get('/search', validate(searchProductsSchema), productController.search);
+router.get('/search', authenticateOptional, validate(searchProductsSchema), productController.search);
 
 // GET /api/products/featured
-router.get('/featured', validate(featuredProductsSchema), productController.getFeatured);
+router.get('/featured', authenticateOptional, validate(featuredProductsSchema), productController.getFeatured);
 
 // GET /api/products/category/:categoryId
-router.get('/category/:categoryId', validate(categoryProductsSchema), productController.getByCategory);
+router.get('/category/:categoryId', authenticateOptional, validate(categoryProductsSchema), productController.getByCategory);
 
 // GET /api/products/:id
-router.get('/:id', validate(idParamsSchema), productController.getById);
+router.get('/:id', authenticateOptional, validate(idParamsSchema), productController.getById);
 
 // POST /api/products
 router.post('/', ...manageProducts, validate(createProductSchema), productController.create);

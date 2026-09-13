@@ -52,10 +52,8 @@ export function SiteFooter() {
             <p className="text-xs font-semibold tracking-[0.16em] text-primary-foreground/50 uppercase">Legal</p>
             <ul className="mt-5 space-y-3">
               {legalLinks.map((link) => <li key={link.href}><Link to={link.href} className="text-sm text-primary-foreground/78 transition-colors hover:text-primary-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground">{link.label}</Link></li>)}
-              <li><Link to="/admin-preview" className="text-sm text-primary-foreground/78 transition-colors hover:text-primary-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground">Demo Admin preview</Link></li>
-              <li><Link to="/customer-preview" className="text-sm text-primary-foreground/78 transition-colors hover:text-primary-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground">Customer order preview</Link></li>
-              <li><Link to="/moderator-preview" className="text-sm text-primary-foreground/78 transition-colors hover:text-primary-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground">Moderator preview</Link></li>
             </ul>
+
           </div>
         </div>
         <Separator className="my-10 bg-primary-foreground/14" />

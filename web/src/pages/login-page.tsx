@@ -78,7 +78,8 @@ export function LoginPage() {
         <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting}>{isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}{isSubmitting ? "Signing in…" : "Log in"}</Button>
       </form>
       <p className="mt-7 text-center text-sm text-muted-foreground">New to PanelScan? <Link to="/register" state={{ from: requestedPath }} className="font-semibold text-primary underline-offset-4 hover:underline">Create an account</Link></p>
-      <div className="mt-5 rounded-lg border border-border bg-secondary/45 p-4 text-center"><p className="text-xs font-semibold tracking-[0.1em] text-muted-foreground uppercase">Client review</p><p className="mt-1.5 text-sm text-muted-foreground">Need to review the interface without backend access?</p><Link to="/admin-preview" className="mt-2 inline-block text-sm font-semibold text-primary underline-offset-4 hover:underline">Open read-only Demo Admin</Link></div>
     </AuthShell>
   )
 }
+
+

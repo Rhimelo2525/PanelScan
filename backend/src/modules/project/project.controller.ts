@@ -51,7 +51,7 @@ export class ProjectController {
 
   create = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
-    const project = await this.projectService.createProject(requester.id, req.body);
+    const project = await this.projectService.createProject(requester.id, requester.role, req.body);
     sendSuccess(res, 201, 'Project created successfully.', { project });
   });
 
@@ -97,7 +97,8 @@ export class ProjectController {
   });
 
   remove = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    await this.projectService.deleteProject(req.params.id as string);
+    const requester = getRequester(req);
+    await this.projectService.deleteProject(req.params.id as string, requester.id, requester.role);
     sendSuccess(res, 200, 'Project deleted successfully.');
   });
 }

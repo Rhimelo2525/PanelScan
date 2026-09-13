@@ -81,7 +81,8 @@ async function request<T>(path: string, options: ApiRequestOptions, accessToken?
   }
 
   const headers: Record<string, string> = { Accept: "application/json" }
-  if (options.body !== undefined) headers["Content-Type"] = "application/json"
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData
+  if (options.body !== undefined && !isFormData) headers["Content-Type"] = "application/json"
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   let response: Response
@@ -89,7 +90,7 @@ async function request<T>(path: string, options: ApiRequestOptions, accessToken?
     response = await fetch(`${apiBaseUrl}${path}`, {
       method: options.method ?? "GET",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.body === undefined ? undefined : isFormData ? (options.body as FormData) : JSON.stringify(options.body),
       signal: options.signal,
     })
   } catch (error) {

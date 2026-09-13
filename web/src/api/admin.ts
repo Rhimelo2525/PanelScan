@@ -1,4 +1,5 @@
 import { apiRequest } from "@/api/client"
+import type { Product } from "@/types/product"
 import type {
   AdminFeedback,
   AdminListQuery,
@@ -75,6 +76,69 @@ export function getOrdersReport(query: AdminListQuery = {}, signal?: AbortSignal
 
 export function getInventoryReport(query: AdminListQuery = {}, signal?: AbortSignal) {
   return apiRequest<InventoryReport>(`/reports/inventory${toQuery({ ...query })}`, { authenticated: true, signal })
+}
+
+// ----------------------------------------------------------------- products
+
+export interface CreateProductAdminInput {
+  categoryId: string
+  name: string
+  sku: string
+  price: number
+  description?: string
+  width?: number
+  height?: number
+  thickness?: number
+  unit?: string
+  material?: string
+  stock?: number
+  reorderLevel?: number
+  isFeatured?: boolean
+  images?: Array<{ url: string; altText?: string; isPrimary?: boolean; sortOrder?: number }>
+}
+
+/** MODERATOR only. Creates products and synchronizes inventory atomically. */
+export function createProduct(body: CreateProductAdminInput) {
+  return apiRequest<{ product: Product }>("/products", { method: "POST", authenticated: true, body })
+}
+
+export interface UpdateProductAdminInput {
+  name?: string
+  categoryId?: string
+  sku?: string
+  price?: number
+  material?: string
+  description?: string
+  unit?: string
+  width?: number
+  height?: number
+  thickness?: number
+  stock?: number
+  reorderLevel?: number
+  isActive?: boolean
+  isFeatured?: boolean
+  images?: Array<{ url: string; altText?: string; isPrimary?: boolean; sortOrder?: number }>
+}
+
+/** MODERATOR only. Updates product details and inventory synchronization. */
+export function updateProduct(id: string, body: UpdateProductAdminInput) {
+  return apiRequest<{ product: Product }>(`/products/${id}`, { method: "PATCH", authenticated: true, body })
+}
+
+/** MODERATOR only. Soft-deletes a product listing. */
+export function deleteProduct(id: string) {
+  return apiRequest<{ product: Product }>(`/products/${id}`, { method: "DELETE", authenticated: true })
+}
+
+/** OWNER and MODERATOR can upload persisted product imagery. */
+export function uploadProductImage(file: File) {
+  const formData = new FormData()
+  formData.append("image", file)
+  return apiRequest<{ url: string; relativeUrl: string; filename: string }>("/upload", {
+    method: "POST",
+    authenticated: true,
+    body: formData,
+  })
 }
 
 // ---------------------------------------------------------------- inventory
@@ -154,6 +218,20 @@ export function rejectRequest(id: string, reviewNote?: string) {
 }
 
 // -------------------------------------------------------------------- users
+
+export interface CreateModeratorInput {
+  firstName: string
+  lastName: string
+  email: string
+  password: string
+  phone?: string
+  role?: "MODERATOR" | "OWNER"
+}
+
+/** OWNER only. Provisions a staff / moderator account. */
+export function createModerator(body: CreateModeratorInput) {
+  return apiRequest<{ user: AdminUser }>("/users", { method: "POST", authenticated: true, body })
+}
 
 /** OWNER only. The backend returns every user; role filtering happens in the UI. */
 export function getUsers(signal?: AbortSignal) {

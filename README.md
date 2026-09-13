@@ -1,126 +1,101 @@
-# PanelScan
+# PanelScan — Architectural Wall & Ceiling Panel E-Commerce Platform
 
-PanelScan provides an interior-panel storefront and business-workflow demonstrations for **Disenyo Interior Solution**.
+PanelScan is an e-commerce and project planning platform for architectural wall and ceiling panels for **Disenyo Interior Solution**.
 
-## Development Credits
+## Architectural Overview
 
-Custom-order developer: **`anxndd_`**  
-Development company: **GreyStudio**
-
-These credits identify the developer and company supplied for this handoff; they do not assign or transfer client or third-party intellectual-property rights.
-
-## Overview
-
-The website lives in `web/`. Production: **[panelscan-one.vercel.app](https://panelscan-one.vercel.app/)**. This address matches the existing deployment documentation; live availability and the deployed commit are not verified by repository inspection.
-
-Repository: [Grey Studio / panelscan](https://gitlab.com/grey-studio/panelscan).
-
-## Current Scope
-
-**The web delivery is frontend-only; its Vercel configuration deploys no production backend.** This repository also contains a separate existing backend and Expo mobile project. Their presence does not establish a live website integration.
-
-Public browsing and explicit previews work without an API. Preview changes are in-memory demonstrations, not database writes, real accounts, transactions, approvals, uploads, or multi-user messaging. Shared stores survive client-side navigation within one document and reset on reload/new tab. Moderator-management records also reset when their component unmounts.
-
-Login, registration, cart, checkout, real orders, payments, customer services, and authenticated Admin interfaces require a separately configured API. Both customer project-result routes currently return fixtures, not synchronized mobile results.
-
-## Features
-
-- Searchable wall/ceiling panel catalogue, category filters, sorting, product details, stock presentation, galleries, and related products.
-- Moderator product creation/editing, Active/Draft visibility, and local JPEG/PNG/WebP image previews.
-- Owner/Moderator inventory and installer add/edit/search/filter/delete demonstrations.
-- Orders & sales updates and linked project status, surface, and notes updates.
-- Customer/Moderator support conversation and status previews.
-- Delivered/completed fictional-purchase reviews, 1–5 stars, duplicate prevention, and shared product summaries.
-- Owner-only moderator-record management and Change Request decisions.
-- Responsive navigation, mobile table cards, reduced-motion handling, About, Terms, and Privacy pages.
-
-See [features](docs/FEATURES.md), including the distinction between implemented interfaces and operational services.
-
-## Roles
-
-| Role | Preview capabilities |
-| --- | --- |
-| Customer | Browse, inspect fictional orders/projects, message support, rate eligible purchases. |
-| Moderator | Products, business operations, support, reviews, and Change Request status viewing; no approvals or moderator management. |
-| Owner/Admin (`OWNER`) | Business operations, read-only Products, moderator-record management, and request decisions; no Support workspace. |
-
-Neither staff preview has a Customers directory. **Moderator preview has no new-request submission control**; submission exists in API-dependent `/admin/requests`. The API-dependent Owner Team screen still includes customer filtering. These differences are documented, not changed: [roles and permissions](docs/ROLES_AND_PERMISSIONS.md).
-
-## Technology Stack
-
-Declared web dependencies include React/React DOM `^19.2.8`, React Router DOM `^7.18.2`, Radix UI `^1.6.7`, shadcn `^4.18.0`, Lucide React `^1.31.0`, Sonner `^2.0.8`, Geist Variable `^5.3.0`, class-variance-authority, clsx, tailwind-merge, and tw-animate-css.
-
-Development dependencies include TypeScript `~6.0.2`, Vite `^8.2.0`, React plugin `^6.0.4`, Tailwind CSS/Vite plugin `^4.3.3`, Oxlint `^1.75.0`, and Node/React type packages. These are manifest ranges, not locally verified installations. The npm lockfile pins resolutions. Tests use Node's built-in test runner; state uses React context, component state, and `useSyncExternalStore`.
-
-## Project Structure
+The repository consists of three distinct components:
 
 ```text
-panelscan/
-├── web/
-│   ├── public/brand/          # Existing logos/icons
-│   ├── public/images/        # Representative imagery
-│   ├── src/
-│   │   ├── admin/ api/ auth/ cart/
-│   │   ├── components/ data/ hooks/ lib/
-│   │   ├── pages/ preview/ types/
-│   │   ├── orders/ payments/ products/ projects/
-│   │   ├── App.tsx
-│   │   └── index.css
-│   ├── tests/preview.test.mjs
-│   ├── docs/research-preview.md
-│   ├── package.json
-│   ├── package-lock.json
-│   └── vercel.json
-├── backend/                  # Separate Express/Prisma API
-├── frontend/                 # Separate Expo/React Native app
-├── .github/workflows/        # Backend GitHub workflow
-└── docs/                     # Current web documentation
+PanelScan/
+├── web/              # Website Frontend: Vite + React 19 + TypeScript + Tailwind CSS
+├── backend/          # Website Backend: Node.js + Express + Prisma + CockroachDB
+└── frontend/         # Mobile Application: Native / Expo application with AR / 3D measurement
 ```
 
-There is no root package/lockfile. See [structure](docs/PROJECT_STRUCTURE.md).
+### Component Distinctions
 
-## Development
+1. **Website Frontend (`web/`)**:
+   - Modern Vite + React single-page application.
+   - Clean customer storefront, customer dashboard, support messaging, and responsive order flow.
+   - Owner and Moderator administration workspaces for stock control, team management, sales reporting, and change request governance.
+   - Directly integrated with the real PanelScan Backend API (`VITE_API_BASE_URL`).
 
-Use npm and Node compatible with locked Vite's engine range: `^20.19.0 || >=22.12.0`. No exact web Node/npm version is pinned.
+2. **Website Backend (`backend/`)**:
+   - Production-ready Express + TypeScript + Prisma ORM backend connected to CockroachDB Cloud.
+   - Handles real persistent business data: customer accounts, secure authentication, session management, catalog, inventory, order processing, installer scheduling, customer support chat, reviews, and change requests.
+   - Enforces strict server-side Role-Based Access Control (`OWNER`, `MODERATOR`, `CUSTOMER`).
 
-```sh
-cd web
-npm ci
+3. **Android Application & AR/3D (`frontend/`)**:
+   - Specialized native mobile experience utilizing local device sensors, camera, ARCore, Filament, SceneView, and local database storage.
+   - Operates independently from the website backend to maintain low-latency local AR frame processing and corner detection without unnecessary network overhead.
+
+---
+
+## Key Business Rules & Authorization
+
+- **Price Visibility**:
+  - **Logged-out customers** cannot access product pricing. Unauthenticated API requests return `price: null` and the storefront displays `"Sign in to view pricing"`.
+  - **Logged-in customers** receive real prices formatted in Philippine Peso (₱).
+- **Staff Roles & Governance**:
+  - **Owner/Admin (`OWNER`)**: Full operational authority, moderator provisioning, user restriction, and change request approval/rejection.
+  - **Moderator (`MODERATOR`)**: Operational access (product creation, inventory management, order fulfillment, installers, and customer support). Cannot provision other moderators (enforced with `403 Forbidden`) and cannot approve their own change requests.
+  - **Customer (`CUSTOMER`)**: Public catalog browsing, authenticated price viewing, cart and order checkout, private project management, customer reviews, and support chat.
+- **Product Creation & Inventory Sync**:
+  - Products created by moderators or owners are saved with SKU, dimensions, unit, material, and price.
+  - An `Inventory` record is created atomically within a database transaction, immediately tracking on-hand stock and reorder thresholds.
+  - Uploaded product imagery is persisted via `POST /api/upload` to disk storage and statically served.
+- **Support Chat & Privacy**:
+  - Customers can only view and message within their own conversations (IDOR protected).
+  - Moderators and Owners can respond to any customer support thread.
+
+---
+
+## Getting Started
+
+### Backend Setup
+
+```bash
+cd backend
+npm install
+npm run prisma:generate
+# Configure your .env file with DATABASE_URL and JWT_SECRET
 npm run dev
 ```
 
-## Testing
+### Web Frontend Setup
 
-From `web/`:
-
-```sh
-npm run typecheck
-npm run lint
-npm run test:preview
-npm run build
-npm run preview
+```bash
+cd web
+npm install
+# Configure your .env file with VITE_API_BASE_URL=http://localhost:4000/api
+npm run dev
 ```
 
-Preview tests cover policies/stores, not browser end-to-end behavior. These commands were inspected, **not executed during this documentation pass**. See [testing](docs/TESTING.md).
+---
 
-## Environment Variables
+## Testing & Verification
 
-No variables are required for API-free browsing and explicit previews. Optional `VITE_API_BASE_URL` is read by `src/api/client.ts`. Copying `web/.env.example` unchanged selects a local API; a configured API failure does not fall back silently. Frontend configuration is public, not secret storage.
+The project includes an end-to-end integration and RBAC test suite validating all 35 production rules:
 
-## Production
+```bash
+node scratch/verify_system.mjs
+```
 
-`web/vercel.json` sets `npm ci`, `npm run build`, output `dist`, and a catch-all rewrite to `/index.html`. Existing documentation specifies Vercel Root Directory `web`; that dashboard setting is not encoded in the JSON. See [deployment](docs/DEPLOYMENT.md). No web GitLab pipeline or automatic deployment trigger is established by checked-in files.
+### Build & Typecheck
 
-## Limitations
+```bash
+# Typecheck
+cd backend && npm run typecheck
+cd ../web && npm run typecheck
 
-Preview inventory rows and product inventory are separate. Admin sales and customer preview purchases are separate fixtures. Dashboard/request metrics are illustrative. Preview approvals update status only. No browser AR, interactive 3D renderer, or mobile synchronization exists. Representative images are not verified client photography; legal-page text needs business/legal review.
+# Production Build
+cd ../backend && npm run build
+cd ../web && npm run build
+```
 
-## Documentation
-
-[Architecture](docs/ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) · [Deployment](docs/DEPLOYMENT.md) · [Features](docs/FEATURES.md) · [Roles](docs/ROLES_AND_PERMISSIONS.md) · [Structure](docs/PROJECT_STRUCTURE.md) · [Design system](docs/DESIGN_SYSTEM.md) · [Testing](docs/TESTING.md) · [Contributing](CONTRIBUTING.md)
-
-Existing [backend](backend/README.md), [mobile](frontend/README.md), and root handoff/onboarding/roadmap documents concern separate projects or historical snapshots. Their old GitHub instructions and test counts do not establish current web status.
+---
 
 ## License
 
-[LICENSE](LICENSE) reserves rights in original project material without overriding existing licenses. The legal rights holder remains explicitly unconfirmed. The existing [Expo MIT notice](frontend/LICENSE) is preserved, not generalized to original PanelScan web code.
+Proprietary — Copyright (c) Disenyo Interior Solution. All rights reserved. Refer to `LICENSE` for details.

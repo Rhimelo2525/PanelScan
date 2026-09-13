@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { cn } from "@/lib/utils"
-import { usePreviewProducts } from "@/preview/product-store"
 import { PANEL_TYPES, REFERENCE_CATALOGUE_NOTICE, inScopeCategories, inScopeProducts, isPvcProduct } from "@/products/panel-types"
 import type { Category } from "@/types/category"
 import type { PaginatedProducts, ProductSort } from "@/types/product"
@@ -37,7 +36,6 @@ export function ProductsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(false)
   const [retryKey, setRetryKey] = useState(0)
-  const previewProducts = usePreviewProducts()
 
   useEffect(() => setSearchDraft(search), [search])
 
@@ -71,7 +69,8 @@ export function ProductsPage() {
 
     void loadCatalog()
     return () => controller.abort()
-  }, [categorySlug, retryKey, search, sort, previewProducts])
+  }, [categorySlug, retryKey, search, sort])
+
 
   function updateParam(key: "search" | "category" | "sort", value: string) {
     const nextParams = new URLSearchParams(searchParams)

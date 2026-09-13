@@ -1,8 +1,8 @@
-import { Info, Loader2, Users } from "lucide-react"
+import { Loader2, UserPlus, Users } from "lucide-react"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { deactivateUser, getUsers } from "@/api/admin"
+import { createModerator, deactivateUser, getUsers } from "@/api/admin"
 import { formatDate } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -14,14 +14,15 @@ import { StatusBadge } from "@/components/admin/status-badge"
 import { useAuth } from "@/auth/use-auth"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { AdminUser } from "@/types/admin"
 
 /**
- * Owner-only account administration. Moderator *registration* is intentionally
- * absent: the backend hardcodes every self-registration to CUSTOMER and exposes
- * no endpoint that creates a staff account, so this screen states that gap
- * rather than presenting a form that cannot work.
+ * Owner-only account administration. Allows owners to provision moderator accounts
+ * and restrict access.
  */
 export function AdminTeamPage() {
   useDocumentTitle("Team | PanelScan Admin")
@@ -29,6 +30,7 @@ export function AdminTeamPage() {
   const [roleFilter, setRoleFilter] = useState("MODERATOR")
   const [search, setSearch] = useState("")
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
+  const [showAddModerator, setShowAddModerator] = useState(false)
 
   const users = useAdminResource((signal) => getUsers(signal), [])
   const allUsers = useMemo(() => users.data?.users ?? [], [users.data])
@@ -50,13 +52,14 @@ export function AdminTeamPage() {
       <AdminPageHeader
         eyebrow="Access control"
         title="Team and accounts"
-        description="Staff and customer accounts across PanelScan, with the ability to restrict access."
+        description="Staff and customer accounts across PanelScan, with the ability to provision moderators and restrict access."
+        actions={user?.role === "OWNER" ? (
+          <Button onClick={() => setShowAddModerator(true)}>
+            <UserPlus className="size-4" data-icon="inline-start" aria-hidden="true" />
+            Add moderator
+          </Button>
+        ) : undefined}
       />
-
-      <div className="flex items-start gap-2.5 surface-card p-4 text-sm leading-6">
-        <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <p><span className="font-medium">Moderator registration is not available in this build.</span> The backend creates every self-registered account as a customer and exposes no endpoint for creating a staff account, so moderators must currently be provisioned directly in the database. Owner accounts can still restrict existing accounts below.</p>
-      </div>
 
       {users.error ? <ErrorState message={users.error} onRetry={users.reload} /> : (
         <>
@@ -97,7 +100,99 @@ export function AdminTeamPage() {
       )}
 
       <RestrictDialog account={deactivating} onClose={() => setDeactivating(null)} onDone={() => { setDeactivating(null); users.reload() }} />
+      <AddModeratorSheet open={showAddModerator} onClose={() => setShowAddModerator(false)} onDone={() => { setShowAddModerator(false); users.reload() }} />
     </div>
+  )
+}
+
+function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [phone, setPhone] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+
+  const reset = () => {
+    setFirstName("")
+    setLastName("")
+    setEmail("")
+    setPassword("")
+    setPhone("")
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) {
+      toast.error("Please fill in all required fields.")
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      await createModerator({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        password,
+        phone: phone.trim() || undefined,
+        role: "MODERATOR",
+      })
+      toast.success(`Moderator ${firstName.trim()} ${lastName.trim()} provisioned successfully.`)
+      reset()
+      onDone()
+    } catch (error) {
+      toast.error("Could not create moderator", { description: getAdminErrorMessage(error) })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={(isOpen) => { if (!isOpen) { reset(); onClose() } }}>
+      <SheetContent className="admin-surface w-full sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Add Moderator</SheetTitle>
+          <SheetDescription>Provision a new staff moderator account with operations access.</SheetDescription>
+        </SheetHeader>
+
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4 px-4 pb-6">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="mod-first-name">First name *</Label>
+              <Input id="mod-first-name" required value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mod-last-name">Last name *</Label>
+              <Input id="mod-last-name" required value={lastName} onChange={(e) => setLastName(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="mod-email">Email address *</Label>
+            <Input id="mod-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="mod-password">Temporary password *</Label>
+            <Input id="mod-password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="mod-phone">Phone number (optional)</Label>
+            <Input id="mod-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+63 912 345 6789" />
+          </div>
+
+          <div className="flex gap-2 pt-4">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => { reset(); onClose() }} disabled={isSaving}>Cancel</Button>
+            <Button type="submit" className="flex-1" disabled={isSaving}>
+              {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <UserPlus data-icon="inline-start" aria-hidden="true" />}
+              Create moderator
+            </Button>
+          </div>
+        </form>
+      </SheetContent>
+    </Sheet>
   )
 }
 

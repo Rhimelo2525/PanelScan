@@ -8,6 +8,11 @@ import { UsersService, usersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  create = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const user = await this.usersService.createUser(req.body);
+    sendSuccess(res, 201, 'User created successfully.', { user });
+  });
+
   getAll = catchAsync(async (_req: Request, res: Response): Promise<void> => {
     const users = await this.usersService.getAllUsers();
     sendSuccess(res, 200, 'Users retrieved successfully.', { users });

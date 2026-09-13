@@ -13,8 +13,8 @@ import type { CustomerMeasurementProject, CustomerProjectResultSet } from "@/typ
 
 const date = new Intl.DateTimeFormat("en-PH", { year: "numeric", month: "short", day: "numeric" })
 
-export function CustomerProjectsPage({ previewMode = false }: { previewMode?: boolean }) {
-  useDocumentTitle(previewMode ? "Project results preview | PanelScan" : "Your projects | PanelScan")
+export function CustomerProjectsPage() {
+  useDocumentTitle("Your projects | PanelScan")
   const [result, setResult] = useState<CustomerProjectResultSet | null>(null)
 
   useEffect(() => { void listCustomerProjectResults().then(setResult) }, [])
@@ -23,7 +23,7 @@ export function CustomerProjectsPage({ previewMode = false }: { previewMode?: bo
     <>
       <section className="border-b border-border bg-secondary/35 py-12 sm:py-16">
         <Container>
-          <Button variant="ghost" size="sm" className="-ml-2.5 mb-6" asChild><Link to={previewMode ? "/" : "/dashboard"}><ArrowLeft data-icon="inline-start" aria-hidden="true" />{previewMode ? "Back to storefront" : "Back to dashboard"}</Link></Button>
+          <Button variant="ghost" size="sm" className="-ml-2.5 mb-6" asChild><Link to="/dashboard"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Back to dashboard</Link></Button>
           <div className="grid items-end gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.48fr)]">
             <div>
               <p className="section-eyebrow">Projects and measurements</p>
@@ -39,9 +39,6 @@ export function CustomerProjectsPage({ previewMode = false }: { previewMode?: bo
       </section>
 
       <Container className="py-10 sm:py-14">
-        {previewMode && <div className="mb-6 rounded-lg border border-[color-mix(in_oklch,var(--status-info),transparent_70%)] bg-[var(--status-info-surface)] p-4"><p className="text-sm font-semibold text-[var(--status-info)]">Customer project preview</p><p className="mt-1 text-sm leading-6 text-muted-foreground">This public review route contains fictional sample records only. It is not a customer account and displays no private project data.</p></div>}
-        {result?.source === "DEMO_FALLBACK" && <div className="mb-8 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-card p-4" role="status"><div><p className="text-sm font-semibold">Preview data</p><p className="mt-1 text-sm leading-6 text-muted-foreground">{result.notice}</p></div><span className="rounded-full border border-border bg-secondary px-2.5 py-1 text-xs font-medium">Not synced</span></div>}
-
         {!result ? <ProjectListSkeleton /> : result.projects.length === 0 ? <ProjectEmptyState /> : (
           <div className="space-y-7">
             {result.projects.map((project) => <ProjectResultCard key={project.id} project={project} />)}

@@ -18,12 +18,15 @@ import productRoutes from '../modules/product/product.routes';
 import projectRoutes from '../modules/project/project.routes';
 import reportsRoutes from '../modules/reports/reports.routes';
 import requestRoutes from '../modules/request/request.routes';
+import uploadRoutes from '../modules/upload/upload.routes';
 import usersRoutes from '../modules/users/users.routes';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
+router.use('/admin/moderators', usersRoutes);
+router.use('/upload', uploadRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/products', productRoutes);
 router.use('/inventory', inventoryRoutes);

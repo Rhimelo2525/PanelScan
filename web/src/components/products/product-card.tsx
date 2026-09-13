@@ -3,7 +3,6 @@ import { Link } from "react-router-dom"
 
 import { ProductImage } from "@/components/products/product-image"
 import { ProductPrice } from "@/components/products/product-price"
-import { isManagedPreviewProduct } from "@/preview/product-store"
 import { ProductRatings } from "@/components/products/product-ratings"
 import { StockStatus } from "@/components/products/stock-status"
 import { Badge } from "@/components/ui/badge"
@@ -58,7 +57,7 @@ export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) 
 
         <div className="mt-auto pt-4">
           <StockStatus inventory={product.inventory} compact />
-          <ProductPrice price={product.price} returnTo={`/products/${product.id}`} preview={isManagedPreviewProduct(product.id)} />
+          <ProductPrice price={product.price} returnTo={`/products/${product.id}`} />
         </div>
       </div>
     </article>

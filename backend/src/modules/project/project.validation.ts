@@ -10,7 +10,7 @@ const datesInOrder = (data: { startDate?: Date; endDate?: Date }): boolean =>
 export const createProjectSchema = z.object({
   body: z
     .object({
-      customerId: z.string().uuid('Invalid customer id.'),
+      customerId: z.string().uuid('Invalid customer id.').optional(),
       moderatorId: z.string().uuid('Invalid moderator id.').optional(),
       name: z.string().trim().min(3, 'Name must be at least 3 characters.').max(150, 'Name is too long.'),
       description: z.string().trim().max(2000, 'Description is too long.').optional(),

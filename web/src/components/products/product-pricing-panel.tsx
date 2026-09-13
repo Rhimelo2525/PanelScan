@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatProductPrice } from "@/lib/format-price"
 import type { Product } from "@/types/product"
-import { isManagedPreviewProduct } from "@/preview/product-store"
 
 interface ProductPricingPanelProps {
   product: Product
@@ -43,7 +42,6 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
   }, [remainingQuantity])
 
   async function handleAddToCart() {
-    if (isManagedPreviewProduct(product.id)) return
     try {
       await addItem(product.id, quantity)
       toast.success(`${product.name} added to your cart.`, {
@@ -57,9 +55,6 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
     }
   }
 
-  if (isManagedPreviewProduct(product.id)) {
-    return <aside className="rounded-lg border border-border bg-secondary/55 p-5 sm:p-6" aria-label="Preview product pricing"><p className="text-xs font-semibold uppercase text-muted-foreground">Session preview product</p><p className="type-metric mt-2">{formatProductPrice(product.price)}</p><p className="mt-3 text-sm leading-6 text-muted-foreground">Price per {product.unit}. This local listing is available to explore, but is not synced to checkout. It clears when you reload the page.</p></aside>
-  }
 
   if (isLoading) {
     return <aside className="rounded-lg border border-border bg-secondary/55 p-5 sm:p-6" aria-label="Checking price access" aria-busy="true"><div className="flex gap-3"><Skeleton className="size-9 shrink-0 rounded-full" /><div className="w-full space-y-3"><Skeleton className="h-6 w-44" /><Skeleton className="h-4 w-full" /></div></div><Skeleton className="mt-5 h-11 w-full" /></aside>

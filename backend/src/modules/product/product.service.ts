@@ -13,6 +13,20 @@ const productInclude = {
 
 export type ProductWithRelations = Prisma.ProductGetPayload<{ include: typeof productInclude }>;
 
+export type PublicProduct = Omit<ProductWithRelations, 'price'> & {
+  price: Prisma.Decimal | null;
+};
+
+export const sanitizeProduct = (product: ProductWithRelations, isAuthenticated: boolean): PublicProduct => {
+  if (!isAuthenticated) {
+    return {
+      ...product,
+      price: null,
+    };
+  }
+  return product;
+};
+
 export interface ProductFilters {
   page?: number;
   limit?: number;
@@ -33,7 +47,7 @@ export interface PaginationMeta {
 }
 
 export interface PaginatedProducts {
-  products: ProductWithRelations[];
+  products: PublicProduct[];
   pagination: PaginationMeta;
 }
 
@@ -52,7 +66,7 @@ const buildOrderBy = (
 };
 
 export class ProductService {
-  async getProducts(filters: ProductFilters): Promise<PaginatedProducts> {
+  async getProducts(filters: ProductFilters, isAuthenticated = false): Promise<PaginatedProducts> {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
 
@@ -92,24 +106,24 @@ export class ProductService {
     ]);
 
     return {
-      products,
+      products: products.map((p) => sanitizeProduct(p, isAuthenticated)),
       pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
     };
   }
 
-  async getFeaturedProducts(limit?: number): Promise<PaginatedProducts> {
-    return this.getProducts({ isFeatured: true, limit: limit ?? DEFAULT_FEATURED_LIMIT });
+  async getFeaturedProducts(limit?: number, isAuthenticated = false): Promise<PaginatedProducts> {
+    return this.getProducts({ isFeatured: true, limit: limit ?? DEFAULT_FEATURED_LIMIT }, isAuthenticated);
   }
 
-  async getProductsByCategory(categoryId: string, filters: ProductFilters): Promise<PaginatedProducts> {
+  async getProductsByCategory(categoryId: string, filters: ProductFilters, isAuthenticated = false): Promise<PaginatedProducts> {
     const category = await prisma.category.findUnique({ where: { id: categoryId } });
     if (!category) {
       throw new AppError('Category not found.', 404);
     }
-    return this.getProducts({ ...filters, categoryId });
+    return this.getProducts({ ...filters, categoryId }, isAuthenticated);
   }
 
-  async getProductById(id: string): Promise<ProductWithRelations> {
+  async getProductById(id: string, isAuthenticated = false): Promise<PublicProduct> {
     const product = await prisma.product.findFirst({
       where: { id, deletedAt: null, isActive: true },
       include: productInclude,
@@ -117,7 +131,7 @@ export class ProductService {
     if (!product) {
       throw new AppError('Product not found.', 404);
     }
-    return product;
+    return sanitizeProduct(product, isAuthenticated);
   }
 
   async createProduct(input: CreateProductInput): Promise<ProductWithRelations> {
@@ -132,23 +146,39 @@ export class ProductService {
       throw new AppError('A product with this slug or SKU already exists.', 409);
     }
 
-    return prisma.product.create({
-      data: {
-        categoryId: input.categoryId,
-        name: input.name,
-        slug,
-        description: input.description,
-        sku: input.sku,
-        price: input.price,
-        width: input.width,
-        height: input.height,
-        thickness: input.thickness,
-        unit: input.unit,
-        material: input.material,
-        isFeatured: input.isFeatured ?? false,
-        images: input.images ? { create: input.images } : undefined,
-      },
-      include: productInclude,
+    return prisma.$transaction(async (tx) => {
+      const product = await tx.product.create({
+        data: {
+          categoryId: input.categoryId,
+          name: input.name,
+          slug,
+          description: input.description,
+          sku: input.sku,
+          price: input.price,
+          width: input.width,
+          height: input.height,
+          thickness: input.thickness,
+          unit: input.unit ?? 'panel',
+          material: input.material,
+          isFeatured: input.isFeatured ?? false,
+          images: input.images ? { create: input.images } : undefined,
+        },
+      });
+
+      await tx.inventory.create({
+        data: {
+          productId: product.id,
+          quantity: input.stock ?? 0,
+          reservedQty: 0,
+          reorderLevel: input.reorderLevel ?? 10,
+          warehouseLocation: 'Main Warehouse',
+        },
+      });
+
+      return tx.product.findUniqueOrThrow({
+        where: { id: product.id },
+        include: productInclude,
+      });
     });
   }
 
@@ -177,11 +207,28 @@ export class ProductService {
       }
     }
 
-    const { images, ...scalarFields } = input;
+    const { images, stock, reorderLevel, ...scalarFields } = input;
 
     return prisma.$transaction(async (tx) => {
       if (images) {
         await tx.productImage.deleteMany({ where: { productId: id } });
+      }
+
+      if (stock !== undefined || reorderLevel !== undefined) {
+        await tx.inventory.upsert({
+          where: { productId: id },
+          update: {
+            ...(stock !== undefined ? { quantity: stock } : {}),
+            ...(reorderLevel !== undefined ? { reorderLevel } : {}),
+          },
+          create: {
+            productId: id,
+            quantity: stock ?? 0,
+            reservedQty: 0,
+            reorderLevel: reorderLevel ?? 10,
+            warehouseLocation: 'Main Warehouse',
+          },
+        });
       }
 
       return tx.product.update({

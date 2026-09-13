@@ -1,3 +1,4 @@
+import path from 'path';
 import cors from 'cors';
 import express, { type Application, type Request, type Response } from 'express';
 import helmet from 'helmet';
@@ -12,9 +13,16 @@ import routes from './routes';
 const app: Application = express();
 
 // Security & parsing middleware
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }),
+);
 app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
 app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
+
+// Serve persisted uploaded files (product images, etc.)
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 
 // PayMongo webhook signature verification needs the exact raw request body,
 // so this one route gets raw-body parsing registered BEFORE the global JSON

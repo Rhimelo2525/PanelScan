@@ -24,8 +24,9 @@ export function SiteLayout() {
           navigation is never held back waiting for an outgoing animation, and
           #main-content always exists for the skip link. */}
       <main id="main-content" key={pathname} className="motion-page"><Outlet /></main>
-      {pathname !== "/support-preview" && <aside className="border-t border-border bg-secondary/30 py-5" aria-label="Customer support preview"><Container className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Questions about your panels?</p><p className="mt-1 text-xs text-muted-foreground">Try a support conversation in this session-only preview.</p></div><Button variant="outline" asChild><Link to="/support-preview"><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Link></Button></Container></aside>}
+      <aside className="border-t border-border bg-secondary/30 py-5" aria-label="Customer support"><Container className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Questions about your panels?</p><p className="mt-1 text-xs text-muted-foreground">Chat directly with our team for orders, specs, or installation advice.</p></div><Button variant="outline" asChild><Link to="/messages"><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Link></Button></Container></aside>
       <SiteFooter />
+
     </div>
   )
 }

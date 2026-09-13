@@ -29,13 +29,12 @@ const InstallationPage = lazy(() => import("@/pages/installation-page").then((mo
 const PaymentSuccessPage = lazy(() => import("@/pages/payment-success-page").then((module) => ({ default: module.PaymentSuccessPage })))
 const PaymentCancelPage = lazy(() => import("@/pages/payment-cancel-page").then((module) => ({ default: module.PaymentCancelPage })))
 const CustomerProjectsPage = lazy(() => import("@/pages/customer-projects-page").then((module) => ({ default: module.CustomerProjectsPage })))
-const CustomerPreviewPage = lazy(() => import("@/pages/customer-preview-page").then((module) => ({ default: module.CustomerPreviewPage })))
-const SupportPreviewPage = lazy(() => import("@/pages/support-preview-page").then((module) => ({ default: module.SupportPreviewPage })))
 const TermsPage = lazy(() => import("@/pages/terms-page").then((module) => ({ default: module.TermsPage })))
 const PrivacyPage = lazy(() => import("@/pages/privacy-page").then((module) => ({ default: module.PrivacyPage })))
 
 const AdminLayout = lazy(() => import("@/admin/admin-layout").then((module) => ({ default: module.AdminLayout })))
 const AdminDashboardPage = lazy(() => import("@/pages/admin/admin-dashboard-page").then((module) => ({ default: module.AdminDashboardPage })))
+const AdminProductsPage = lazy(() => import("@/pages/admin/admin-products-page").then((module) => ({ default: module.AdminProductsPage })))
 const AdminProjectsPage = lazy(() => import("@/pages/admin/admin-projects-page").then((module) => ({ default: module.AdminProjectsPage })))
 const AdminInventoryPage = lazy(() => import("@/pages/admin/admin-inventory-page").then((module) => ({ default: module.AdminInventoryPage })))
 const AdminSalesPage = lazy(() => import("@/pages/admin/admin-sales-page").then((module) => ({ default: module.AdminSalesPage })))
@@ -44,8 +43,6 @@ const AdminTeamPage = lazy(() => import("@/pages/admin/admin-team-page").then((m
 const AdminInstallersPage = lazy(() => import("@/pages/admin/admin-installers-page").then((module) => ({ default: module.AdminInstallersPage })))
 const AdminFeedbackPage = lazy(() => import("@/pages/admin/admin-feedback-page").then((module) => ({ default: module.AdminFeedbackPage })))
 const AdminChatPage = lazy(() => import("@/pages/admin/admin-chat-page").then((module) => ({ default: module.AdminChatPage })))
-const AdminPreviewPage = lazy(() => import("@/pages/admin/admin-preview-page").then((module) => ({ default: module.AdminPreviewPage })))
-const ModeratorPreviewPage = lazy(() => import("@/pages/admin/moderator-preview-page").then((module) => ({ default: module.ModeratorPreviewPage })))
 
 function RoutePageFallback() {
   return <Container className="py-14" aria-label="Loading page" aria-busy="true"><Skeleton className="h-10 w-52" /><div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem]"><Skeleton className="h-72 w-full" /><Skeleton className="h-72 w-full" /></div></Container>
@@ -61,13 +58,10 @@ function App() {
       <AuthProvider>
         <CartProvider>
           <Routes>
-            {/* Public sample data for interface review; the authenticated Admin remains guarded below. */}
-            <Route path="admin-preview" element={<Suspense fallback={<AdminPageFallback />}><AdminPreviewPage /></Suspense>} />
-            <Route path="moderator-preview" element={<Suspense fallback={<AdminPageFallback />}><ModeratorPreviewPage /></Suspense>} />
-
             <Route element={<AdminRoute />}>
               <Route path="admin" element={<Suspense fallback={<AdminPageFallback />}><AdminLayout /></Suspense>}>
                 <Route index element={<Suspense fallback={<AdminPageFallback />}><AdminDashboardPage /></Suspense>} />
+                <Route path="products" element={<Suspense fallback={<AdminPageFallback />}><AdminProductsPage /></Suspense>} />
                 <Route path="projects" element={<Suspense fallback={<AdminPageFallback />}><AdminProjectsPage /></Suspense>} />
                 <Route path="inventory" element={<Suspense fallback={<AdminPageFallback />}><AdminInventoryPage /></Suspense>} />
                 <Route path="sales" element={<Suspense fallback={<AdminPageFallback />}><AdminSalesPage /></Suspense>} />
@@ -92,13 +86,11 @@ function App() {
               <Route path="about" element={<AboutPage />} />
               <Route path="terms" element={<Suspense fallback={<RoutePageFallback />}><TermsPage /></Suspense>} />
               <Route path="privacy" element={<Suspense fallback={<RoutePageFallback />}><PrivacyPage /></Suspense>} />
-              <Route path="projects-preview" element={<Suspense fallback={<RoutePageFallback />}><CustomerProjectsPage previewMode /></Suspense>} />
-              <Route path="customer-preview" element={<Suspense fallback={<RoutePageFallback />}><CustomerPreviewPage /></Suspense>} />
-              <Route path="support-preview" element={<Suspense fallback={<RoutePageFallback />}><SupportPreviewPage /></Suspense>} />
               <Route element={<ProtectedRoute />}>
                 <Route path="dashboard" element={<Suspense fallback={<RoutePageFallback />}><DashboardPage /></Suspense>} />
                 <Route path="account" element={<Navigate to="/dashboard" replace />} />
               </Route>
+
               <Route element={<CustomerRoute />}>
                 <Route path="cart" element={<Suspense fallback={<RoutePageFallback />}><CartPage /></Suspense>} />
                 <Route path="checkout" element={<Suspense fallback={<RoutePageFallback />}><CheckoutPage /></Suspense>} />

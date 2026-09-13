@@ -34,3 +34,32 @@ export const authenticate = catchAsync(async (req: Request, _res: Response, next
   req.user = { id: user.id, email: user.email, role: user.role };
   next();
 });
+
+/**
+ * Optionally verifies the JWT sent in the Authorization header.
+ * If a valid Bearer token is present, attaches `req.user`.
+ * If missing or invalid, proceeds without setting `req.user` (guest mode).
+ */
+export const authenticateOptional = catchAsync(async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const decoded = verifyToken(token);
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    if (user && user.isActive) {
+      req.user = { id: user.id, email: user.email, role: user.role };
+    }
+  } catch {
+    // Guest fallback for expired / invalid token
+  }
+
+  next();
+});

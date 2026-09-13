@@ -1,4 +1,5 @@
 import { Prisma, UserRole } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
@@ -17,6 +18,15 @@ const userSelect = {
 
 export type PublicUser = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
+export interface CreateUserInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone?: string;
+  role?: UserRole;
+}
+
 export interface UpdateUserInput {
   firstName?: string;
   lastName?: string;
@@ -24,6 +34,28 @@ export interface UpdateUserInput {
 }
 
 export class UsersService {
+  async createUser(input: CreateUserInput): Promise<PublicUser> {
+    const existing = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
+    if (existing) {
+      throw new AppError('An account with this email address already exists.', 409);
+    }
+
+    const hashedPassword = await bcrypt.hash(input.password, 12);
+
+    return prisma.user.create({
+      data: {
+        firstName: input.firstName,
+        lastName: input.lastName,
+        email: input.email.toLowerCase(),
+        password: hashedPassword,
+        phone: input.phone,
+        role: input.role ?? UserRole.MODERATOR,
+        isActive: true,
+      },
+      select: userSelect,
+    });
+  }
+
   async getAllUsers(): Promise<PublicUser[]> {
     return prisma.user.findMany({ select: userSelect, orderBy: { createdAt: 'desc' } });
   }

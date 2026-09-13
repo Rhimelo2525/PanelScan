@@ -23,7 +23,7 @@ export interface Product {
   slug: string
   description: string | null
   sku: string
-  price: string
+  price: string | null
   width: string | null
   height: string | null
   thickness: string | null

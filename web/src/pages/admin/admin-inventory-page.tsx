@@ -1,8 +1,9 @@
 import { Boxes, Loader2, Minus, Plus } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { addStock, getInventory, getInventoryReport, reduceStock } from "@/api/admin"
+import { addStock, createProduct, getInventory, getInventoryReport, reduceStock, uploadProductImage } from "@/api/admin"
+import { getCategories } from "@/api/categories"
 import { availableStock, formatCount, formatDate, formatMoney, stockStatus } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -18,6 +19,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { PANEL_TYPES } from "@/products/panel-types"
 import type { InventoryRecord } from "@/types/admin"
+import type { Category } from "@/types/category"
 
 /**
  * Inventory Assessment (owner) and Inventory Management (moderator) share this
@@ -30,6 +32,7 @@ export function AdminInventoryPage() {
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
   const [adjusting, setAdjusting] = useState<InventoryRecord | null>(null)
+  const [showAddProduct, setShowAddProduct] = useState(false)
 
   const inventory = useAdminResource((signal) => getInventory({ page, limit: 20 }, signal), [page])
   // Second read purely for the value/price summary the inventory routes do not carry.
@@ -53,6 +56,12 @@ export function AdminInventoryPage() {
         eyebrow="Stock control"
         title="Inventory"
         description="Live stock levels, reserved quantities, and reorder thresholds for PVC wall and ceiling panels."
+        actions={
+          <Button onClick={() => setShowAddProduct(true)}>
+            <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
+            Add product
+          </Button>
+        }
       />
 
       {inventory.error ? <ErrorState message={inventory.error} onRetry={inventory.reload} /> : (
@@ -106,7 +115,204 @@ export function AdminInventoryPage() {
       )}
 
       <StockAdjustSheet record={adjusting} onClose={() => setAdjusting(null)} onDone={() => { setAdjusting(null); inventory.reload(); report.reload() }} />
+      <AddProductSheet open={showAddProduct} onClose={() => setShowAddProduct(false)} onDone={() => { setShowAddProduct(false); inventory.reload(); report.reload() }} />
     </div>
+  )
+}
+
+function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const [categories, setCategories] = useState<Category[]>([])
+  const [name, setName] = useState("")
+  const [categoryId, setCategoryId] = useState("")
+  const [sku, setSku] = useState("")
+  const [price, setPrice] = useState("")
+  const [material, setMaterial] = useState("")
+  const [unit, setUnit] = useState("panel")
+  const [width, setWidth] = useState("")
+  const [height, setHeight] = useState("")
+  const [thickness, setThickness] = useState("")
+  const [stock, setStock] = useState("50")
+  const [reorderLevel, setReorderLevel] = useState("10")
+  const [description, setDescription] = useState("")
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      getCategories()
+        .then((cats) => {
+          setCategories(cats)
+          if (cats.length > 0 && !categoryId) setCategoryId(cats[0].id)
+        })
+        .catch(() => {})
+    }
+  }, [open])
+
+  const reset = () => {
+    setName("")
+    setSku("")
+    setPrice("")
+    setMaterial("")
+    setUnit("panel")
+    setWidth("")
+    setHeight("")
+    setThickness("")
+    setStock("50")
+    setReorderLevel("10")
+    setDescription("")
+    setImageFile(null)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim() || !sku.trim() || !categoryId || !price.trim()) {
+      toast.error("Please fill in Name, Category, SKU, and Price.")
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      let imageUrl: string | undefined
+      if (imageFile) {
+        const uploadResult = await uploadProductImage(imageFile)
+        imageUrl = uploadResult.url
+      }
+
+      await createProduct({
+        categoryId,
+        name: name.trim(),
+        sku: sku.trim().toUpperCase(),
+        price: Number(price),
+        material: material.trim() || undefined,
+        unit: unit.trim() || "panel",
+        width: width ? Number(width) : undefined,
+        height: height ? Number(height) : undefined,
+        thickness: thickness ? Number(thickness) : undefined,
+        stock: Number(stock) || 0,
+        reorderLevel: Number(reorderLevel) || 10,
+        description: description.trim() || undefined,
+        images: imageUrl ? [{ url: imageUrl, isPrimary: true, altText: name.trim() }] : undefined,
+      })
+
+      toast.success(`Product "${name.trim()}" created and inventory initialized.`)
+      reset()
+      onDone()
+    } catch (error) {
+      toast.error("Could not create product", { description: getAdminErrorMessage(error) })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={(isOpen) => { if (!isOpen) { reset(); onClose() } }}>
+      <SheetContent className="admin-surface w-full sm:max-w-lg overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>Add Product</SheetTitle>
+          <SheetDescription>Create a new panel product. Stock and inventory tracking are initialized immediately.</SheetDescription>
+        </SheetHeader>
+
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4 px-4 pb-6">
+          <div className="space-y-1.5">
+            <Label htmlFor="prod-name">Product name *</Label>
+            <Input id="prod-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Fluted Walnut Wall Panel" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-cat">Category *</Label>
+              <select
+                id="prod-cat"
+                required
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-background text-foreground">{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-sku">SKU *</Label>
+              <Input id="prod-sku" required value={sku} onChange={(e) => setSku(e.target.value)} placeholder="e.g. WP-WAL-003" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-price">Price (₱) *</Label>
+              <Input id="prod-price" type="number" step="0.01" min="1" required value={price} onChange={(e) => setPrice(e.target.value)} placeholder="1850.00" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-unit">Unit</Label>
+              <Input id="prod-unit" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="panel" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-material">Material</Label>
+              <Input id="prod-material" value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="PVC / Oak" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-width">Width (cm)</Label>
+              <Input id="prod-width" type="number" step="0.1" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="60" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-height">Height (cm)</Label>
+              <Input id="prod-height" type="number" step="0.1" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="240" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-thick">Thickness (cm)</Label>
+              <Input id="prod-thick" type="number" step="0.1" value={thickness} onChange={(e) => setThickness(e.target.value)} placeholder="1.2" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-stock">Initial stock *</Label>
+              <Input id="prod-stock" type="number" min="0" required value={stock} onChange={(e) => setStock(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-reorder">Reorder level</Label>
+              <Input id="prod-reorder" type="number" min="0" value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="prod-image">Product Image (optional)</Label>
+            <Input
+              id="prod-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+            />
+            {imageFile && <p className="text-xs text-muted-foreground">{imageFile.name} ({(imageFile.size / 1024).toFixed(0)} KB)</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="prod-desc">Description (optional)</Label>
+            <textarea
+              id="prod-desc"
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Product highlights, specifications, and finish details..."
+            />
+          </div>
+
+          <div className="flex gap-2 pt-4">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => { reset(); onClose() }} disabled={isSaving}>Cancel</Button>
+            <Button type="submit" className="flex-1" disabled={isSaving}>
+              {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}
+              Create product
+            </Button>
+          </div>
+        </form>
+      </SheetContent>
+    </Sheet>
   )
 }
 

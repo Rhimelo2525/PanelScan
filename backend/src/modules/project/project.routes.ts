@@ -18,8 +18,8 @@ const router = Router();
 
 router.use(authenticate);
 
-// POST /api/projects - OWNER only.
-router.post('/', restrictTo(UserRole.OWNER), validate(createProjectSchema), projectController.create);
+// POST /api/projects - OWNER and CUSTOMER can create projects.
+router.post('/', restrictTo(UserRole.OWNER, UserRole.CUSTOMER), validate(createProjectSchema), projectController.create);
 
 // GET /api/projects - OWNER: every project. MODERATOR: assigned only. CUSTOMER: own only.
 router.get('/', validate(listProjectsSchema), projectController.getAll);
@@ -41,7 +41,7 @@ router.patch(
 // PATCH /api/projects/:id/assign - OWNER only ("Cannot reassign projects" is explicitly listed under MODERATOR's restrictions).
 router.patch('/:id/assign', restrictTo(UserRole.OWNER), validate(assignProjectSchema), projectController.assign);
 
-// DELETE /api/projects/:id - OWNER only.
-router.delete('/:id', restrictTo(UserRole.OWNER), validate(idParamsSchema), projectController.remove);
+// DELETE /api/projects/:id - OWNER can delete any project; CUSTOMER can delete their own project.
+router.delete('/:id', restrictTo(UserRole.OWNER, UserRole.CUSTOMER), validate(idParamsSchema), projectController.remove);
 
 export default router;

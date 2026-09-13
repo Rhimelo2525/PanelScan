@@ -46,29 +46,29 @@ export class ProductController {
   });
 
   getById = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const product = await this.productService.getProductById(req.params.id as string);
+    const product = await this.productService.getProductById(req.params.id as string, Boolean(req.user));
     sendSuccess(res, 200, 'Product retrieved successfully.', { product });
   });
 
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const result = await this.productService.getProducts(parseProductFilters(req.query));
+    const result = await this.productService.getProducts(parseProductFilters(req.query), Boolean(req.user));
     sendSuccess(res, 200, 'Products retrieved successfully.', result);
   });
 
   search = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const result = await this.productService.getProducts(parseProductFilters(req.query));
+    const result = await this.productService.getProducts(parseProductFilters(req.query), Boolean(req.user));
     sendSuccess(res, 200, 'Search results retrieved successfully.', result);
   });
 
   getFeatured = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const { limit } = parseProductFilters(req.query);
-    const result = await this.productService.getFeaturedProducts(limit);
+    const result = await this.productService.getFeaturedProducts(limit, Boolean(req.user));
     sendSuccess(res, 200, 'Featured products retrieved successfully.', result);
   });
 
   getByCategory = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const filters = parseProductFilters(req.query);
-    const result = await this.productService.getProductsByCategory(req.params.categoryId as string, filters);
+    const result = await this.productService.getProductsByCategory(req.params.categoryId as string, filters, Boolean(req.user));
     sendSuccess(res, 200, 'Products retrieved successfully.', result);
   });
 }

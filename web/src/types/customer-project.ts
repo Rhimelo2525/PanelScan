@@ -29,6 +29,7 @@ export interface CustomerMeasurementProject {
 
 export interface CustomerProjectResultSet {
   projects: CustomerMeasurementProject[]
-  source: "DEMO_FALLBACK" | "API"
+  source: "API"
   notice: string
 }
+

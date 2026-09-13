@@ -12,12 +12,13 @@ export function formatPesos(amount: number, whole = false): string {
   return Number.isFinite(amount) ? (whole ? wholePesoFormatter : phpFormatter).format(amount) : "Pricing unavailable"
 }
 
-export function formatProductPrice(price: string): string {
+export function formatProductPrice(price: string | null | undefined): string {
   const minorUnits = parsePriceToMinorUnits(price)
   return minorUnits === null ? "Pricing unavailable" : formatMinorUnits(minorUnits)
 }
 
-export function parsePriceToMinorUnits(price: string): number | null {
+export function parsePriceToMinorUnits(price: string | null | undefined): number | null {
+  if (!price) return null
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(price.trim())
   if (!match) return null
 

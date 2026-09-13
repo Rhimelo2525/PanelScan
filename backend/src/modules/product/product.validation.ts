@@ -30,6 +30,8 @@ export const createProductSchema = z.object({
     unit: z.string().trim().max(20, 'Unit is too long.').optional(),
     material: z.string().trim().max(100, 'Material is too long.').optional(),
     isFeatured: z.boolean().optional(),
+    stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').optional(),
+    reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').optional(),
     images: z.array(productImageSchema).max(10, 'A product can have at most 10 images.').optional(),
   }),
 });
@@ -56,6 +58,8 @@ export const updateProductSchema = z.object({
       material: z.string().trim().max(100, 'Material is too long.').optional(),
       isFeatured: z.boolean().optional(),
       isActive: z.boolean().optional(),
+      stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').optional(),
+      reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').optional(),
       images: z.array(productImageSchema).max(10, 'A product can have at most 10 images.').optional(),
     })
     .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' }),
