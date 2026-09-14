@@ -17,7 +17,7 @@ import {
 
 const router = Router();
 
-const manageProducts = [authenticate, restrictTo(UserRole.MODERATOR)];
+const manageProducts = [authenticate, restrictTo(UserRole.OWNER, UserRole.MODERATOR)];
 
 // GET /api/products
 router.get('/', authenticateOptional, validate(listProductsSchema), productController.getAll);

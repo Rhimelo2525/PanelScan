@@ -59,7 +59,17 @@ export const adminNavGroups: AdminNavGroup[] = [
 
 export function navGroupsForRole(role: UserRole): AdminNavGroup[] {
   return adminNavGroups
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.roles.includes(role)) }))
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .filter((item) => item.roles.includes(role))
+        .map((item) => {
+          if (item.to === "/admin/requests" && role === "MODERATOR") {
+            return { ...item, label: "Change Request" }
+          }
+          return item
+        }),
+    }))
     .filter((group) => group.items.length > 0)
 }
 

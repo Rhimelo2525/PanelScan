@@ -34,14 +34,19 @@ export class InventoryService {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
 
+    const where: Prisma.InventoryWhereInput = {
+      product: { deletedAt: null },
+    };
+
     const [inventory, total] = await Promise.all([
       prisma.inventory.findMany({
+        where,
         include: inventoryInclude,
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.inventory.count(),
+      prisma.inventory.count({ where }),
     ]);
 
     return {
@@ -66,6 +71,7 @@ export class InventoryService {
    */
   async getLowStockReport(): Promise<InventoryWithProduct[]> {
     const allInventory = await prisma.inventory.findMany({
+      where: { product: { deletedAt: null } },
       include: inventoryInclude,
       orderBy: { quantity: 'asc' },
     });

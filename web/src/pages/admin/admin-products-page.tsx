@@ -1,4 +1,4 @@
-import { Eye, ImagePlus, Package, PackageSearch, Pencil, Plus, Upload, X } from "lucide-react"
+import { Eye, ImagePlus, Package, PackageSearch, Pencil, Plus, Trash2, Upload, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { ChangeEvent, FormEvent } from "react"
 import { Link } from "react-router-dom"
@@ -6,7 +6,7 @@ import { toast } from "sonner"
 
 import { formatDate } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
-import { createProduct, updateProduct, uploadProductImage } from "@/api/admin"
+import { createProduct, deleteProduct, updateProduct, uploadProductImage } from "@/api/admin"
 import { getCategories } from "@/api/categories"
 import { getProducts } from "@/api/products"
 import { useAuth } from "@/auth/use-auth"
@@ -18,6 +18,16 @@ import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
 import { ProductImage } from "@/components/products/product-image"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -58,8 +68,12 @@ export function AdminProductsPage() {
 
   useEffect(() => {
     getCategories()
-      .then(setCategories)
-      .catch(() => {})
+      .then((cats) => {
+        // Keep ONLY Ceiling Panels and Wall Panels (removes Cladding, Flooring, Partition)
+        const inScope = cats.filter((c) => c.slug === "wall-panels" || c.slug === "ceiling-panels")
+        setCategories(inScope)
+      })
+      .catch(() => { })
   }, [])
 
   const products = productResource.data ?? []
@@ -399,11 +413,39 @@ function EditProductSheet({
   const [isActive, setIsActive] = useState(product.isActive)
   const [description, setDescription] = useState(product.description ?? "")
 
+  const { user } = useAuth()
+  const isModerator = user?.role === "MODERATOR"
   const [imageUrl, setImageUrl] = useState<string | null>(product.images[0]?.url ?? null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleDelete() {
+    setIsDeleting(true)
+    setError(null)
+    try {
+      await deleteProduct(product.id)
+      if (isModerator) {
+        toast.success("Delete request submitted for owner approval", {
+          description: `Request to delete "${product.name}" has been sent for owner review.`,
+        })
+      } else {
+        toast.success("Product deleted successfully", {
+          description: `"${product.name}" has been removed from the catalogue.`,
+        })
+      }
+      setShowDeleteDialog(false)
+      onSuccess()
+    } catch (err) {
+      setError(getAdminErrorMessage(err))
+      setShowDeleteDialog(false)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   function handleImageSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -464,9 +506,15 @@ function EditProductSheet({
       }
 
       await updateProduct(product.id, payload)
-      toast.success("Product updated successfully", {
-        description: `${name} has been updated in the catalogue.`,
-      })
+      if (isModerator) {
+        toast.success("Change request submitted for owner approval", {
+          description: `Request to update "${name}" has been sent for owner review.`,
+        })
+      } else {
+        toast.success("Product updated successfully", {
+          description: `${name} has been updated in the catalogue.`,
+        })
+      }
       onSuccess()
     } catch (err) {
       setError(getAdminErrorMessage(err))
@@ -545,6 +593,11 @@ function EditProductSheet({
                 onChange={(e) => setCategoryId(e.target.value)}
                 className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none"
               >
+                {!categories.some((c) => c.id === categoryId) && product.category && (
+                  <option value={product.category.id} disabled>
+                    {product.category.name} (Archived)
+                  </option>
+                )}
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -684,15 +737,50 @@ function EditProductSheet({
             />
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
-            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
-              Cancel
+          <div className="flex items-center justify-between border-t border-border pt-4">
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => setShowDeleteDialog(true)}
+              disabled={isSaving || isDeleting}
+            >
+              <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />
+              Delete product
             </Button>
-            <Button type="submit" disabled={isSaving}>
-              {isSaving ? "Saving changes…" : "Save changes"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={isSaving || isDeleting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSaving || isDeleting}>
+                {isSaving ? "Saving changes…" : "Save changes"}
+              </Button>
+            </div>
           </div>
         </form>
+
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Product?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &ldquo;{product.name}&rdquo;? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={isDeleting}
+                onClick={(e) => {
+                  e.preventDefault()
+                  void handleDelete()
+                }}
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   )
@@ -709,6 +797,8 @@ function AddProductSheet({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const { user } = useAuth()
+  const isModerator = user?.role === "MODERATOR"
   const [name, setName] = useState("")
   const [categoryId, setCategoryId] = useState("")
   const [sku, setSku] = useState("")
@@ -807,9 +897,15 @@ function AddProductSheet({
           : undefined,
       })
 
-      toast.success("Product created successfully", {
-        description: `${name} has been added to the catalogue and inventory.`,
-      })
+      if (isModerator) {
+        toast.success("Change request submitted for owner approval", {
+          description: `Request to add "${name}" has been sent for owner review.`,
+        })
+      } else {
+        toast.success("Product created successfully", {
+          description: `${name} has been added to the catalogue and inventory.`,
+        })
+      }
       resetForm()
       onSuccess()
     } catch (err) {
@@ -1048,7 +1144,7 @@ function AddProductSheet({
               Cancel
             </Button>
             <Button type="submit" disabled={isSaving}>
-              {isSaving ? "Creating product…" : "Create product"}
+              {isSaving ? "Adding product…" : "Add Product"}
             </Button>
           </div>
         </form>

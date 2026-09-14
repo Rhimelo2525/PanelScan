@@ -161,15 +161,17 @@ export class ReportsService {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
 
-    const where: Prisma.InventoryWhereInput =
-      filters.dateFrom || filters.dateTo
+    const where: Prisma.InventoryWhereInput = {
+      product: { deletedAt: null },
+      ...(filters.dateFrom || filters.dateTo
         ? {
             lastRestockedAt: {
               ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
               ...(filters.dateTo ? { lte: filters.dateTo } : {}),
             },
           }
-        : {};
+        : {}),
+    };
 
     const allInventory = await prisma.inventory.findMany({
       where,

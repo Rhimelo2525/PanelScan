@@ -44,14 +44,15 @@ interface CategorySeed {
   name: string;
   slug: string;
   description: string;
+  isActive?: boolean;
 }
 
 const CATEGORY_SEEDS: CategorySeed[] = [
-  { name: 'Wall Panels', slug: 'wall-panels', description: 'Decorative and acoustic wall panels.' },
-  { name: 'Ceiling Panels', slug: 'ceiling-panels', description: 'Ceiling panel systems and tiles.' },
-  { name: 'Flooring Panels', slug: 'flooring-panels', description: 'Interior flooring panel solutions.' },
-  { name: 'Partition Panels', slug: 'partition-panels', description: 'Room divider and partition panels.' },
-  { name: 'Cladding Panels', slug: 'cladding-panels', description: 'Exterior and interior cladding panels.' },
+  { name: 'Wall Panels', slug: 'wall-panels', description: 'Decorative and acoustic wall panels.', isActive: true },
+  { name: 'Ceiling Panels', slug: 'ceiling-panels', description: 'Ceiling panel systems and tiles.', isActive: true },
+  { name: 'Flooring Panels', slug: 'flooring-panels', description: 'Interior flooring panel solutions.', isActive: false },
+  { name: 'Partition Panels', slug: 'partition-panels', description: 'Room divider and partition panels.', isActive: false },
+  { name: 'Cladding Panels', slug: 'cladding-panels', description: 'Exterior and interior cladding panels.', isActive: false },
 ];
 
 async function seedCategories(): Promise<Map<string, string>> {
@@ -60,7 +61,7 @@ async function seedCategories(): Promise<Map<string, string>> {
   for (const seed of CATEGORY_SEEDS) {
     const category = await prisma.category.upsert({
       where: { slug: seed.slug },
-      update: {},
+      update: { isActive: seed.isActive ?? true },
       create: seed,
     });
     slugToId.set(category.slug, category.id);

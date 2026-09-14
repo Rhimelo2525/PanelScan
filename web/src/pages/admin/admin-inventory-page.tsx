@@ -1,17 +1,28 @@
-import { Boxes, Loader2, Minus, Plus } from "lucide-react"
+import { Boxes, Loader2, Minus, Plus, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { addStock, createProduct, getInventory, getInventoryReport, reduceStock, uploadProductImage } from "@/api/admin"
+import { addStock, createProduct, deleteProduct, getInventory, getInventoryReport, reduceStock, uploadProductImage } from "@/api/admin"
 import { getCategories } from "@/api/categories"
 import { availableStock, formatCount, formatDate, formatMoney, stockStatus } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
+import { useAuth } from "@/auth/use-auth"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
 import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,6 +39,9 @@ import type { Category } from "@/types/category"
  */
 export function AdminInventoryPage() {
   useDocumentTitle("Inventory | PanelScan Admin")
+  const { user } = useAuth()
+  const isModerator = user?.role === "MODERATOR"
+
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
@@ -57,10 +71,12 @@ export function AdminInventoryPage() {
         title="Inventory"
         description="Live stock levels, reserved quantities, and reorder thresholds for PVC wall and ceiling panels."
         actions={
-          <Button onClick={() => setShowAddProduct(true)}>
-            <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
-            Add product
-          </Button>
+          isModerator ? (
+            <Button onClick={() => setShowAddProduct(true)}>
+              <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
+              Edit Inventory
+            </Button>
+          ) : undefined
         }
       />
 
@@ -115,12 +131,16 @@ export function AdminInventoryPage() {
       )}
 
       <StockAdjustSheet record={adjusting} onClose={() => setAdjusting(null)} onDone={() => { setAdjusting(null); inventory.reload(); report.reload() }} />
-      <AddProductSheet open={showAddProduct} onClose={() => setShowAddProduct(false)} onDone={() => { setShowAddProduct(false); inventory.reload(); report.reload() }} />
+      {isModerator && (
+        <AddProductSheet open={showAddProduct} onClose={() => setShowAddProduct(false)} onDone={() => { setShowAddProduct(false); inventory.reload(); report.reload() }} />
+      )}
     </div>
   )
 }
 
 function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const { user } = useAuth()
+  const isModerator = user?.role === "MODERATOR"
   const [categories, setCategories] = useState<Category[]>([])
   const [name, setName] = useState("")
   const [categoryId, setCategoryId] = useState("")
@@ -141,8 +161,9 @@ function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: ()
     if (open) {
       getCategories()
         .then((cats) => {
-          setCategories(cats)
-          if (cats.length > 0 && !categoryId) setCategoryId(cats[0].id)
+          const inScope = cats.filter((c) => c.slug === "wall-panels" || c.slug === "ceiling-panels")
+          setCategories(inScope)
+          if (inScope.length > 0) setCategoryId((prev) => prev || inScope[0].id)
         })
         .catch(() => {})
     }
@@ -194,7 +215,13 @@ function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: ()
         images: imageUrl ? [{ url: imageUrl, isPrimary: true, altText: name.trim() }] : undefined,
       })
 
-      toast.success(`Product "${name.trim()}" created and inventory initialized.`)
+      if (isModerator) {
+        toast.success("Change request submitted for owner approval", {
+          description: `Request to add "${name.trim()}" has been sent for owner review.`,
+        })
+      } else {
+        toast.success(`Product "${name.trim()}" created and inventory initialized.`)
+      }
       reset()
       onDone()
     } catch (error) {
@@ -307,7 +334,7 @@ function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: ()
             <Button type="button" variant="outline" className="flex-1" onClick={() => { reset(); onClose() }} disabled={isSaving}>Cancel</Button>
             <Button type="submit" className="flex-1" disabled={isSaving}>
               {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}
-              Create product
+              Add Product
             </Button>
           </div>
         </form>
@@ -329,8 +356,12 @@ function panelLineForSku(sku: string): string {
 }
 
 function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord | null; onClose: () => void; onDone: () => void }) {
+  const { user } = useAuth()
+  const isModerator = user?.role === "MODERATOR"
   const [quantity, setQuantity] = useState("1")
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   async function adjust(direction: "add" | "reduce") {
     if (!record) return
@@ -343,7 +374,13 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
     try {
       if (direction === "add") await addStock(record.productId, parsed)
       else await reduceStock(record.productId, parsed)
-      toast.success(`${record.product.name}: ${direction === "add" ? "added" : "removed"} ${parsed} unit(s).`)
+      if (isModerator) {
+        toast.success("Change request submitted for owner approval", {
+          description: `Request to ${direction === "add" ? "add" : "reduce"} ${parsed} unit(s) for "${record.product.name}" has been sent for owner review.`,
+        })
+      } else {
+        toast.success(`${record.product.name}: ${direction === "add" ? "added" : "removed"} ${parsed} unit(s).`)
+      }
       setQuantity("1")
       onDone()
     } catch (error) {
@@ -353,36 +390,107 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
     }
   }
 
+  async function handleDelete() {
+    if (!record) return
+    setIsDeleting(true)
+    try {
+      await deleteProduct(record.productId)
+      if (isModerator) {
+        toast.success("Delete request submitted for owner approval", {
+          description: `Request to delete "${record.product.name}" has been sent for owner review.`,
+        })
+      } else {
+        toast.success("Product deleted successfully", {
+          description: `"${record.product.name}" has been removed from catalogue and inventory.`,
+        })
+      }
+      setShowDeleteDialog(false)
+      onDone()
+    } catch (error) {
+      toast.error("Could not delete product", { description: getAdminErrorMessage(error) })
+      setShowDeleteDialog(false)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
-    <Sheet open={Boolean(record)} onOpenChange={(open) => { if (!open) onClose() }}>
-      <SheetContent className="admin-surface w-full sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>Adjust stock</SheetTitle>
-          <SheetDescription>{record ? `${record.product.name} · ${record.product.sku}` : ""}</SheetDescription>
-        </SheetHeader>
-        {record && (
-          <div className="space-y-5 px-4 pb-6">
-            <dl className="grid grid-cols-3 gap-3 surface-card p-3 text-sm">
-              <div><dt className="text-xs text-muted-foreground">On hand</dt><dd className="mt-0.5 font-medium tabular-nums">{formatCount(record.quantity)}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Reserved</dt><dd className="mt-0.5 font-medium tabular-nums">{formatCount(record.reservedQty)}</dd></div>
-              <div><dt className="text-xs text-muted-foreground">Available</dt><dd className="mt-0.5 font-medium tabular-nums">{formatCount(availableStock(record))}</dd></div>
-            </dl>
+    <>
+      <Sheet open={Boolean(record)} onOpenChange={(open) => { if (!open) onClose() }}>
+        <SheetContent className="admin-surface w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Adjust stock</SheetTitle>
+            <SheetDescription>{record ? `${record.product.name} · ${record.product.sku}` : ""}</SheetDescription>
+          </SheetHeader>
+          {record && (
+            <div className="space-y-5 px-4 pb-6">
+              <dl className="grid grid-cols-3 gap-3 surface-card p-3 text-sm">
+                <div><dt className="text-xs text-muted-foreground">On hand</dt><dd className="mt-0.5 font-medium tabular-nums">{formatCount(record.quantity)}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Reserved</dt><dd className="mt-0.5 font-medium tabular-nums">{formatCount(record.reservedQty)}</dd></div>
+                <div><dt className="text-xs text-muted-foreground">Available</dt><dd className="mt-0.5 font-medium tabular-nums">{formatCount(availableStock(record))}</dd></div>
+              </dl>
 
-            <div className="space-y-2">
-              <Label htmlFor="stock-quantity">Quantity</Label>
-              <Input id="stock-quantity" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-              <p className="text-xs text-muted-foreground">Whole units. Reducing stock cannot take available quantity below zero — the backend rejects that.</p>
+              <div className="space-y-2">
+                <Label htmlFor="stock-quantity">Quantity</Label>
+                <Input id="stock-quantity" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={isSaving || isDeleting} />
+                <p className="text-xs text-muted-foreground">Whole units. Reducing stock cannot take available quantity below zero — the backend rejects that.</p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button className="flex-1" onClick={() => void adjust("add")} disabled={isSaving || isDeleting}>
+                  {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}Add stock
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={() => void adjust("reduce")} disabled={isSaving || isDeleting}>
+                  <Minus data-icon="inline-start" aria-hidden="true" />Reduce
+                </Button>
+              </div>
+
+              {isModerator && (
+                <div className="border-t border-border pt-4">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="w-full"
+                    onClick={() => setShowDeleteDialog(true)}
+                    disabled={isSaving || isDeleting}
+                  >
+                    <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />
+                    Delete
+                  </Button>
+                </div>
+              )}
+
+              <p className="text-xs leading-5 text-muted-foreground">Adjustments apply immediately and are attributed to your account by the backend. Restock approvals that need owner sign-off should be raised under Requests.</p>
             </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
-            <div className="flex gap-2">
-              <Button className="flex-1" onClick={() => void adjust("add")} disabled={isSaving}>{isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}Add stock</Button>
-              <Button variant="outline" className="flex-1" onClick={() => void adjust("reduce")} disabled={isSaving}><Minus data-icon="inline-start" aria-hidden="true" />Reduce</Button>
-            </div>
-
-            <p className="text-xs leading-5 text-muted-foreground">Adjustments apply immediately and are attributed to your account by the backend. Restock approvals that need owner sign-off should be raised under Requests.</p>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
+      {record && (
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Product?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &ldquo;{record.product.name}&rdquo; ({record.product.sku})? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={isDeleting}
+                onClick={(e) => {
+                  e.preventDefault()
+                  void handleDelete()
+                }}
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </>
   )
 }

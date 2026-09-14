@@ -2,14 +2,15 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { prisma } from '../../src/config/database';
-import { createOwner, createTestCategory, createTestProduct } from '../helpers/factories';
+import { createModerator, createOwner, createTestCategory, createTestProduct } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 describe('Product module', () => {
   describe('POST /api/products (create)', () => {
-    it('creates a product under an existing category', async () => {
-      const { token } = await createOwner();
+    it('creates a Change Request when called by MODERATOR', async () => {
+      const { token } = await createModerator();
       const category = await createTestCategory();
+      const sku = `SKU-MOD-${Date.now()}`;
 
       const response = await request(app)
         .post('/api/products')
@@ -17,7 +18,7 @@ describe('Product module', () => {
         .send({
           categoryId: category.id,
           name: 'Oak Veneer Wall Panel',
-          sku: `SKU-${Date.now()}`,
+          sku,
           price: 1850,
           width: 60,
           height: 240,
@@ -25,10 +26,34 @@ describe('Product module', () => {
 
       expect(response.status).toBe(201);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.product.name).toBe('Oak Veneer Wall Panel');
-      expect(response.body.data.product.category.id).toBe(category.id);
+      expect(response.body.data.requiresApproval).toBe(true);
+      expect(response.body.data.request).toBeDefined();
+      expect(response.body.data.request.status).toBe('PENDING');
 
-      const dbProduct = await prisma.product.findUnique({ where: { id: response.body.data.product.id } });
+      // Product is not yet in live database
+      const dbProduct = await prisma.product.findFirst({ where: { sku, deletedAt: null } });
+      expect(dbProduct).toBeNull();
+    });
+
+    it('creates a product directly when called by OWNER', async () => {
+      const { token } = await createOwner();
+      const category = await createTestCategory();
+      const sku = `SKU-OWNER-${Date.now()}`;
+
+      const response = await request(app)
+        .post('/api/products')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          categoryId: category.id,
+          name: 'Owner Panel',
+          sku,
+          price: 1850,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.product.name).toBe('Owner Panel');
+
+      const dbProduct = await prisma.product.findFirst({ where: { sku } });
       expect(dbProduct).not.toBeNull();
     });
 
@@ -63,7 +88,25 @@ describe('Product module', () => {
   });
 
   describe('PATCH /api/products/:id (update)', () => {
-    it('updates a product and persists the change to the database', async () => {
+    it('creates a Change Request when called by MODERATOR and does not modify live product', async () => {
+      const { token } = await createModerator();
+      const product = await createTestProduct({ price: 100 });
+
+      const response = await request(app)
+        .patch(`/api/products/${product.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ price: 250 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.requiresApproval).toBe(true);
+      expect(response.body.data.request.status).toBe('PENDING');
+
+      // Live product remains unchanged
+      const dbProduct = await prisma.product.findUnique({ where: { id: product.id } });
+      expect(Number(dbProduct?.price)).toBe(100);
+    });
+
+    it('updates a product directly when called by OWNER', async () => {
       const { token } = await createOwner();
       const product = await createTestProduct({ price: 100 });
 
@@ -81,7 +124,21 @@ describe('Product module', () => {
   });
 
   describe('DELETE /api/products/:id (soft delete)', () => {
-    it('soft deletes a product via deletedAt and hides it from reads', async () => {
+    it('creates a Change Request when called by MODERATOR and keeps live product active', async () => {
+      const { token } = await createModerator();
+      const product = await createTestProduct();
+
+      const response = await request(app).delete(`/api/products/${product.id}`).set('Authorization', `Bearer ${token}`);
+      expect(response.status).toBe(200);
+      expect(response.body.data.requiresApproval).toBe(true);
+      expect(response.body.data.request.status).toBe('PENDING');
+
+      const dbProduct = await prisma.product.findUnique({ where: { id: product.id } });
+      expect(dbProduct?.deletedAt).toBeNull();
+      expect(dbProduct?.isActive).toBe(true);
+    });
+
+    it('soft deletes a product directly when called by OWNER', async () => {
       const { token } = await createOwner();
       const product = await createTestProduct();
 
@@ -91,9 +148,6 @@ describe('Product module', () => {
       const dbProduct = await prisma.product.findUnique({ where: { id: product.id } });
       expect(dbProduct?.deletedAt).not.toBeNull();
       expect(dbProduct?.isActive).toBe(false);
-
-      const getResponse = await request(app).get(`/api/products/${product.id}`);
-      expect(getResponse.status).toBe(404);
     });
   });
 

@@ -66,13 +66,13 @@ const buildOrderBy = (
 };
 
 export class ProductService {
-  async getProducts(filters: ProductFilters, isAuthenticated = false): Promise<PaginatedProducts> {
+  async getProducts(filters: ProductFilters, isAuthenticated = false, isStaff = false): Promise<PaginatedProducts> {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
 
     const where: Prisma.ProductWhereInput = {
       deletedAt: null,
-      isActive: true,
+      ...(isStaff ? {} : { isActive: true }),
       ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
       ...(filters.isFeatured !== undefined ? { isFeatured: filters.isFeatured } : {}),
       ...(filters.search
@@ -123,9 +123,13 @@ export class ProductService {
     return this.getProducts({ ...filters, categoryId }, isAuthenticated);
   }
 
-  async getProductById(id: string, isAuthenticated = false): Promise<PublicProduct> {
+  async getProductById(id: string, isAuthenticated = false, isStaff = false): Promise<PublicProduct> {
     const product = await prisma.product.findFirst({
-      where: { id, deletedAt: null, isActive: true },
+      where: {
+        id,
+        deletedAt: null,
+        ...(isStaff ? {} : { isActive: true }),
+      },
       include: productInclude,
     });
     if (!product) {
@@ -140,10 +144,54 @@ export class ProductService {
       throw new AppError('Category not found.', 404);
     }
 
-    const slug = input.slug ?? slugify(input.name);
-    const conflict = await prisma.product.findFirst({ where: { OR: [{ slug }, { sku: input.sku }] } });
-    if (conflict) {
+    const trimmedSku = input.sku.trim();
+
+    // Verify SKU uniqueness against active products
+    const skuConflict = await prisma.product.findFirst({
+      where: {
+        sku: { equals: trimmedSku, mode: 'insensitive' },
+        deletedAt: null,
+      },
+    });
+    if (skuConflict) {
       throw new AppError('A product with this slug or SKU already exists.', 409);
+    }
+
+    // Resolve and verify slug
+    let slug: string;
+    if (input.slug) {
+      const trimmedSlug = input.slug.trim().toLowerCase();
+      const slugConflict = await prisma.product.findFirst({
+        where: {
+          slug: { equals: trimmedSlug, mode: 'insensitive' },
+          deletedAt: null,
+        },
+      });
+      if (slugConflict) {
+        throw new AppError('A product with this slug or SKU already exists.', 409);
+      }
+      slug = trimmedSlug;
+    } else {
+      // Auto-generate slug from name. If taken in database, disambiguate so creation never fails on slug
+      const baseSlug = slugify(input.name);
+      slug = baseSlug;
+      let counter = 1;
+      while (true) {
+        const existingSlug = await prisma.product.findUnique({
+          where: { slug },
+          select: { id: true },
+        });
+        if (!existingSlug) {
+          break;
+        }
+        if (counter === 1) {
+          const skuSlug = slugify(trimmedSku);
+          slug = skuSlug ? `${baseSlug}-${skuSlug}` : `${baseSlug}-${counter + 1}`;
+        } else {
+          slug = `${baseSlug}-${counter}`;
+        }
+        counter++;
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -153,7 +201,7 @@ export class ProductService {
           name: input.name,
           slug,
           description: input.description,
-          sku: input.sku,
+          sku: trimmedSku,
           price: input.price,
           width: input.width,
           height: input.height,
@@ -195,11 +243,18 @@ export class ProductService {
       }
     }
 
-    if (input.slug || input.sku) {
+    const trimmedSku = input.sku?.trim();
+    const trimmedSlug = input.slug?.trim().toLowerCase();
+
+    if (trimmedSlug || trimmedSku) {
       const conflict = await prisma.product.findFirst({
         where: {
           id: { not: id },
-          OR: [...(input.slug ? [{ slug: input.slug }] : []), ...(input.sku ? [{ sku: input.sku }] : [])],
+          deletedAt: null,
+          OR: [
+            ...(trimmedSlug ? [{ slug: { equals: trimmedSlug, mode: 'insensitive' as const } }] : []),
+            ...(trimmedSku ? [{ sku: { equals: trimmedSku, mode: 'insensitive' as const } }] : []),
+          ],
         },
       });
       if (conflict) {
@@ -208,6 +263,12 @@ export class ProductService {
     }
 
     const { images, stock, reorderLevel, ...scalarFields } = input;
+    if (trimmedSku) {
+      scalarFields.sku = trimmedSku;
+    }
+    if (trimmedSlug) {
+      scalarFields.slug = trimmedSlug;
+    }
 
     return prisma.$transaction(async (tx) => {
       if (images) {
@@ -248,9 +309,16 @@ export class ProductService {
       throw new AppError('Product not found.', 404);
     }
 
+    const shortId = id.slice(0, 8);
+    const timestamp = Date.now();
     return prisma.product.update({
       where: { id },
-      data: { deletedAt: new Date(), isActive: false },
+      data: {
+        deletedAt: new Date(),
+        isActive: false,
+        sku: `${existing.sku}__archived_${shortId}_${timestamp}`,
+        slug: `${existing.slug}--archived-${shortId}-${timestamp}`,
+      },
       include: productInclude,
     });
   }

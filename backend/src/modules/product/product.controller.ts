@@ -1,7 +1,13 @@
+import { RequestType } from '@prisma/client';
 import type { Request, Response } from 'express';
 
+import { prisma } from '../../config/database';
+import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
+import { requestService } from '../request/request.service';
+import { serializeDescription } from '../request/request.types';
+import type { ChangeRequestPayload } from '../request/request.types';
 import type { ProductFilters } from './product.service';
 import { ProductService, productService } from './product.service';
 
@@ -31,27 +37,186 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   create = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'MODERATOR') {
+      const skuConflict = await prisma.product.findFirst({
+        where: { sku: { equals: req.body.sku.trim(), mode: 'insensitive' }, deletedAt: null },
+      });
+      if (skuConflict) {
+        throw new AppError('A product with this slug or SKU already exists.', 409);
+      }
+
+      const category = await prisma.category.findUnique({ where: { id: req.body.categoryId } });
+      if (!category) {
+        throw new AppError('Category not found.', 404);
+      }
+
+      const priceNum = Number(req.body.price);
+      const priceFormatted = `₱${priceNum.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const summary = `Request to add product "${req.body.name.trim()}" (${req.body.sku.trim().toUpperCase()}) in category "${category.name}" with price ${priceFormatted} and initial stock of ${req.body.stock ?? 0} units.`;
+
+      const payload: ChangeRequestPayload = {
+        action: 'ADD_PRODUCT',
+        scope: 'PRODUCTS',
+        productName: req.body.name.trim(),
+        sku: req.body.sku.trim().toUpperCase(),
+        currentValues: { Status: 'Not in catalogue' },
+        proposedValues: {
+          Product: req.body.name.trim(),
+          Category: category.name,
+          SKU: req.body.sku.trim().toUpperCase(),
+          Price: priceFormatted,
+          Stock: req.body.stock ?? 0,
+          'Reorder Level': req.body.reorderLevel ?? 10,
+        },
+        productData: req.body,
+      };
+
+      const request = await requestService.createRequest(req.user.id, {
+        type: RequestType.OTHER,
+        title: `Add product: ${req.body.name.trim()}`,
+        description: serializeDescription(summary, payload),
+      });
+
+      sendSuccess(res, 201, 'Change request submitted for owner approval.', { request, requiresApproval: true });
+      return;
+    }
+
     const product = await this.productService.createProduct(req.body);
     sendSuccess(res, 201, 'Product created successfully.', { product });
   });
 
   update = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'MODERATOR') {
+      const product = await prisma.product.findFirst({
+        where: { id: req.params.id as string, deletedAt: null },
+        include: { category: true, inventory: true },
+      });
+      if (!product) {
+        throw new AppError('Product not found.', 404);
+      }
+
+      const currentValues: Record<string, any> = {};
+      const proposedValues: Record<string, any> = {};
+      const diffList: string[] = [];
+
+      if (req.body.name && req.body.name.trim() !== product.name) {
+        currentValues.Name = product.name;
+        proposedValues.Name = req.body.name.trim();
+        diffList.push(`Name: "${product.name}" → "${req.body.name.trim()}"`);
+      }
+      if (req.body.price !== undefined) {
+        const curPrice = Number(product.price);
+        const newPrice = Number(req.body.price);
+        if (curPrice !== newPrice) {
+          currentValues.Price = `₱${curPrice.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          proposedValues.Price = `₱${newPrice.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          diffList.push(`Price: Current: ${currentValues.Price} | Proposed: ${proposedValues.Price}`);
+        }
+      }
+      if (req.body.sku && req.body.sku.trim().toUpperCase() !== product.sku) {
+        currentValues.SKU = product.sku;
+        proposedValues.SKU = req.body.sku.trim().toUpperCase();
+        diffList.push(`SKU: ${product.sku} → ${proposedValues.SKU}`);
+      }
+      if (req.body.stock !== undefined && product.inventory) {
+        const newStock = Number(req.body.stock);
+        if (product.inventory.quantity !== newStock) {
+          currentValues.Stock = product.inventory.quantity;
+          proposedValues.Stock = newStock;
+          diffList.push(`Stock: Current: ${product.inventory.quantity} | Proposed: ${newStock}`);
+        }
+      }
+      if (req.body.reorderLevel !== undefined && product.inventory) {
+        const newReorder = Number(req.body.reorderLevel);
+        if (product.inventory.reorderLevel !== newReorder) {
+          currentValues['Reorder Level'] = product.inventory.reorderLevel;
+          proposedValues['Reorder Level'] = newReorder;
+          diffList.push(`Reorder level: Current: ${product.inventory.reorderLevel} | Proposed: ${newReorder}`);
+        }
+      }
+      if (req.body.material !== undefined && req.body.material !== product.material) {
+        currentValues.Material = product.material || 'None';
+        proposedValues.Material = req.body.material || 'None';
+        diffList.push(`Material: ${currentValues.Material} → ${proposedValues.Material}`);
+      }
+      if (req.body.isActive !== undefined && req.body.isActive !== product.isActive) {
+        currentValues.Status = product.isActive ? 'Active' : 'Draft';
+        proposedValues.Status = req.body.isActive ? 'Active' : 'Draft';
+        diffList.push(`Status: ${currentValues.Status} → ${proposedValues.Status}`);
+      }
+
+      const summary = diffList.length > 0
+        ? `Modify ${product.name} (${product.sku}): ${diffList.join(', ')}`
+        : `Update specifications for ${product.name} (${product.sku})`;
+
+      const payload: ChangeRequestPayload = {
+        action: 'EDIT_PRODUCT',
+        scope: 'PRODUCTS',
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        currentValues: Object.keys(currentValues).length > 0 ? currentValues : { Details: 'Existing specifications' },
+        proposedValues: Object.keys(proposedValues).length > 0 ? proposedValues : { Details: 'Updated specifications' },
+        updateData: req.body,
+      };
+
+      const request = await requestService.createRequest(req.user.id, {
+        type: RequestType.OTHER,
+        title: `Edit product: ${product.name}`,
+        description: serializeDescription(summary, payload),
+      });
+
+      sendSuccess(res, 200, 'Change request submitted for owner approval.', { request, requiresApproval: true });
+      return;
+    }
+
     const product = await this.productService.updateProduct(req.params.id as string, req.body);
     sendSuccess(res, 200, 'Product updated successfully.', { product });
   });
 
   softDelete = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'MODERATOR') {
+      const product = await prisma.product.findFirst({
+        where: { id: req.params.id as string, deletedAt: null },
+      });
+      if (!product) {
+        throw new AppError('Product not found.', 404);
+      }
+
+      const summary = `Request to delete product "${product.name}" (${product.sku}). Product will be archived from catalogue upon owner approval.`;
+      const payload: ChangeRequestPayload = {
+        action: 'DELETE_PRODUCT',
+        scope: 'PRODUCTS',
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        currentValues: { Status: 'Active' },
+        proposedValues: { Status: 'Deleted / Archived' },
+      };
+
+      const request = await requestService.createRequest(req.user.id, {
+        type: RequestType.OTHER,
+        title: `Delete product: ${product.name}`,
+        description: serializeDescription(summary, payload),
+      });
+
+      sendSuccess(res, 200, 'Delete request submitted for owner approval.', { request, requiresApproval: true });
+      return;
+    }
+
     const product = await this.productService.softDeleteProduct(req.params.id as string);
     sendSuccess(res, 200, 'Product deleted successfully.', { product });
   });
 
   getById = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const product = await this.productService.getProductById(req.params.id as string, Boolean(req.user));
+    const isStaff = req.user?.role === 'OWNER' || req.user?.role === 'MODERATOR';
+    const product = await this.productService.getProductById(req.params.id as string, Boolean(req.user), isStaff);
     sendSuccess(res, 200, 'Product retrieved successfully.', { product });
   });
 
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const result = await this.productService.getProducts(parseProductFilters(req.query), Boolean(req.user));
+    const isStaff = req.user?.role === 'OWNER' || req.user?.role === 'MODERATOR';
+    const result = await this.productService.getProducts(parseProductFilters(req.query), Boolean(req.user), isStaff);
     sendSuccess(res, 200, 'Products retrieved successfully.', result);
   });
 

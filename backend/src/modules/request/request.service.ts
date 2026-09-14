@@ -4,8 +4,9 @@ import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import type { NotificationDbClient } from '../notifications/notification.types';
 import { AppError } from '../../utils/AppError';
-import { requestInclude } from './request.types';
-import type { PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
+import { slugify } from '../../utils/slugify';
+import { parseDescription, requestInclude } from './request.types';
+import type { ChangeRequestPayload, PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
 import type { CreateRequestInput, UpdateRequestInput } from './request.validation';
 
 const DEFAULT_PAGE = 1;
@@ -127,6 +128,11 @@ export class RequestService {
         throw new AppError(`Cannot approve a request that is already ${request.status.toLowerCase()}.`, 409);
       }
 
+      const { payload } = parseDescription(request.description);
+      if (payload) {
+        await this.applyApprovedChange(tx, payload);
+      }
+
       const updated = await tx.request.update({
         where: { id: requestId },
         data: { status: RequestStatus.APPROVED, reviewedById: ownerId, reviewedAt: new Date(), reviewNote },
@@ -234,6 +240,188 @@ export class RequestService {
     }
 
     await prisma.request.delete({ where: { id: requestId } });
+  }
+
+  private async applyApprovedChange(tx: Prisma.TransactionClient, payload: ChangeRequestPayload): Promise<void> {
+    if (payload.action === 'ADD_PRODUCT' && payload.productData) {
+      const data = payload.productData;
+      const category = await tx.category.findUnique({ where: { id: data.categoryId } });
+      if (!category) {
+        throw new AppError('Product category not found.', 404);
+      }
+
+      const trimmedSku = data.sku.trim().toUpperCase();
+      const skuConflict = await tx.product.findFirst({
+        where: {
+          sku: { equals: trimmedSku, mode: 'insensitive' },
+          deletedAt: null,
+        },
+      });
+      if (skuConflict) {
+        throw new AppError('A product with this SKU already exists.', 409);
+      }
+
+      const baseSlug = slugify(data.name);
+      let slug = baseSlug;
+      let counter = 1;
+      while (true) {
+        const existing = await tx.product.findUnique({ where: { slug }, select: { id: true } });
+        if (!existing) break;
+        if (counter === 1) {
+          const skuSlug = slugify(trimmedSku);
+          slug = skuSlug ? `${baseSlug}-${skuSlug}` : `${baseSlug}-${counter + 1}`;
+        } else {
+          slug = `${baseSlug}-${counter}`;
+        }
+        counter++;
+      }
+
+      const product = await tx.product.create({
+        data: {
+          categoryId: data.categoryId,
+          name: data.name.trim(),
+          slug,
+          sku: trimmedSku,
+          price: data.price,
+          material: data.material?.trim() || null,
+          unit: data.unit?.trim() || 'panel',
+          width: data.width ? Number(data.width) : null,
+          height: data.height ? Number(data.height) : null,
+          thickness: data.thickness ? Number(data.thickness) : null,
+          description: data.description?.trim() || null,
+          isActive: data.isActive ?? true,
+          isFeatured: data.isFeatured ?? false,
+        },
+      });
+
+      await tx.inventory.create({
+        data: {
+          productId: product.id,
+          quantity: data.stock ? Number(data.stock) : 0,
+          reservedQty: 0,
+          reorderLevel: data.reorderLevel ? Number(data.reorderLevel) : 10,
+          warehouseLocation: 'Main Warehouse',
+        },
+      });
+
+      if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+        await tx.productImage.createMany({
+          data: data.images.map((img: any, idx: number) => ({
+            productId: product.id,
+            url: img.url,
+            altText: img.altText || product.name,
+            isPrimary: img.isPrimary ?? idx === 0,
+            sortOrder: img.sortOrder ?? idx,
+          })),
+        });
+      }
+    } else if (payload.action === 'EDIT_PRODUCT' && payload.productId && payload.updateData) {
+      const productId = payload.productId;
+      const existing = await tx.product.findFirst({ where: { id: productId, deletedAt: null } });
+      if (!existing) {
+        throw new AppError('Product not found or has been deleted.', 404);
+      }
+
+      const { name, categoryId, sku, price, material, unit, width, height, thickness, stock, reorderLevel, isActive, isFeatured, description, images } = payload.updateData;
+
+      if (sku) {
+        const trimmedSku = sku.trim().toUpperCase();
+        const conflict = await tx.product.findFirst({
+          where: {
+            id: { not: productId },
+            sku: { equals: trimmedSku, mode: 'insensitive' },
+            deletedAt: null,
+          },
+        });
+        if (conflict) {
+          throw new AppError('A product with this SKU already exists.', 409);
+        }
+      }
+
+      const scalarFields: any = {};
+      if (name) {
+        scalarFields.name = name.trim();
+        scalarFields.slug = slugify(name);
+      }
+      if (categoryId) scalarFields.categoryId = categoryId;
+      if (sku) scalarFields.sku = sku.trim().toUpperCase();
+      if (price !== undefined) scalarFields.price = price;
+      if (material !== undefined) scalarFields.material = material?.trim() || null;
+      if (unit !== undefined) scalarFields.unit = unit?.trim() || 'panel';
+      if (width !== undefined) scalarFields.width = width ? Number(width) : null;
+      if (height !== undefined) scalarFields.height = height ? Number(height) : null;
+      if (thickness !== undefined) scalarFields.thickness = thickness ? Number(thickness) : null;
+      if (isActive !== undefined) scalarFields.isActive = isActive;
+      if (isFeatured !== undefined) scalarFields.isFeatured = isFeatured;
+      if (description !== undefined) scalarFields.description = description?.trim() || null;
+
+      if (images) {
+        await tx.productImage.deleteMany({ where: { productId } });
+        if (Array.isArray(images) && images.length > 0) {
+          await tx.productImage.createMany({
+            data: images.map((img: any, idx: number) => ({
+              productId,
+              url: img.url,
+              altText: img.altText || existing.name,
+              isPrimary: img.isPrimary ?? idx === 0,
+              sortOrder: img.sortOrder ?? idx,
+            })),
+          });
+        }
+      }
+
+      if (stock !== undefined || reorderLevel !== undefined) {
+        await tx.inventory.upsert({
+          where: { productId },
+          update: {
+            ...(stock !== undefined ? { quantity: Number(stock) } : {}),
+            ...(reorderLevel !== undefined ? { reorderLevel: Number(reorderLevel) } : {}),
+          },
+          create: {
+            productId,
+            quantity: stock ? Number(stock) : 0,
+            reservedQty: 0,
+            reorderLevel: reorderLevel ? Number(reorderLevel) : 10,
+            warehouseLocation: 'Main Warehouse',
+          },
+        });
+      }
+
+      await tx.product.update({
+        where: { id: productId },
+        data: scalarFields,
+      });
+    } else if (payload.action === 'DELETE_PRODUCT' && payload.productId) {
+      const productId = payload.productId;
+      const existing = await tx.product.findFirst({ where: { id: productId, deletedAt: null } });
+      if (!existing) {
+        throw new AppError('Product not found or has already been deleted.', 404);
+      }
+      await tx.product.update({
+        where: { id: productId },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+    } else if (payload.action === 'ADJUST_STOCK' && payload.productId && payload.adjustData) {
+      const productId = payload.productId;
+      const inventory = await tx.inventory.findUnique({ where: { productId } });
+      if (!inventory) {
+        throw new AppError('Inventory record not found for this product.', 404);
+      }
+      if (payload.adjustData.direction === 'add') {
+        await tx.inventory.update({
+          where: { productId },
+          data: { quantity: { increment: payload.adjustData.quantity }, lastRestockedAt: new Date() },
+        });
+      } else if (payload.adjustData.direction === 'reduce') {
+        if (inventory.quantity - inventory.reservedQty < payload.adjustData.quantity) {
+          throw new AppError('Cannot reduce stock below reserved quantity.', 400);
+        }
+        await tx.inventory.update({
+          where: { productId },
+          data: { quantity: { decrement: payload.adjustData.quantity } },
+        });
+      }
+    }
   }
 
   private async notifyOwners(

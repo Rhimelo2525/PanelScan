@@ -56,10 +56,9 @@ export class RequestController {
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const filters = parseRequestFilters(req.query);
-    const result =
-      requester.role === UserRole.OWNER
-        ? await this.requestService.getAllRequests(filters)
-        : await this.requestService.getMyRequests(requester.id, filters);
+    const result = requester.role === UserRole.OWNER
+      ? await this.requestService.getAllRequests(filters)
+      : await this.requestService.getMyRequests(requester.id, filters);
     sendSuccess(res, 200, 'Requests retrieved successfully.', result);
   });
 
