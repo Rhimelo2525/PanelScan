@@ -8,3 +8,6 @@ npm-debug.log*
 coverage/
 uploads/*
 !uploads/.gitkeep
+
+.vercel
+.env*
