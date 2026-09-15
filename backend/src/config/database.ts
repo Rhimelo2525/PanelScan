@@ -13,9 +13,9 @@ const createPrismaClient = (): PrismaClient =>
   });
 
 // Reuse a single PrismaClient instance across module reloads in development
-// (tsx watch) to avoid exhausting the CockroachDB connection pool.
+// (tsx watch) and across warm serverless/container invocations in production
+// to avoid exhausting the CockroachDB connection pool.
 export const prisma = global.__prisma ?? createPrismaClient();
 
-if (env.NODE_ENV !== 'production') {
-  global.__prisma = prisma;
-}
+global.__prisma = prisma;
+

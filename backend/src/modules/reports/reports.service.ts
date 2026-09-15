@@ -60,8 +60,7 @@ export class ReportsService {
     const limit = filters.limit ?? DEFAULT_LIMIT;
     const where: Prisma.OrderWhereInput = buildCreatedAtWhere(filters);
 
-    const [totalOrders, ordersByStatusRaw, orders] = await Promise.all([
-      prisma.order.count({ where }),
+    const [ordersByStatusRaw, orders] = await Promise.all([
       prisma.order.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.order.findMany({
         where,
@@ -72,6 +71,7 @@ export class ReportsService {
       }),
     ]);
 
+    const totalOrders = ordersByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
     const summary: SalesReport['summary'] = { totalOrders, ordersByStatus: toStatusBreakdown(ordersByStatusRaw) };
 
     if (role === UserRole.OWNER) {
@@ -112,8 +112,7 @@ export class ReportsService {
       ...(filters.status ? { status: filters.status as OrderStatus } : {}),
     };
 
-    const [totalOrders, ordersByStatusRaw, orders] = await Promise.all([
-      prisma.order.count({ where }),
+    const [ordersByStatusRaw, orders] = await Promise.all([
       prisma.order.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.order.findMany({
         where,
@@ -123,6 +122,8 @@ export class ReportsService {
         take: limit,
       }),
     ]);
+
+    const totalOrders = ordersByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
 
     return {
       summary: { totalOrders, ordersByStatus: toStatusBreakdown(ordersByStatusRaw) },
@@ -175,7 +176,14 @@ export class ReportsService {
 
     const allInventory = await prisma.inventory.findMany({
       where,
-      include: { product: { select: { id: true, name: true, sku: true, price: true } } },
+      select: {
+        productId: true,
+        quantity: true,
+        reservedQty: true,
+        reorderLevel: true,
+        lastRestockedAt: true,
+        product: { select: { id: true, name: true, sku: true, price: true } },
+      },
       orderBy: { quantity: 'asc' },
     });
 
@@ -218,8 +226,7 @@ export class ReportsService {
       ...(filters.status ? { status: filters.status as BookingStatus } : {}),
     };
 
-    const [totalBookings, bookingsByStatusRaw, bookings] = await Promise.all([
-      prisma.booking.count({ where }),
+    const [bookingsByStatusRaw, bookings] = await Promise.all([
       prisma.booking.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.booking.findMany({
         where,
@@ -232,6 +239,8 @@ export class ReportsService {
         take: limit,
       }),
     ]);
+
+    const totalBookings = bookingsByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
 
     const bookingRows: BookingReportRow[] = bookings.map((booking) => ({
       id: booking.id,
@@ -261,8 +270,7 @@ export class ReportsService {
       ...(filters.status ? { status: filters.status as ProjectStatus } : {}),
     };
 
-    const [totalProjects, projectsByStatusRaw, projects] = await Promise.all([
-      prisma.project.count({ where }),
+    const [projectsByStatusRaw, projects] = await Promise.all([
       prisma.project.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.project.findMany({
         where,
@@ -275,6 +283,8 @@ export class ReportsService {
         take: limit,
       }),
     ]);
+
+    const totalProjects = projectsByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
 
     const projectRows: ProjectReportRow[] = projects.map((project) => {
       const row: ProjectReportRow = {

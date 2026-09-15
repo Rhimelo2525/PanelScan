@@ -11,6 +11,23 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().default('*'),
 
+  // Every common Node host (Vercel, Render, Railway, Fly.io, Heroku, or a
+  // VPS behind nginx) puts the app behind a reverse proxy that sets
+  // X-Forwarded-For, so Express needs `trust proxy` configured or it reads
+  // the proxy's own IP for every request - collapsing every client into one
+  // express-rate-limit bucket. "1" (trust one hop) is correct for that
+  // single-proxy-layer default; set to "false" for a directly-exposed
+  // process with no proxy in front, or to a specific number/IP list for a
+  // more layered topology. See app.ts.
+  TRUST_PROXY: z.string().default('1'),
+
+  // Local disk directory (relative to process.cwd(), or absolute) that
+  // uploaded product images are written to and served from (see app.ts's
+  // /uploads static route and upload.routes.ts). Configurable so a host
+  // that mounts a persistent volume at a different path - or a container
+  // image with a different working directory - doesn't need a code change.
+  UPLOAD_DIR: z.string().default('uploads'),
+
   // Refresh Token Authentication (backend/src/modules/auth). Governs how
   // long an issued refresh token stays valid before it must be re-obtained
   // via a fresh login. Access tokens (JWT_EXPIRES_IN above) are unrelated

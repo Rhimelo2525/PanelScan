@@ -5,6 +5,7 @@ import { UserRole } from '@prisma/client';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 
+import { env } from '../../config/env';
 import { authenticate } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { AppError } from '../../utils/AppError';
@@ -13,13 +14,28 @@ import { sendSuccess } from '../../utils/response';
 
 const router = Router();
 
-const uploadsDirectory = path.resolve(process.cwd(), 'uploads');
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const uploadsDirectory = isServerless
+  ? path.join('/tmp', 'uploads')
+  : path.resolve(process.cwd(), env.UPLOAD_DIR);
+
 if (!fs.existsSync(uploadsDirectory)) {
-  fs.mkdirSync(uploadsDirectory, { recursive: true });
+  try {
+    fs.mkdirSync(uploadsDirectory, { recursive: true });
+  } catch (err) {
+    console.error('Failed to create uploads directory:', err);
+  }
 }
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
+    if (!fs.existsSync(uploadsDirectory)) {
+      try {
+        fs.mkdirSync(uploadsDirectory, { recursive: true });
+      } catch (err) {
+        return cb(err as Error, uploadsDirectory);
+      }
+    }
     cb(null, uploadsDirectory);
   },
   filename: (_req, file, cb) => {
@@ -50,11 +66,11 @@ const upload = multer({
   },
 });
 
-// POST /api/upload - Staff (MODERATOR) can upload product imagery
+// POST /api/upload - Staff (OWNER and MODERATOR) can upload product imagery
 router.post(
   '/',
   authenticate,
-  restrictTo(UserRole.MODERATOR),
+  restrictTo(UserRole.OWNER, UserRole.MODERATOR),
   upload.single('image'),
   catchAsync(async (req: Request, res: Response): Promise<void> => {
     if (!req.file) {

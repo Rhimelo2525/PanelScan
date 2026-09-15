@@ -69,7 +69,7 @@ export class ChatService {
       prisma.chatRoom.findMany({
         where,
         include: chatRoomInclude,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { createdAt: 'asc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -138,9 +138,7 @@ export class ChatService {
         include: messageInclude,
       });
 
-      // Keep the room's updatedAt current so conversation lists (ordered
-      // by updatedAt desc) surface the most recently active conversation
-      // first, without needing a separate "latest activity" query.
+      // Keep the room's updatedAt current for activity tracking.
       await tx.chatRoom.update({ where: { id: chatRoomId }, data: { updatedAt: new Date() } });
 
       // Notify every other existing participant. room was fetched before the

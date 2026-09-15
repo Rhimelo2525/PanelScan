@@ -30,9 +30,16 @@ export function AdminChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const conversations = useAdminResource((signal) => getConversations({ limit: 30 }, signal), [])
-  const rooms = conversations.data?.conversations ?? []
+  const rooms = (conversations.data?.conversations ?? []).slice().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   const activeId = selectedId ?? rooms[0]?.id ?? null
-  const messages = useAdminResource(async (signal) => (activeId ? (await getMessages(activeId, { limit: 50 }, signal)).messages : []), [activeId])
+  const messages = useAdminResource(async (signal) => {
+    if (!activeId) return []
+    const result = await getMessages(activeId, { limit: 50 }, signal)
+    // The backend returns newest-first (so a limited page always holds the
+    // most recent messages). Reverse here so the thread renders
+    // oldest-to-newest, newest at the bottom, like a normal chat.
+    return [...result.messages].reverse()
+  }, [activeId])
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ block: "nearest" }) }, [messages.data])
 

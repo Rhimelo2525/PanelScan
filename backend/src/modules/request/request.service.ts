@@ -5,7 +5,7 @@ import { createNotification } from '../notifications/notification.service';
 import type { NotificationDbClient } from '../notifications/notification.types';
 import { AppError } from '../../utils/AppError';
 import { slugify } from '../../utils/slugify';
-import { parseDescription, requestInclude } from './request.types';
+import { parseDescription, requestInclude, serializeDescription } from './request.types';
 import type { ChangeRequestPayload, PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
 import type { CreateRequestInput, UpdateRequestInput } from './request.validation';
 
@@ -101,7 +101,16 @@ export class RequestService {
     return request;
   }
 
-  /** MODERATOR-only, own request, and only while still PENDING - once reviewed or cancelled, the record is history. */
+  /**
+   * MODERATOR-only, own request, and only while still PENDING - once
+   * reviewed or cancelled, the record is history. A change request's
+   * `description` column can carry a structured payload appended after
+   * `CHANGE_PAYLOAD_DELIMITER` (see request.types.ts) that approveRequest()
+   * later reads to actually apply the change - so an edit here re-serializes
+   * the new summary against that existing payload instead of overwriting the
+   * whole column with plain text, which would silently strip the payload and
+   * turn a future "Approve" into a no-op.
+   */
   async updateOwnRequest(requestId: string, moderatorId: string, input: UpdateRequestInput): Promise<RequestWithRelations> {
     const existing = await prisma.request.findUnique({ where: { id: requestId } });
     if (!existing || existing.requestedById !== moderatorId) {
@@ -111,9 +120,17 @@ export class RequestService {
       throw new AppError(`Cannot edit a request that is already ${existing.status.toLowerCase()}.`, 409);
     }
 
+    let nextDescription = input.description;
+    if (input.description !== undefined) {
+      const { payload } = parseDescription(existing.description);
+      if (payload) {
+        nextDescription = serializeDescription(input.description, payload);
+      }
+    }
+
     return prisma.request.update({
       where: { id: requestId },
-      data: { type: input.type, title: input.title, description: input.description },
+      data: { type: input.type, title: input.title, description: nextDescription },
       include: requestInclude,
     });
   }

@@ -5,10 +5,9 @@
 generator client {
   provider = "prisma-client-js"
   // "native" keeps local dev (Windows/macOS/Linux) working as-is;
-  // "rhel-openssl-3.0.x" matches Vercel's Node.js serverless runtime
-  // (Amazon Linux 2023 / OpenSSL 3), so the deployed function has the
-  // right query engine binary bundled at build time.
-  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  // "rhel-openssl-3.0.x" matches Vercel's Node.js serverless runtime;
+  // "debian-openssl-3.0.x" matches Docker, Render, Railway, Fly.io, and Debian/Ubuntu VPS.
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {

@@ -10,12 +10,13 @@ import { Container } from "@/components/layout/container"
 import { SiteLayout } from "@/components/layout/site-layout"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toaster } from "@/components/ui/sonner"
-import { AboutPage } from "@/pages/about-page"
-import { HomePage } from "@/pages/home-page"
-import { LoginPage } from "@/pages/login-page"
-import { ProductsPage } from "@/pages/products-page"
-import { PlaceholderPage } from "@/pages/placeholder-page"
-import { RegisterPage } from "@/pages/register-page"
+
+const HomePage = lazy(() => import("@/pages/home-page").then((module) => ({ default: module.HomePage })))
+const ProductsPage = lazy(() => import("@/pages/products-page").then((module) => ({ default: module.ProductsPage })))
+const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })))
+const RegisterPage = lazy(() => import("@/pages/register-page").then((module) => ({ default: module.RegisterPage })))
+const AboutPage = lazy(() => import("@/pages/about-page").then((module) => ({ default: module.AboutPage })))
+const PlaceholderPage = lazy(() => import("@/pages/placeholder-page").then((module) => ({ default: module.PlaceholderPage })))
 
 const CartPage = lazy(() => import("@/pages/cart-page").then((module) => ({ default: module.CartPage })))
 const ProductDetailPage = lazy(() => import("@/pages/product-detail-page").then((module) => ({ default: module.ProductDetailPage })))
@@ -75,15 +76,15 @@ function App() {
             </Route>
 
             <Route element={<SiteLayout />}>
-              <Route index element={<HomePage />} />
-              <Route path="products" element={<ProductsPage />} />
+              <Route index element={<Suspense fallback={<RoutePageFallback />}><HomePage /></Suspense>} />
+              <Route path="products" element={<Suspense fallback={<RoutePageFallback />}><ProductsPage /></Suspense>} />
               <Route path="products/:id" element={<Suspense fallback={<RoutePageFallback />}><ProductDetailPage /></Suspense>} />
               {/* Preserve retired route compatibility without adding browser-based AR or 3D. */}
               <Route path="designer" element={<Navigate to="/products" replace />} />
               <Route path="visualizer" element={<Navigate to="/products" replace />} />
-              <Route path="login" element={<LoginPage />} />
-              <Route path="register" element={<RegisterPage />} />
-              <Route path="about" element={<AboutPage />} />
+              <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
+              <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
+              <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
               <Route path="terms" element={<Suspense fallback={<RoutePageFallback />}><TermsPage /></Suspense>} />
               <Route path="privacy" element={<Suspense fallback={<RoutePageFallback />}><PrivacyPage /></Suspense>} />
               <Route element={<ProtectedRoute />}>
@@ -104,7 +105,7 @@ function App() {
                 <Route path="payment/success" element={<Suspense fallback={<RoutePageFallback />}><PaymentSuccessPage /></Suspense>} />
                 <Route path="payment/cancel" element={<Suspense fallback={<RoutePageFallback />}><PaymentCancelPage /></Suspense>} />
               </Route>
-              <Route path="*" element={<PlaceholderPage eyebrow="404" title="This page could not be found." description="The address may have changed, or this part of PanelScan may not be available yet." notFound />} />
+              <Route path="*" element={<Suspense fallback={<RoutePageFallback />}><PlaceholderPage eyebrow="404" title="This page could not be found." description="The address may have changed, or this part of PanelScan may not be available yet." notFound /></Suspense>} />
             </Route>
           </Routes>
           <Toaster position="top-right" richColors closeButton />

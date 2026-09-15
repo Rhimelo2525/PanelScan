@@ -43,11 +43,8 @@ export class AnalyticsService {
       totalCustomers,
       totalActiveProducts,
       lowStockCount,
-      totalOrders,
       ordersByStatusRaw,
-      totalBookings,
       bookingsByStatusRaw,
-      totalProjects,
       projectsByStatusRaw,
       pendingRequests,
       feedbackAverage,
@@ -55,15 +52,16 @@ export class AnalyticsService {
       prisma.user.count({ where: { role: UserRole.CUSTOMER } }),
       prisma.product.count({ where: { isActive: true, deletedAt: null } }),
       this.countLowStock(),
-      prisma.order.count(),
       prisma.order.groupBy({ by: ['status'], _count: { _all: true } }),
-      prisma.booking.count(),
       prisma.booking.groupBy({ by: ['status'], _count: { _all: true } }),
-      prisma.project.count(),
       prisma.project.groupBy({ by: ['status'], _count: { _all: true } }),
       prisma.request.count({ where: { status: RequestStatus.PENDING } }),
       prisma.feedback.aggregate({ _avg: { rating: true } }),
     ]);
+
+    const totalOrders = ordersByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
+    const totalBookings = bookingsByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
+    const totalProjects = projectsByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
 
     const stats: DashboardStats = {
       totalCustomers,
@@ -102,10 +100,8 @@ export class AnalyticsService {
   async getSalesAnalytics(role: UserRole, filters: DateRangeFilters): Promise<SalesStats> {
     const orderWhere: Prisma.OrderWhereInput = buildCreatedAtWhere(filters);
 
-    const [totalOrders, ordersByStatusRaw] = await Promise.all([
-      prisma.order.count({ where: orderWhere }),
-      prisma.order.groupBy({ by: ['status'], where: orderWhere, _count: { _all: true } }),
-    ]);
+    const ordersByStatusRaw = await prisma.order.groupBy({ by: ['status'], where: orderWhere, _count: { _all: true } });
+    const totalOrders = ordersByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
 
     const stats: SalesStats = { totalOrders, ordersByStatus: toStatusBreakdown(ordersByStatusRaw) };
 
@@ -339,20 +335,42 @@ export class AnalyticsService {
     return stats;
   }
 
+  private lowStockCache: { count: number; expiresAt: number } | null = null;
+  private inventoryValueCache: { value: number; expiresAt: number } | null = null;
+
   /**
-   * Prisma can't compare two columns of the same row (quantity <=
-   * reorderLevel) in a `where` clause without a raw query - same limitation
-   * documented in inventory.service.ts's getLowStockReport(), filtered in
-   * application code here for the same reason.
+   * Products whose on-hand quantity has dropped to or below their reorder
+   * level. Filtered on active products with a short TTL cache to prevent
+   * repeated table scans during parallel dashboard metric requests.
    */
   private async countLowStock(): Promise<number> {
-    const allInventory = await prisma.inventory.findMany({ select: { quantity: true, reorderLevel: true } });
-    return allInventory.filter((item) => item.quantity <= item.reorderLevel).length;
+    const now = Date.now();
+    if (this.lowStockCache && this.lowStockCache.expiresAt > now) {
+      return this.lowStockCache.count;
+    }
+
+    const allInventory = await prisma.inventory.findMany({
+      where: { product: { deletedAt: null } },
+      select: { quantity: true, reorderLevel: true },
+    });
+    const count = allInventory.filter((item) => item.quantity <= item.reorderLevel).length;
+    this.lowStockCache = { count, expiresAt: now + 15000 };
+    return count;
   }
 
   private async sumInventoryValue(): Promise<number> {
-    const rows = await prisma.inventory.findMany({ select: { quantity: true, product: { select: { price: true } } } });
-    return rows.reduce((sum, row) => sum + row.quantity * Number(row.product.price), 0);
+    const now = Date.now();
+    if (this.inventoryValueCache && this.inventoryValueCache.expiresAt > now) {
+      return this.inventoryValueCache.value;
+    }
+
+    const rows = await prisma.inventory.findMany({
+      where: { quantity: { gt: 0 }, product: { deletedAt: null } },
+      select: { quantity: true, product: { select: { price: true } } },
+    });
+    const value = rows.reduce((sum, row) => sum + row.quantity * Number(row.product.price), 0);
+    this.inventoryValueCache = { value, expiresAt: now + 15000 };
+    return value;
   }
 }
 

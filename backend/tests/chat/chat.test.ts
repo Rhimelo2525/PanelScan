@@ -211,6 +211,78 @@ describe('Chat module', () => {
       expect(summary?.latestMessage?.content).toBe('Latest message');
       expect(summary?.unreadCount).toBe(2);
     });
+
+    it('returns conversations in chronological order (oldest chat at top, newest chat at bottom)', async () => {
+      const { token, user } = await createCustomer();
+
+      const roomOldest = await prisma.chatRoom.create({
+        data: {
+          subject: 'Oldest conversation',
+          createdAt: new Date(Date.now() - 60000),
+          participants: { create: { userId: user.id } },
+        },
+      });
+
+      const roomMiddle = await prisma.chatRoom.create({
+        data: {
+          subject: 'Older conversation',
+          createdAt: new Date(Date.now() - 30000),
+          participants: { create: { userId: user.id } },
+        },
+      });
+
+      const roomNewest = await prisma.chatRoom.create({
+        data: {
+          subject: 'Newest conversation',
+          createdAt: new Date(),
+          participants: { create: { userId: user.id } },
+        },
+      });
+
+      const response = await request(app).get('/api/chat').set('Authorization', `Bearer ${token}`);
+
+      expectApiSuccess(response, 200);
+      const conversations = response.body.data.conversations as Array<{ id: string; subject: string }>;
+      const relevantConversations = conversations.filter((c) =>
+        [roomOldest.id, roomMiddle.id, roomNewest.id].includes(c.id),
+      );
+
+      expect(relevantConversations).toHaveLength(3);
+      expect(relevantConversations[0]?.id).toBe(roomOldest.id);
+      expect(relevantConversations[1]?.id).toBe(roomMiddle.id);
+      expect(relevantConversations[2]?.id).toBe(roomNewest.id);
+    });
+
+    it('adds a newly received/created conversation to the bottom of the conversation list', async () => {
+      const { token, user } = await createCustomer();
+
+      const firstRoom = await prisma.chatRoom.create({
+        data: {
+          subject: 'Existing chat',
+          createdAt: new Date(Date.now() - 10000),
+          participants: { create: { userId: user.id } },
+        },
+      });
+
+      const createRes = await request(app)
+        .post('/api/chat')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ subject: 'Newly arrived chat' });
+      expectApiSuccess(createRes, 201);
+      const newRoomId = createRes.body.data.conversation.id;
+
+      const listRes = await request(app).get('/api/chat').set('Authorization', `Bearer ${token}`);
+      expectApiSuccess(listRes, 200);
+
+      const conversations = listRes.body.data.conversations as Array<{ id: string; subject: string }>;
+      const customerConversations = conversations.filter((c) =>
+        [firstRoom.id, newRoomId].includes(c.id),
+      );
+
+      expect(customerConversations).toHaveLength(2);
+      expect(customerConversations[0]?.id).toBe(firstRoom.id);
+      expect(customerConversations[1]?.id).toBe(newRoomId);
+    });
   });
 
   // ================================================================

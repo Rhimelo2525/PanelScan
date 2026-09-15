@@ -22,7 +22,10 @@ export async function getMyConversations(signal?: AbortSignal): Promise<ChatConv
 
 export async function getConversationMessages(conversationId: string, signal?: AbortSignal): Promise<ChatMessage[]> {
   const response = await apiRequest<{ messages: ChatMessage[]; pagination: Pagination }>(`/chat/${conversationId}/messages?limit=100`, { authenticated: true, signal })
-  return response.messages
+  // The backend returns newest-first (so a limited page always holds the most
+  // recent messages). Reverse here so the thread renders oldest-to-newest,
+  // newest at the bottom, like a normal chat.
+  return [...response.messages].reverse()
 }
 
 export async function postMessage(conversationId: string, content: string): Promise<ChatMessage> {

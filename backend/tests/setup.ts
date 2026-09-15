@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 
 import { prisma } from '../src/config/database';
 import { cleanDatabase, disconnectDatabase } from './helpers/db';
+import { seedDatabase } from '../prisma/seed';
 
 beforeAll(async () => {
   try {
@@ -25,5 +26,13 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await disconnectDatabase();
+  try {
+    // Restore base seed data (OWNER, MODERATOR, categories, products, inventory)
+    // so development and deployment logins continue working after tests finish.
+    await seedDatabase(prisma);
+  } catch (error) {
+    console.error('Failed to restore seed data in afterAll:', error);
+  } finally {
+    await disconnectDatabase();
+  }
 });

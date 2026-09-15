@@ -5,13 +5,13 @@ const prisma = new PrismaClient();
 
 const SALT_ROUNDS = 12;
 
-async function seedUsers(): Promise<void> {
+export async function seedUsers(db: PrismaClient = prisma): Promise<void> {
   const [ownerPassword, moderatorPassword] = await Promise.all([
     bcrypt.hash('Owner@12345', SALT_ROUNDS),
     bcrypt.hash('Moderator@12345', SALT_ROUNDS),
   ]);
 
-  await prisma.user.upsert({
+  await db.user.upsert({
     where: { email: 'owner@panelscan.com' },
     update: {},
     create: {
@@ -24,7 +24,7 @@ async function seedUsers(): Promise<void> {
     },
   });
 
-  await prisma.user.upsert({
+  await db.user.upsert({
     where: { email: 'moderator@panelscan.com' },
     update: {},
     create: {
@@ -55,11 +55,11 @@ const CATEGORY_SEEDS: CategorySeed[] = [
   { name: 'Cladding Panels', slug: 'cladding-panels', description: 'Exterior and interior cladding panels.', isActive: false },
 ];
 
-async function seedCategories(): Promise<Map<string, string>> {
+export async function seedCategories(db: PrismaClient = prisma): Promise<Map<string, string>> {
   const slugToId = new Map<string, string>();
 
   for (const seed of CATEGORY_SEEDS) {
-    const category = await prisma.category.upsert({
+    const category = await db.category.upsert({
       where: { slug: seed.slug },
       update: { isActive: seed.isActive ?? true },
       create: seed,
@@ -95,7 +95,7 @@ const PRODUCT_SEEDS: ProductSeed[] = [
   { name: 'Stone Veneer Cladding Panel', categorySlug: 'cladding-panels', sku: 'CL-STN-002', price: 4100.0, width: 60, height: 30, thickness: 2.0, material: 'Natural Stone Veneer' },
 ];
 
-async function seedProducts(categorySlugToId: Map<string, string>): Promise<string[]> {
+export async function seedProducts(categorySlugToId: Map<string, string>, db: PrismaClient = prisma): Promise<string[]> {
   const productIds: string[] = [];
 
   for (const seed of PRODUCT_SEEDS) {
@@ -104,7 +104,7 @@ async function seedProducts(categorySlugToId: Map<string, string>): Promise<stri
       throw new Error(`Seed category not found for slug: ${seed.categorySlug}`);
     }
 
-    const product = await prisma.product.upsert({
+    const product = await db.product.upsert({
       where: { sku: seed.sku },
       update: {},
       create: {
@@ -127,9 +127,9 @@ async function seedProducts(categorySlugToId: Map<string, string>): Promise<stri
   return productIds;
 }
 
-async function seedInventory(productIds: string[]): Promise<void> {
+export async function seedInventory(productIds: string[], db: PrismaClient = prisma): Promise<void> {
   for (const productId of productIds) {
-    await prisma.inventory.upsert({
+    await db.inventory.upsert({
       where: { productId },
       update: {},
       create: {
@@ -145,22 +145,32 @@ async function seedInventory(productIds: string[]): Promise<void> {
   console.log('  Inventory seeded for every product.');
 }
 
-async function main(): Promise<void> {
+export async function seedDatabase(db: PrismaClient = prisma): Promise<void> {
   console.log('Seeding PanelScan database...');
 
-  await seedUsers();
-  const categorySlugToId = await seedCategories();
-  const productIds = await seedProducts(categorySlugToId);
-  await seedInventory(productIds);
+  await seedUsers(db);
+  const categorySlugToId = await seedCategories(db);
+  const productIds = await seedProducts(categorySlugToId, db);
+  await seedInventory(productIds, db);
 
   console.log('Seeding complete.');
 }
 
-main()
-  .catch((error: unknown) => {
-    console.error('Seeding failed:', error);
-    process.exit(1);
-  })
-  .finally(() => {
-    void prisma.$disconnect();
-  });
+async function main(): Promise<void> {
+  await seedDatabase(prisma);
+}
+
+const isDirectScriptExecution =
+  typeof process !== 'undefined' &&
+  Boolean(process.argv[1] && (process.argv[1].replace(/\\/g, '/').endsWith('prisma/seed.ts') || process.argv[1].replace(/\\/g, '/').endsWith('seed.ts')));
+
+if (isDirectScriptExecution) {
+  main()
+    .catch((error: unknown) => {
+      console.error('Seeding failed:', error);
+      process.exit(1);
+    })
+    .finally(() => {
+      void prisma.$disconnect();
+    });
+}

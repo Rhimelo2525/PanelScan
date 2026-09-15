@@ -41,8 +41,9 @@ export function MessagesPage() {
     const controller = new AbortController()
     getMyConversations(controller.signal)
       .then((result) => {
-        setConversations(result)
-        setActiveId((current) => current ?? result[0]?.id ?? null)
+        const sorted = [...result].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        setConversations(sorted)
+        setActiveId((current) => current ?? sorted[0]?.id ?? null)
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return
@@ -72,7 +73,7 @@ export function MessagesPage() {
     setIsStarting(true)
     try {
       const conversation = await createConversation(subject.trim() || undefined)
-      setConversations((current) => [conversation, ...current])
+      setConversations((current) => [...current, conversation])
       setActiveId(conversation.id)
       setMessages([])
       setSubject("")
