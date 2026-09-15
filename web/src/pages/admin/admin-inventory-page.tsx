@@ -41,6 +41,11 @@ export function AdminInventoryPage() {
   useDocumentTitle("Inventory | PanelScan Admin")
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
+  const isOwner = user?.role === "OWNER"
+  // Both roles can add/delete products from here: MODERATOR goes through the
+  // owner approval workflow, OWNER writes apply directly (backend already
+  // supports both - see inventory.controller.ts / product.controller.ts).
+  const canManageProducts = isModerator || isOwner
 
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
@@ -71,10 +76,10 @@ export function AdminInventoryPage() {
         title="Inventory"
         description="Live stock levels, reserved quantities, and reorder thresholds for PVC wall and ceiling panels."
         actions={
-          isModerator ? (
+          canManageProducts ? (
             <Button onClick={() => setShowAddProduct(true)}>
               <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
-              Edit Inventory
+              Add product
             </Button>
           ) : undefined
         }
@@ -131,7 +136,7 @@ export function AdminInventoryPage() {
       )}
 
       <StockAdjustSheet record={adjusting} onClose={() => setAdjusting(null)} onDone={() => { setAdjusting(null); inventory.reload(); report.reload() }} />
-      {isModerator && (
+      {canManageProducts && (
         <AddProductSheet open={showAddProduct} onClose={() => setShowAddProduct(false)} onDone={() => { setShowAddProduct(false); inventory.reload(); report.reload() }} />
       )}
     </div>
@@ -358,6 +363,7 @@ function panelLineForSku(sku: string): string {
 function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord | null; onClose: () => void; onDone: () => void }) {
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
+  const isOwner = user?.role === "OWNER"
   const [quantity, setQuantity] = useState("1")
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -445,7 +451,7 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
                 </Button>
               </div>
 
-              {isModerator && (
+              {(isModerator || isOwner) && (
                 <div className="border-t border-border pt-4">
                   <Button
                     type="button"
@@ -460,7 +466,11 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
                 </div>
               )}
 
-              <p className="text-xs leading-5 text-muted-foreground">Adjustments apply immediately and are attributed to your account by the backend. Restock approvals that need owner sign-off should be raised under Requests.</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {isModerator
+                  ? "Adjustments are submitted for owner approval and are attributed to your account. They take effect once approved."
+                  : "Adjustments apply immediately and are attributed to your account by the backend."}
+              </p>
             </div>
           )}
         </SheetContent>

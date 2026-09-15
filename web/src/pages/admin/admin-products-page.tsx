@@ -49,6 +49,12 @@ export function AdminProductsPage() {
   useDocumentTitle("Products | PanelScan Admin")
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
+  const isOwner = user?.role === "OWNER"
+  // Both roles can manage products: MODERATOR writes go through the owner
+  // approval workflow (see EditProductSheet/AddProductSheet), OWNER writes
+  // apply directly - the backend (product.controller.ts) already supports
+  // both, this just makes sure the OWNER sees the same management controls.
+  const canManageProducts = isModerator || isOwner
 
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("")
@@ -175,7 +181,7 @@ export function AdminProductsPage() {
                 View storefront
               </Link>
             </Button>
-            {isModerator && (
+            {canManageProducts && (
               <Button onClick={() => setShowAddProduct(true)}>
                 <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
                 Add product
@@ -282,7 +288,7 @@ export function AdminProductsPage() {
                     <Eye className="size-3.5" data-icon="inline-start" aria-hidden="true" />
                     View
                   </Button>
-                  {isModerator && (
+                  {canManageProducts && (
                     <Button
                       size="sm"
                       onClick={() => setEditingProduct(product)}
@@ -305,8 +311,8 @@ export function AdminProductsPage() {
         onClose={() => setSelectedProduct(null)}
       />
 
-      {/* Edit Product Sheet (MODERATOR ONLY) */}
-      {isModerator && editingProduct && (
+      {/* Edit Product Sheet (OWNER + MODERATOR) */}
+      {canManageProducts && editingProduct && (
         <EditProductSheet
           product={editingProduct}
           categories={categories}
@@ -318,8 +324,8 @@ export function AdminProductsPage() {
         />
       )}
 
-      {/* Add Product Sheet (MODERATOR ONLY) */}
-      {isModerator && (
+      {/* Add Product Sheet (OWNER + MODERATOR) */}
+      {canManageProducts && (
         <AddProductSheet
           open={showAddProduct}
           categories={categories}
