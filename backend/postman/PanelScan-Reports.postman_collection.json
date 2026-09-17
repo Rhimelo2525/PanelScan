@@ -1,0 +1,203 @@
+{
+  "info": {
+    "name": "PanelScan API — Reports Module",
+    "description": "Scoped to what's needed to exercise the Reports module end to end: a minimal Auth folder (login an owner and a moderator - customers have no access to this module at all), and the full Reports folder covering all 5 report endpoints. Complementary to PanelScan-Analytics.postman_collection.json: Analytics answers 'what are the KPIs,' Reports answers 'show me the rows behind that number.' The OWNER and MODERATOR requests hit the exact same URLs - the difference is in the response shape (MODERATOR responses omit financial fields), not the route.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "moderatorToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Login (owner) - requires the seeded OWNER account (or one promoted via Prisma Studio)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@panelscan.com\",\n  \"password\": \"Owner@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('ownerToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (moderator) - requires a MODERATOR account already promoted via Prisma Studio or seeded",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reports - OWNER (full access, including financial fields)",
+      "item": [
+        {
+          "name": "Sales report (date range, paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports/sales?dateFrom=2027-01-01&dateTo=2027-01-31&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "sales"],
+              "query": [
+                { "key": "dateFrom", "value": "2027-01-01" },
+                { "key": "dateTo", "value": "2027-01-31" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Inventory report (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports/inventory?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "inventory"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Orders report (status filter, operational - no revenue figure)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports/orders?status=PROCESSING&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "orders"],
+              "query": [
+                { "key": "status", "value": "PROCESSING" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Bookings report (status + date range)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports/bookings?status=APPROVED&dateFrom=2027-01-01&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "bookings"],
+              "query": [
+                { "key": "status", "value": "APPROVED" },
+                { "key": "dateFrom", "value": "2027-01-01" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Projects report (status filter)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reports/projects?status=IN_PROGRESS&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "projects"],
+              "query": [
+                { "key": "status", "value": "IN_PROGRESS" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports - MODERATOR (operational only, financial fields hidden)",
+      "item": [
+        {
+          "name": "Sales report - no totalRevenue/averageOrderValue/totalAmount",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reports/sales", "host": ["{{baseUrl}}"], "path": ["reports", "sales"] }
+          }
+        },
+        {
+          "name": "Inventory report - no unitPrice/totalInventoryValue",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reports/inventory", "host": ["{{baseUrl}}"], "path": ["reports", "inventory"] }
+          }
+        },
+        {
+          "name": "Orders report - status counts only (same as OWNER, no revenue field exists here at all)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reports/orders", "host": ["{{baseUrl}}"], "path": ["reports", "orders"] }
+          }
+        },
+        {
+          "name": "Bookings report - identical to the OWNER response (no financial columns exist on Booking)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reports/bookings", "host": ["{{baseUrl}}"], "path": ["reports", "bookings"] }
+          }
+        },
+        {
+          "name": "Projects report - no budget/totalBudget/averageBudget",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/reports/projects", "host": ["{{baseUrl}}"], "path": ["reports", "projects"] }
+          }
+        }
+      ]
+    }
+  ]
+}

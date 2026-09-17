@@ -1,0 +1,526 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    /* Radius scale. Every corner in the product comes from these five steps,
+       derived from one base per surface (--radius), so the storefront can be
+       softer than the Admin without any component knowing which it is in.
+
+       Storefront (--radius: 1rem)   sm 8  · md 12 · lg 16 · xl 20 · 2xl 24
+       Admin      (--radius: .75rem) sm 6  · md  9 · lg 12 · xl 15 · 2xl 18
+
+       sm  small controls: chips, swatches, inline actions
+       md  standard UI: buttons, inputs, selects, textareas
+       lg  cards, panels, tables, admin metrics
+       xl  auth card, summary panels, product/editorial imagery
+       2xl large editorial media only */
+    --radius-sm: calc(var(--radius) * 0.5);
+    --radius-md: calc(var(--radius) * 0.75);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.25);
+    --radius-2xl: calc(var(--radius) * 1.5);
+    --radius-3xl: calc(var(--radius) * 1.75);
+    --radius-4xl: calc(var(--radius) * 2);
+}
+
+:root {
+    --background: #f7f4ee;
+    --foreground: #29241f;
+    --card: #fbfaf7;
+    --card-foreground: #29241f;
+    --popover: #fbfaf7;
+    --popover-foreground: #29241f;
+    --primary: #7a5f4d;
+    --primary-foreground: #fdf8f1;
+    --secondary: #eee8df;
+    --secondary-foreground: #332b25;
+    --muted: #ede8e0;
+    --muted-foreground: #71675f;
+    --accent: #e7ddd1;
+    --accent-foreground: #332b25;
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: #d9d0c5;
+    --input: #d9d0c5;
+    --ring: #8a6d58;
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 1rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply min-w-80 bg-background text-foreground antialiased;
+    }
+  html {
+    @apply scroll-smooth font-sans;
+    }
+  button,
+  a {
+    @apply outline-none;
+  }
+}
+
+@layer components {
+  /* Editorial rhythm: sections breathe, and a "tight" variant exists for
+     sections that read as a continuation of the one above. */
+  .section-space {
+    @apply py-20 sm:py-26 lg:py-34;
+  }
+
+  .section-space-tight {
+    @apply py-14 sm:py-18 lg:py-22;
+  }
+
+  .section-eyebrow {
+    @apply text-xs font-semibold tracking-[0.17em] text-primary uppercase;
+  }
+
+  /* One type scale for the storefront, so display sizing is not re-invented per
+     page. Sizes are fluid between the mobile and desktop ends of the range. */
+  .type-display {
+    @apply text-[clamp(2.9rem,6.4vw,5.6rem)] leading-[0.96] font-medium tracking-[-0.058em] text-balance;
+  }
+
+  .type-h1 {
+    @apply text-[clamp(2.25rem,4vw,3.5rem)] leading-[1.03] font-medium tracking-[-0.05em] text-balance;
+  }
+
+  .type-h2 {
+    @apply text-[clamp(1.75rem,2.9vw,2.75rem)] leading-[1.08] font-medium tracking-[-0.042em] text-balance;
+  }
+
+  .type-h3 {
+    @apply text-xl font-semibold tracking-[-0.025em] sm:text-2xl;
+  }
+
+  .type-lead {
+    @apply text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8;
+  }
+
+  .type-body {
+    @apply text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7;
+  }
+
+  .type-label {
+    @apply text-[0.68rem] font-semibold tracking-[0.13em] uppercase;
+  }
+
+  /* The repeated content surface: one border, one background, one radius.
+     Inside .admin-surface it automatically tightens with the Admin base. */
+  .surface-card {
+    @apply rounded-lg border border-border bg-card;
+  }
+
+  /* Larger grouped panels: auth card, cart and order summaries. */
+  .surface-panel {
+    @apply rounded-xl border border-border bg-card;
+  }
+
+  /* Imagery frame. Always clips, so object-cover art follows the corner. */
+  .surface-media {
+    @apply overflow-hidden rounded-xl;
+  }
+
+  .type-caption {
+    @apply text-xs leading-5 text-muted-foreground;
+  }
+
+  /* Large single figures (dashboard tiles). Tabular so columns of numbers align. */
+  .type-metric {
+    @apply text-3xl font-semibold tracking-[-0.03em] tabular-nums;
+  }
+}
+
+.product-fallback-visual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 18%), transparent 48%),
+    #cbbcab;
+  isolation: isolate;
+}
+
+.product-fallback-visual::before {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: repeating-linear-gradient(90deg, #74533f 0 14px, #9b7861 14px 19px, #5d4233 19px 23px);
+  content: "";
+}
+
+.product-fallback-visual--ceiling-panels::before {
+  background:
+    linear-gradient(145deg, transparent 0 49%, rgb(80 60 47 / 12%) 49.4% 50.2%, transparent 50.6%),
+    repeating-linear-gradient(0deg, #e5dbcf 0 30px, #c6b8a8 30px 33px);
+}
+
+.product-fallback-visual--flooring-panels::before {
+  background:
+    linear-gradient(115deg, rgb(255 255 255 / 18%), transparent 40%),
+    repeating-linear-gradient(0deg, #8f7059 0 42px, #644a39 42px 45px);
+  transform: scale(1.2) rotate(-8deg);
+}
+
+.product-fallback-visual--partition-panels::before {
+  background:
+    linear-gradient(90deg, transparent 0 47%, rgb(255 255 255 / 55%) 47% 49%, transparent 49% 100%),
+    linear-gradient(145deg, #d8dfdc, #9da9a3);
+  box-shadow: inset 28px 0 50px rgb(70 58 49 / 12%);
+}
+
+.product-fallback-visual--cladding-panels::before {
+  background:
+    radial-gradient(circle at 20% 25%, rgb(255 255 255 / 16%) 0 3px, transparent 4px),
+    linear-gradient(145deg, #8b8780, #5e5a55);
+  background-size: 33px 33px, auto;
+}
+
+.product-fallback-visual--cart-material::before {
+  background:
+    linear-gradient(135deg, transparent 0 38%, rgb(126 94 70 / 28%) 38% 62%, transparent 62%),
+    linear-gradient(25deg, #ded2c4, #9e8875);
+}
+
+.product-fallback-visual__sample {
+  width: 38%;
+  height: 48%;
+  border: 1px solid rgb(255 255 255 / 52%);
+  background: rgb(247 244 238 / 13%);
+  box-shadow: 0 18px 40px rgb(48 33 24 / 20%);
+  backdrop-filter: blur(5px);
+}
+
+.product-fallback-visual__label {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgb(255 255 255 / 50%);
+  background: rgb(247 244 238 / 86%);
+  padding: 0.45rem 0.6rem;
+  color: #45392f;
+  font-size: 0.67rem;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+
+.auth-material-panel::before {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 0 42%, rgb(36 27 22 / 64%) 100%),
+    repeating-linear-gradient(90deg, #6f5545 0 16px, #866957 16px 21px, #594234 21px 27px);
+  content: "";
+}
+
+.auth-material-panel::after {
+  position: absolute;
+  top: 9%;
+  right: 9%;
+  width: 42%;
+  height: 33%;
+  border: 1px solid rgb(255 250 243 / 42%);
+  background: rgb(255 250 243 / 10%);
+  box-shadow: 0 25px 60px rgb(30 21 16 / 22%);
+  content: "";
+  backdrop-filter: blur(7px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  /* Durations collapse and every transform is dropped, so nothing slides,
+     scales, or lifts. Content still appears and every control still works -
+     the reduced-motion experience differs only in how state arrives. */
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .motion-page, .motion-swap, .motion-fade, .motion-in-right, .motion-in-left, .motion-item {
+    animation: none !important;
+  }
+
+  .reveal, .reveal-in { opacity: 1 !important; transform: none !important; }
+
+  .card-interactive:hover,
+  .card-interactive:hover .media-zoom,
+  .card-interactive:hover [data-icon="inline-end"],
+  .media-zoom {
+    transform: none !important;
+  }
+
+  /* Images still fade-guard against a flash of empty box, but instantly. */
+  .media-fade { opacity: 1 !important; }
+}
+
+/* ================================================================
+   Status tokens
+   Shared by the storefront and Admin so one status never renders in two
+   different colours across the product. Text labels always accompany these -
+   colour is never the only signal.
+   ================================================================ */
+
+:root {
+  --status-positive: #1f6f4a;
+  --status-positive-surface: #e8f3ec;
+  --status-warning: #8a5a12;
+  --status-warning-surface: #fbf0dd;
+  --status-critical: #9b2c2c;
+  --status-critical-surface: #fbeaea;
+  --status-info: #1f5980;
+  --status-info-surface: #e7f0f6;
+  --status-neutral: #4c4a47;
+  --status-neutral-surface: #eeecea;
+}
+
+/* ================================================================
+   PanelScan Admin surface
+   The Admin is the same design system in a different register: cooler, denser
+   neutrals, tighter radius, flatter surfaces. Tokens are redefined on the shell
+   root so every shadcn primitive inside inherits the operations palette without
+   a second component library.
+   ================================================================ */
+
+.admin-surface {
+  --background: #f4f4f6;
+  --foreground: #17181c;
+  --card: #ffffff;
+  --card-foreground: #17181c;
+  --popover: #ffffff;
+  --popover-foreground: #17181c;
+  --primary: #23252c;
+  --primary-foreground: #fbfbfc;
+  --secondary: #eceef1;
+  --secondary-foreground: #23252c;
+  --muted: #f0f1f4;
+  --muted-foreground: #62666e;
+  --accent: #e6e8ec;
+  --accent-foreground: #23252c;
+  --border: #e0e2e7;
+  --input: #d7dae0;
+  --ring: #6b7280;
+  --radius: 0.75rem;
+
+  --status-neutral: #4a4d55;
+  --status-neutral-surface: #edeef1;
+
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+.admin-surface .admin-nav-link {
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+/* Small leading indicator that grows in on the active item. */
+.admin-surface .admin-nav-link::before {
+  content: "";
+  width: 2px;
+  height: 0;
+  margin-right: -2px;
+  border-radius: 2px;
+  background: var(--foreground);
+  transition: height var(--motion-base) var(--ease-standard);
+}
+
+.admin-surface .admin-nav-link[aria-current="page"]::before { height: 1rem; }
+
+.admin-surface .admin-nav-link[aria-current="page"] {
+  background-color: var(--secondary);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+/* Tables stay legible under dense data: numeric columns align, headers stay put
+   while a long result set scrolls. */
+.admin-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.8125rem; }
+.admin-table th { position: sticky; top: 0; z-index: 1; background: var(--card); font-weight: 600; text-align: left; white-space: nowrap; }
+.admin-table th, .admin-table td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); }
+.admin-table tbody tr:last-child td { border-bottom: 0; }
+.admin-table tbody tr:hover { background: color-mix(in oklch, var(--secondary), transparent 45%); }
+.admin-table .is-numeric { text-align: right; font-variant-numeric: tabular-nums; }
+
+
+/* ================================================================
+   Motion system
+   One vocabulary for the whole product: opacity, small translate,
+   small scale. Durations and easings are tokens so no component
+   invents its own timing, and the Admin runs faster than the
+   storefront by overriding the same three variables.
+   ================================================================ */
+
+:root {
+  --motion-fast: 140ms;   /* hover, press, colour, small state changes */
+  --motion-base: 200ms;   /* standard UI: content swaps, page entry */
+  --motion-slow: 280ms;   /* large panels: sheets, dialogs */
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);  /* position / layout */
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);    /* entering: decelerate */
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);        /* leaving: accelerate */
+}
+
+/* Operations software should feel quicker than editorial pages. */
+.admin-surface {
+  --motion-fast: 110ms;
+  --motion-base: 160ms;
+  --motion-slow: 220ms;
+}
+
+@keyframes ps-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ps-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes ps-swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes ps-from-right { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+@keyframes ps-from-left { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+
+@layer components {
+  /* No entry animation uses a fill mode: the element's resting style is the
+     visible one, so content can never be trapped behind an animation that did
+     not run (hidden tab, throttled document, reduced-motion, no CSS support). */
+
+  /* Route entry. Entry-only by design: exit animations would have to delay
+     navigation, and a slower click is a worse trade than a missing fade. */
+  .motion-page { animation: ps-rise var(--motion-base) var(--ease-enter); }
+
+  /* Content swapped in place - filtered results, switched tabs, a newly
+     selected conversation. Keyed by the caller so it replays per change. */
+  .motion-swap { animation: ps-swap var(--motion-base) var(--ease-enter); }
+
+  /* Plain fade for values and small text that must not move the layout. */
+  .motion-fade { animation: ps-fade var(--motion-fast) var(--ease-standard); }
+
+  /* Directional pane changes (mobile master-detail). */
+  .motion-in-right { animation: ps-from-right var(--motion-base) var(--ease-enter); }
+  .motion-in-left { animation: ps-from-left var(--motion-base) var(--ease-enter); }
+
+  /* New list entries: messages, freshly created requests. */
+  .motion-item { animation: ps-swap var(--motion-fast) var(--ease-enter); }
+
+  /* Scroll reveal, once, on first sight. */
+  .reveal { opacity: 0; transform: translateY(14px); }
+  .reveal-in {
+    opacity: 1;
+    transform: none;
+    transition: opacity var(--motion-slow) var(--ease-enter), transform var(--motion-slow) var(--ease-enter);
+  }
+
+  /* Interactive card: lifts slightly and warms its border, pointer only. */
+  .card-interactive {
+    transition: border-color var(--motion-fast) var(--ease-standard), transform var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
+  }
+
+  .media-zoom { transition: transform var(--motion-slow) var(--ease-standard); }
+
+  /* Images fade in once decoded instead of popping in. */
+  .media-fade { opacity: 0; transition: opacity var(--motion-base) var(--ease-enter); }
+  .media-fade[data-loaded="true"] { opacity: 1; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-interactive:hover { transform: translateY(-2px); border-color: color-mix(in oklch, var(--primary), transparent 55%); }
+  .card-interactive:hover .media-zoom { transform: scale(1.03); }
+  .card-interactive:hover [data-icon="inline-end"] { transform: translateX(3px); }
+}
+
+[data-icon="inline-end"], [data-icon="inline-start"] { transition: transform var(--motion-fast) var(--ease-standard); }
+
+/* Print: the estimate report is the only intentionally printable
+   view, so everything outside it is dropped rather than restyled. */
+@media print {
+  .print-hidden { display: none !important; }
+  .print-only { display: block !important; }
+  body { background: #fff; }
+}
+
+.print-only { display: none; }

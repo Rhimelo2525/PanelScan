@@ -1,0 +1,112 @@
+{
+  "info": {
+    "name": "PanelScan API — Installer Module",
+    "description": "The installer roster. Every route requires MODERATOR specifically - not OWNER (installer management is MODERATOR-only in this codebase). Includes a minimal Auth folder (seeded MODERATOR). Follows the same per-module-collection pattern as every other PanelScan-*.postman_collection.json file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "moderatorToken", "value": "" },
+    { "key": "installerId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Login (seeded MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Installers",
+      "item": [
+        {
+          "name": "List active installers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/installers?page=1&limit=20", "host": ["{{baseUrl}}"], "path": ["installers"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+          },
+          "description": "Only isActive: true installers are ever listed here."
+        },
+        {
+          "name": "Create installer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/installers", "host": ["{{baseUrl}}"], "path": ["installers"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Pedro\",\n  \"lastName\": \"Reyes\",\n  \"email\": \"pedro.reyes@panelscan.test\",\n  \"phone\": \"09171234567\",\n  \"specialty\": \"Wall panel installation\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('installerId', pm.response.json().data.installer.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "description": "email is optional but must be unique if supplied (409 on conflict)."
+        },
+        {
+          "name": "Get installer by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/installers/{{installerId}}", "host": ["{{baseUrl}}"], "path": ["installers", "{{installerId}}"] }
+          },
+          "description": "Not filtered by isActive - a deactivated installer is still viewable here even though it's hidden from the list."
+        },
+        {
+          "name": "Update installer",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/installers/{{installerId}}", "host": ["{{baseUrl}}"], "path": ["installers", "{{installerId}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"specialty\": \"Wall panel and ceiling panel installation\"\n}" }
+          },
+          "description": "Accepts any subset of firstName/lastName/phone/specialty/isActive. There is no dedicated 'reactivate' endpoint, but { \"isActive\": true } through this endpoint does reactivate a deactivated installer."
+        },
+        {
+          "name": "Deactivate installer",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/installers/{{installerId}}/deactivate", "host": ["{{baseUrl}}"], "path": ["installers", "{{installerId}}", "deactivate"] }
+          }
+        }
+      ]
+    }
+  ]
+}

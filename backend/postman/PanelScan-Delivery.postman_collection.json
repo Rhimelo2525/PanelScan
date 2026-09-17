@@ -1,0 +1,245 @@
+{
+  "info": {
+    "name": "PanelScan API — Delivery Module",
+    "description": "Scoped to what's needed to exercise the Delivery module end to end: a minimal Auth folder (register a customer, login a moderator), a Trigger folder that checks out an order and advances it to PROCESSING (a delivery can't be created for a CANCELLED order), and the full Delivery folder covering create, list/filter, get, update, mark delivered, and delete. Follows the same per-module-collection pattern as every other PanelScan-*.postman_collection.json file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "token", "value": "" },
+    { "key": "moderatorToken", "value": "" },
+    { "key": "productId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "deliveryId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Register (customer)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Juan\",\n  \"lastName\": \"Dela Cruz\",\n  \"email\": \"juan.delivery@panelscan.test\",\n  \"password\": \"Passw0rd123\",\n  \"phone\": \"+63 912 345 6789\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('token', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (moderator) - requires a MODERATOR account already promoted via Prisma Studio or seeded",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trigger (produces a PROCESSING order to attach a delivery to)",
+      "item": [
+        {
+          "name": "Get a product id (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products?limit=1", "host": ["{{baseUrl}}"], "path": ["products"], "query": [{ "key": "limit", "value": "1" }] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var products = pm.response.json().data.products;",
+                  "  if (products && products.length > 0) {",
+                  "    pm.collectionVariables.set('productId', products[0].id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add product to cart (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/cart/items", "host": ["{{baseUrl}}"], "path": ["cart", "items"] },
+            "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 1\n}" }
+          }
+        },
+        {
+          "name": "Checkout (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shippingAddress\": \"123 Rizal Street, Quezon City, Metro Manila, 1100\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('orderId', pm.response.json().data.order.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Advance order to PROCESSING (MODERATOR)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/status", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "status"] },
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"PROCESSING\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delivery",
+      "item": [
+        {
+          "name": "Create delivery (MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/delivery", "host": ["{{baseUrl}}"], "path": ["delivery"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"address\": \"123 Rizal Street, Quezon City, Metro Manila, 1100\",\n  \"scheduledDate\": \"2027-02-01\",\n  \"courierName\": \"LBC Express\",\n  \"trackingNumber\": \"TRK-001\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('deliveryId', pm.response.json().data.delivery.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List deliveries (filter + search + pagination + sorting)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/delivery?status=scheduled&search=LBC&sortBy=scheduledDate&sortOrder=asc&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["delivery"],
+              "query": [
+                { "key": "status", "value": "scheduled" },
+                { "key": "search", "value": "LBC" },
+                { "key": "sortBy", "value": "scheduledDate" },
+                { "key": "sortOrder", "value": "asc" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List my deliveries (CUSTOMER)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/delivery", "host": ["{{baseUrl}}"], "path": ["delivery"] }
+          }
+        },
+        {
+          "name": "Get delivery by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/delivery/{{deliveryId}}", "host": ["{{baseUrl}}"], "path": ["delivery", "{{deliveryId}}"] }
+          }
+        },
+        {
+          "name": "Update tracking / reschedule (MODERATOR)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/delivery/{{deliveryId}}", "host": ["{{baseUrl}}"], "path": ["delivery", "{{deliveryId}}"] },
+            "body": { "mode": "raw", "raw": "{\n  \"trackingNumber\": \"TRK-999\",\n  \"scheduledDate\": \"2027-02-05\"\n}" }
+          }
+        },
+        {
+          "name": "Mark delivered (MODERATOR)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/delivery/{{deliveryId}}/delivered", "host": ["{{baseUrl}}"], "path": ["delivery", "{{deliveryId}}", "delivered"] }
+          }
+        },
+        {
+          "name": "Delete delivery (MODERATOR) - 409 if already delivered, run before Mark Delivered to see it succeed",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/delivery/{{deliveryId}}", "host": ["{{baseUrl}}"], "path": ["delivery", "{{deliveryId}}"] }
+          }
+        }
+      ]
+    }
+  ]
+}

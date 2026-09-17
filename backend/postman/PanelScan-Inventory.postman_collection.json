@@ -1,0 +1,158 @@
+{
+  "info": {
+    "name": "PanelScan API — Inventory Module",
+    "description": "Stock tracking (add/reduce/reserve/release, low-stock report). Every route is OWNER/MODERATOR-only. IMPORTANT: there is no POST /api/inventory (create) endpoint anywhere in this API - inventory rows only exist today if created outside the running server (the seed script, or direct Prisma access). Run `npm run prisma:seed` against your dev database first, then use the Trigger request below to grab a seeded product's id (every seeded product has an Inventory row with quantity 100). If you point this at a product created via the Product collection instead, every request here will 404 until an Inventory row exists for it. Follows the same per-module-collection pattern as every other PanelScan-*.postman_collection.json file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "moderatorToken", "value": "" },
+    { "key": "productId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Login (seeded MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trigger (grabs a seeded product id that already has an Inventory row)",
+      "item": [
+        {
+          "name": "Get a seeded product id (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products?limit=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [{ "key": "limit", "value": "1" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var products = pm.response.json().data.products;",
+                  "  if (products && products.length > 0) {",
+                  "    pm.collectionVariables.set('productId', products[0].id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        {
+          "name": "List inventory",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/inventory?page=1&limit=50", "host": ["{{baseUrl}}"], "path": ["inventory"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "50" }] }
+          }
+        },
+        {
+          "name": "Low stock report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/inventory/low-stock", "host": ["{{baseUrl}}"], "path": ["inventory", "low-stock"] }
+          },
+          "description": "Every record where quantity <= reorderLevel. Not paginated."
+        },
+        {
+          "name": "Get inventory by product id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}"] }
+          }
+        },
+        {
+          "name": "Add stock",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}/add", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}", "add"] },
+            "body": { "mode": "raw", "raw": "{\n  \"quantity\": 50\n}" }
+          },
+          "description": "Increments quantity and stamps lastRestockedAt."
+        },
+        {
+          "name": "Reduce stock",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}/reduce", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}", "reduce"] },
+            "body": { "mode": "raw", "raw": "{\n  \"quantity\": 10\n}" }
+          },
+          "description": "400 if quantity exceeds the current quantity on hand."
+        },
+        {
+          "name": "Reserve stock",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}/reserve", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}", "reserve"] },
+            "body": { "mode": "raw", "raw": "{\n  \"quantity\": 5\n}" }
+          },
+          "description": "400 if quantity exceeds AVAILABLE stock (quantity - reservedQty), not raw quantity."
+        },
+        {
+          "name": "Release reserved stock",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{moderatorToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}/release", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}", "release"] },
+            "body": { "mode": "raw", "raw": "{\n  \"quantity\": 5\n}" }
+          },
+          "description": "400 if quantity exceeds the currently reserved amount."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,224 @@
+{
+  "info": {
+    "name": "PanelScan API — Payment Module",
+    "description": "PayMongo Checkout Sessions integration. 'Create payment' requires PAYMONGO_SECRET_KEY to be configured on the running server (returns 500 'Payment provider is not configured.' otherwise) and will attempt a real call to PayMongo's API. The Webhook request computes a real HMAC-SHA256 signature in its pre-request script (matching payment.service.ts's verifyPaymongoSignature) - set the paymongoWebhookSecret collection variable to the same value as your server's PAYMONGO_WEBHOOK_SECRET env var for it to pass signature verification. Includes a minimal Auth folder and a Trigger folder that checks out an order to pay for. Follows the same per-module-collection pattern as every other PanelScan-*.postman_collection.json file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api" },
+    { "key": "token", "value": "" },
+    { "key": "moderatorToken", "value": "" },
+    { "key": "productId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "paymentId", "value": "" },
+    { "key": "paymongoWebhookSecret", "value": "" },
+    { "key": "paymongoSignatureHeader", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth (prerequisite)",
+      "item": [
+        {
+          "name": "Register (customer)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Juan\",\n  \"lastName\": \"Dela Cruz\",\n  \"email\": \"juan.payments@panelscan.test\",\n  \"password\": \"Passw0rd123\",\n  \"phone\": \"+63 912 345 6789\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('token', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (seeded MODERATOR)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('moderatorToken', pm.response.json().data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trigger (produces an order to pay for)",
+      "item": [
+        {
+          "name": "Get a seeded product id (public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products?limit=1", "host": ["{{baseUrl}}"], "path": ["products"], "query": [{ "key": "limit", "value": "1" }] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var products = pm.response.json().data.products;",
+                  "  if (products && products.length > 0) {",
+                  "    pm.collectionVariables.set('productId', products[0].id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add product to cart (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/cart/items", "host": ["{{baseUrl}}"], "path": ["cart", "items"] },
+            "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 1\n}" }
+          }
+        },
+        {
+          "name": "Checkout (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] },
+            "body": { "mode": "raw", "raw": "{\n  \"shippingAddress\": \"123 Rizal Street, Quezon City, Metro Manila, 1100\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('orderId', pm.response.json().data.order.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Create payment (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/payments/create", "host": ["{{baseUrl}}"], "path": ["payments", "create"] },
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": \"{{orderId}}\"\n}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('paymentId', pm.response.json().data.paymentId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "description": "Requires PAYMONGO_SECRET_KEY configured on the server and a real call to PayMongo's API - returns 500 ('Payment provider is not configured.') without it. Response shape is deliberately narrow: { paymentId, status, checkoutUrl } - not a full payment object."
+        },
+        {
+          "name": "List my payments (CUSTOMER)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/payments", "host": ["{{baseUrl}}"], "path": ["payments"] }
+          }
+        },
+        {
+          "name": "List all payments (MODERATOR/OWNER)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{moderatorToken}}" }],
+            "url": { "raw": "{{baseUrl}}/payments?page=1&limit=20", "host": ["{{baseUrl}}"], "path": ["payments"], "query": [{ "key": "page", "value": "1" }, { "key": "limit", "value": "20" }] }
+          }
+        },
+        {
+          "name": "Get payment by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/payments/{{paymentId}}", "host": ["{{baseUrl}}"], "path": ["payments", "{{paymentId}}"] }
+          },
+          "description": "Returns a narrower, explicit field set (id, orderId, status, amount, method, transactionRef, paidAt, createdAt) - not the full payment-with-order-relation shape used by the list endpoints."
+        },
+        {
+          "name": "Webhook - payment.paid (simulated, HMAC-signed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Paymongo-Signature", "value": "{{paymongoSignatureHeader}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/payments/webhook", "host": ["{{baseUrl}}"], "path": ["payments", "webhook"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"id\": \"evt_test_001\",\n    \"type\": \"event\",\n    \"attributes\": {\n      \"type\": \"payment.paid\",\n      \"livemode\": false,\n      \"data\": {\n        \"id\": \"pay_test_001\",\n        \"type\": \"payment\",\n        \"attributes\": {\n          \"reference_number\": \"{{orderId}}\"\n        }\n      }\n    }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Reproduces payment.service.ts's verifyPaymongoSignature: HMAC-SHA256(secret,",
+                  "// `${timestamp}.${rawBody}`) in hex, sent as `t=<timestamp>,li=<hex>`.",
+                  "// Set the paymongoWebhookSecret collection variable to match your server's",
+                  "// PAYMONGO_WEBHOOK_SECRET env var. If PAYMONGO_WEBHOOK_SECRET is unset on the",
+                  "// server, signature verification is skipped there entirely and this header",
+                  "// is ignored - see the Payment section of backend/README.md.",
+                  "var secret = pm.collectionVariables.get('paymongoWebhookSecret');",
+                  "var rawBody = pm.variables.replaceIn(pm.request.body.raw);",
+                  "var timestamp = Math.floor(Date.now() / 1000);",
+                  "var signature = CryptoJS.HmacSHA256(timestamp + '.' + rawBody, secret || '').toString(CryptoJS.enc.Hex);",
+                  "pm.collectionVariables.set('paymongoSignatureHeader', 't=' + timestamp + ',li=' + signature);"
+                ]
+              }
+            }
+          ],
+          "description": "Marks the matching Payment PAID and, if the linked Order was still PENDING, advances it to PROCESSING. Idempotent - redelivering this for an already-PAID payment is a silent no-op. The reference_number above must match a real order id from the Trigger folder for this to find a Payment row to update at all (unmatched events are acknowledged and ignored, not errored)."
+        }
+      ]
+    }
+  ]
+}
