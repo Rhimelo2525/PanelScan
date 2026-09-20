@@ -317,7 +317,7 @@ Before frontend work begins, the receiving team should have:
 - [x] Seeded/demo account credentials, if the team wants to develop against a pre-populated dev
       database rather than registering fresh accounts. Verified directly against
       `backend/prisma/seed.ts` (run via `npm run prisma:seed`): one OWNER
-      (`owner@panelscan.com` / `Owner@12345`), one MODERATOR (`moderator@panelscan.com` /
+      (`owner@gmail.com` / `Owner@12345`), one MODERATOR (`moderator@gmail.com` /
       `Moderator@12345`), 5 categories (Wall/Ceiling/Flooring/Partition/Cladding Panels), and 10
       products with inventory (qty 100 each, reorder level 15). There is no seeded CUSTOMER account —
       register one via `POST /api/auth/register` (registration always assigns `CUSTOMER`, it cannot

@@ -47,7 +47,23 @@ all confirmed correct).
 CockroachDB Cloud credentials were provided (cluster "panelscan", cluster
 host panelscan-17664.jxf.gcp-asia-southeast1.cockroachlabs.cloud) and are
 now live in backend/.env (dev, database `panelscan`) and backend/.env.test
-(database `panelscan_test`). Getting there required working around two
+(database `panelscan_test`).
+
+*** CORRECTION (2026-09-20): dev actually runs against `defaultdb`, not
+`panelscan`. *** At some point after the milestone above, backend/.env's
+DATABASE_URL was pointed at `/defaultdb` instead of `/panelscan`, and all
+real work since then (seed data, every module's live testing, this
+session's CockroachDB audit and Supabase backup sync) has been running
+against `defaultdb`. Verified 2026-09-20: `defaultdb` has 7 users, real
+orders/notifications/refresh tokens; `panelscan` still exists on the same
+cluster but only has 2 users (the original 2026-08-01 seed run) and has
+been untouched since - it's a stale leftover, not a second live copy.
+`defaultdb` is the actual production database going forward. `panelscan`,
+`panelscan_shadow`, and `panelscan_test` were left in place (not dropped)
+since deleting databases wasn't part of this fix - safe to clean up later
+once confirmed nothing else references them.
+
+Getting there required working around two
 CockroachDB Cloud-specific quirks - both documented in detail in section
 3E, since they'll bite again on any fresh CockroachDB Cloud cluster:
   1. New databases in this cluster are provisioned with a default region,
@@ -331,8 +347,8 @@ the README/Postman changes.
 - Public registration (POST /api/auth/register) always creates a CUSTOMER.
   There is currently no way to create the first OWNER account through the
   API (by design - role can't be self-assigned). RESOLVED via seed.ts, which
-  now creates a default OWNER (owner@panelscan.com / Owner@12345) and
-  MODERATOR (moderator@panelscan.com / Moderator@12345) on first setup, using
+  now creates a default OWNER (owner@gmail.com / Owner@12345) and
+  MODERATOR (moderator@gmail.com / Moderator@12345) on first setup, using
   upsert so it's safe to re-run. Still TODO: change/rotate these default
   seeded passwords before any shared/production use - they're committed in
   plaintext in prisma/seed.ts for local dev convenience only.
@@ -581,8 +597,8 @@ Foreign key delete-behavior policy (deliberately not uniform):
   order, Project -> owner/moderator, Request -> reviewedBy.
 
 prisma/seed.ts (idempotent - uses upsert throughout, safe to re-run):
-  - 1 OWNER (owner@panelscan.com / Owner@12345)
-  - 1 MODERATOR (moderator@panelscan.com / Moderator@12345)
+  - 1 OWNER (owner@gmail.com / Owner@12345)
+  - 1 MODERATOR (moderator@gmail.com / Moderator@12345)
   - 5 categories (Wall/Ceiling/Flooring/Partition/Cladding Panels)
   - 10 sample products (2 per category, realistic panel dimensions/prices)
   - Inventory record for every seeded product
