@@ -1,3 +1,6 @@
+import type { Booking, CustomerFeedback } from "@/api/support"
+import type { DeliveryLocation, DeliveryRecord } from "@/types/delivery"
+
 export type OrderStatus = "PENDING" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED"
 
 export interface OrderCustomer {
@@ -28,11 +31,16 @@ export interface Order {
   shippingFee: string
   totalAmount: string
   shippingAddress: string
+  deliveryLocation?: DeliveryLocation | null
   notes: string | null
   createdAt: string
   updatedAt: string
   items: OrderItem[]
   customer: OrderCustomer
+  booking?: Booking | null
+  delivery?: DeliveryRecord | null
+  moderatorApproved?: boolean
+  feedback?: CustomerFeedback | null
 }
 
 export interface OrderPagination {
@@ -47,9 +55,25 @@ export interface PaginatedOrders {
   pagination: OrderPagination
 }
 
+export interface CreateOrderInstallationInput {
+  scheduledDate: string
+  address: string
+  notes?: string
+}
+
+export interface CreateOrderDirectItemInput {
+  productId: string
+  quantity: number
+}
+
 export interface CreateOrderInput {
   shippingAddress: string
+  deliveryLocation?: DeliveryLocation
   notes?: string
+  installation?: CreateOrderInstallationInput
+  selectedItemIds?: string[]
+  selectedProductIds?: string[]
+  directItem?: CreateOrderDirectItemInput
 }
 
 export interface OrderQuery {

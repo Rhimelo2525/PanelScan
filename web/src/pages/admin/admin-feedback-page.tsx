@@ -1,5 +1,6 @@
 import { Star } from "lucide-react"
 import { useState } from "react"
+import { Link } from "react-router-dom"
 
 import { getFeedback } from "@/api/admin"
 import { formatDateTime, fullName } from "@/admin/admin-format"
@@ -39,7 +40,23 @@ export function AdminFeedbackPage() {
             columns={[
               { key: "customer", header: "Customer", primary: true, cell: (row) => <span className="font-medium">{fullName(row.customer)}</span> },
               { key: "rating", header: "Rating", cell: (row) => <span className="flex items-center gap-1 tabular-nums" aria-label={`${row.rating} out of 5`}><Star className="size-3.5 fill-current text-[var(--status-warning)]" aria-hidden="true" />{row.rating}/5</span> },
-              { key: "order", header: "Order", secondary: true, cell: (row) => row.order?.orderNumber ?? <span className="text-muted-foreground">—</span> },
+              {
+                key: "order",
+                header: "Order",
+                secondary: true,
+                cell: (row) =>
+                  row.order?.orderNumber ? (
+                    <Link
+                      to="/admin/sales"
+                      className="font-medium text-primary hover:underline"
+                      title="View in Sales"
+                    >
+                      {row.order.orderNumber}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  ),
+              },
               { key: "comment", header: "Comment", cell: (row) => row.comment ? <span className="line-clamp-3 max-w-md">{row.comment}</span> : <span className="text-muted-foreground">No comment</span> },
               { key: "date", header: "Submitted", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDateTime(row.createdAt)}</span> },
             ]}

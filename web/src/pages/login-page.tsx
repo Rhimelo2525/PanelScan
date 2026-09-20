@@ -6,8 +6,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 import { exchangeGoogleTicket } from "@/api/auth"
 import { apiBaseUrl } from "@/api/client"
 import { getLoginErrorMessage } from "@/auth/errors"
-import { landingPathForRole } from "@/admin/admin-nav"
-import { getSafeRedirect } from "@/auth/redirect"
+import { getSafeRedirect, resolveLoginDestination } from "@/auth/redirect"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { FormError } from "@/components/auth/form-error"
@@ -53,9 +52,8 @@ export function LoginPage() {
   const { user, isAuthenticated, isLoading: isRestoring, login, applySession } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  // An explicit "from" (a guarded page the visitor was sent away from) always
-  // wins; otherwise each role lands on its own home - staff in Admin, customers
-  // on their dashboard.
+  // An explicit "from" (a guarded page the visitor was sent away from) is preserved
+  // for staff roles; customers are always routed to their dashboard.
   const requestedPath = getSafeRedirect(location.state, "")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -92,7 +90,7 @@ export function LoginPage() {
         .then((result) => {
           const signedInUser = applySession(result)
           const redirectFrom = searchParams.get("from") || requestedPath
-          navigate(redirectFrom || landingPathForRole(signedInUser.role), { replace: true })
+          navigate(resolveLoginDestination(signedInUser.role, redirectFrom), { replace: true })
         })
         .catch((error) => {
           setSubmissionError(getLoginErrorMessage(error))
@@ -122,7 +120,7 @@ export function LoginPage() {
     )
   }
 
-  if (isAuthenticated) return <Navigate to={requestedPath || landingPathForRole(user?.role ?? "CUSTOMER")} replace />
+  if (isAuthenticated) return <Navigate to={resolveLoginDestination(user?.role, requestedPath)} replace />
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -137,7 +135,7 @@ export function LoginPage() {
     setIsSubmitting(true)
     try {
       const signedInUser = await login({ email: email.trim().toLowerCase(), password })
-      navigate(requestedPath || landingPathForRole(signedInUser.role), { replace: true })
+      navigate(resolveLoginDestination(signedInUser.role, requestedPath), { replace: true })
     } catch (error) {
       setSubmissionError(getLoginErrorMessage(error))
     } finally {

@@ -39,6 +39,7 @@ const AdminProductsPage = lazy(() => import("@/pages/admin/admin-products-page")
 const AdminProjectsPage = lazy(() => import("@/pages/admin/admin-projects-page").then((module) => ({ default: module.AdminProjectsPage })))
 const AdminInventoryPage = lazy(() => import("@/pages/admin/admin-inventory-page").then((module) => ({ default: module.AdminInventoryPage })))
 const AdminSalesPage = lazy(() => import("@/pages/admin/admin-sales-page").then((module) => ({ default: module.AdminSalesPage })))
+const AdminInstallationRequestsPage = lazy(() => import("@/pages/admin/admin-installation-requests-page").then((module) => ({ default: module.AdminInstallationRequestsPage })))
 const AdminRequestsPage = lazy(() => import("@/pages/admin/admin-requests-page").then((module) => ({ default: module.AdminRequestsPage })))
 const AdminTeamPage = lazy(() => import("@/pages/admin/admin-team-page").then((module) => ({ default: module.AdminTeamPage })))
 const AdminInstallersPage = lazy(() => import("@/pages/admin/admin-installers-page").then((module) => ({ default: module.AdminInstallersPage })))
@@ -66,6 +67,7 @@ function App() {
                 <Route path="projects" element={<Suspense fallback={<AdminPageFallback />}><AdminProjectsPage /></Suspense>} />
                 <Route path="inventory" element={<Suspense fallback={<AdminPageFallback />}><AdminInventoryPage /></Suspense>} />
                 <Route path="sales" element={<Suspense fallback={<AdminPageFallback />}><AdminSalesPage /></Suspense>} />
+                <Route path="installation-requests" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallationRequestsPage /></Suspense>} />
                 <Route path="installers" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallersPage /></Suspense>} />
                 <Route path="chat" element={<Suspense fallback={<AdminPageFallback />}><AdminChatPage /></Suspense>} />
                 <Route path="feedback" element={<Suspense fallback={<AdminPageFallback />}><AdminFeedbackPage /></Suspense>} />
@@ -85,6 +87,8 @@ function App() {
               <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
               <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
               <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
+              <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
+              <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />
               <Route path="terms" element={<Suspense fallback={<RoutePageFallback />}><TermsPage /></Suspense>} />
               <Route path="privacy" element={<Suspense fallback={<RoutePageFallback />}><PrivacyPage /></Suspense>} />
               <Route element={<ProtectedRoute />}>
@@ -99,7 +103,6 @@ function App() {
                 <Route path="orders/:id" element={<Suspense fallback={<RoutePageFallback />}><OrderDetailPage /></Suspense>} />
                 <Route path="messages" element={<Suspense fallback={<RoutePageFallback />}><MessagesPage /></Suspense>} />
                 <Route path="feedback" element={<Suspense fallback={<RoutePageFallback />}><FeedbackPage /></Suspense>} />
-                <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
                 <Route path="projects" element={<Suspense fallback={<RoutePageFallback />}><CustomerProjectsPage /></Suspense>} />
                 {/* PayMongo return routes. These match the backend's PAYMENT_SUCCESS_URL / PAYMENT_CANCEL_URL paths and stay behind the customer guard: an unauthenticated return is sent to login and back here, never shown payment data. */}
                 <Route path="payment/success" element={<Suspense fallback={<RoutePageFallback />}><PaymentSuccessPage /></Suspense>} />

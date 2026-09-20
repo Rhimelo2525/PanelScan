@@ -1,10 +1,25 @@
-export type RegisterField = "firstName" | "lastName" | "birthdate" | "email" | "phone" | "password" | "confirmPassword"
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  validatePasswordPolicy,
+} from "./password-policy"
 
-export type RegisterValues = Record<RegisterField, string>
+export { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH }
+
+export type RegisterField = "firstName" | "lastName" | "birthdate" | "email" | "phone" | "password" | "confirmPassword" | "acceptedTerms"
+
+export interface RegisterValues {
+  firstName: string
+  lastName: string
+  birthdate: string
+  email: string
+  phone: string
+  password: string
+  confirmPassword: string
+  acceptedTerms: boolean
+}
+
 export type RegisterErrors = Partial<Record<RegisterField, string>>
-
-export const PASSWORD_MIN_LENGTH = 8
-export const PASSWORD_MAX_LENGTH = 16
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const phonePattern = /^\+?[0-9\s\-()]{7,20}$/
@@ -63,10 +78,20 @@ export function validateRegistration(values: RegisterValues, today = new Date())
   if (!values.phone.trim()) errors.phone = "Contact number is required."
   else if (!phonePattern.test(values.phone.trim())) errors.phone = "Enter a valid contact number."
 
-  if (!values.password) errors.password = "Password is required."
-  else if (values.password.length < PASSWORD_MIN_LENGTH) errors.password = "Password must be at least 8 characters."
-  else if (values.password.length > PASSWORD_MAX_LENGTH) errors.password = "Password cannot exceed 16 characters."
-  if (!values.confirmPassword) errors.confirmPassword = "Confirm your password."
-  else if (values.confirmPassword !== values.password) errors.confirmPassword = "Passwords do not match."
+  const passwordResult = validatePasswordPolicy(values.password)
+  if (!passwordResult.isValid && passwordResult.error) {
+    errors.password = passwordResult.error
+  }
+
+  if (!values.confirmPassword) {
+    errors.confirmPassword = "Confirm your password."
+  } else if (values.confirmPassword !== values.password) {
+    errors.confirmPassword = "Passwords do not match."
+  }
+
+  if (!values.acceptedTerms) {
+    errors.acceptedTerms = "You must agree to the Terms of Use and Privacy Policy before creating an account."
+  }
+
   return errors
 }

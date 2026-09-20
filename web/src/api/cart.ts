@@ -32,6 +32,14 @@ export async function removeCartItem(productId: string): Promise<Cart> {
   }))
 }
 
+export async function removeCartItems(productIds: string[]): Promise<Cart> {
+  return unwrapCart(await apiRequest<CartResponse>("/cart/remove-items", {
+    method: "POST",
+    authenticated: true,
+    body: { productIds },
+  }))
+}
+
 export async function clearCartRequest(): Promise<Cart> {
   return unwrapCart(await apiRequest<CartResponse>("/cart", {
     method: "DELETE",

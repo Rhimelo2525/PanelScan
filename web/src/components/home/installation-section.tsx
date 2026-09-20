@@ -1,8 +1,7 @@
-import { ArrowRight, Hammer, Package } from "lucide-react"
+import { Hammer, Package } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Container } from "@/components/layout/container"
-import { Button } from "@/components/ui/button"
 
 /**
  * Two genuine ways to buy: materials only, or materials with installation
@@ -39,12 +38,13 @@ export function InstallationSection() {
               <div>
                 <dt className="flex items-center gap-2 font-semibold"><Hammer className="size-4 text-primary" aria-hidden="true" />With installation</dt>
                 <dd className="mt-2 text-sm leading-7 text-muted-foreground">Submit an installation request with your preferred date and address; the team confirms and assigns an installer.</dd>
+                <div className="mt-3">
+                  <Link to="/installation" className="inline-flex items-center text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    Request installation &rarr;
+                  </Link>
+                </div>
               </div>
             </dl>
-
-            <Button className="mt-9" asChild>
-              <Link to="/installation">Request installation <ArrowRight data-icon="inline-end" aria-hidden="true" /></Link>
-            </Button>
           </div>
         </div>
       </Container>

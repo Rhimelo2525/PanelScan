@@ -37,8 +37,8 @@ export function AdminProjectsPage() {
   const search = useDebouncedValue(searchInput)
   const [selected, setSelected] = useState<AdminProject | null>(null)
 
-  const projects = useAdminResource((signal) => getProjects({ page, limit: 20, status: status || undefined, search: search || undefined }, signal), [page, status, search])
-  const rows = projects.data?.projects ?? []
+  const projects = useAdminResource((signal) => getProjects({ page, limit: 20, status: status || undefined, search: search || undefined, source: "MOBILE_AR_3D" }, signal), [page, status, search])
+  const rows = (projects.data?.projects ?? []).filter((row) => row.source === "MOBILE_AR_3D")
 
   return (
     <div className="space-y-6">
@@ -68,14 +68,14 @@ export function AdminProjectsPage() {
             isLoading={projects.isLoading}
             rows={rows}
             getRowId={(row) => row.id}
-            empty={<EmptyState icon={ClipboardList} title={isOwner ? "No projects yet" : "No projects assigned to you"} description={isOwner ? "Projects are created by the owner against a customer account and then assigned to a moderator." : "Projects appear here once the owner assigns them to your account."} />}
+            empty={<EmptyState icon={ClipboardList} title="No projects yet" description="Projects created from the PanelScan mobile AR and 3D workflow will appear here." />}
             columns={[
               { key: "name", header: "Project", primary: true, cell: (row) => <span><span className="block font-medium">{row.name}</span><span className="block text-xs text-muted-foreground">{fullName(row.customer)}</span></span> },
               { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
               { key: "moderator", header: "Assigned to", cell: (row) => row.moderator ? fullName(row.moderator) : <span className="text-muted-foreground">Unassigned</span> },
               { key: "start", header: "Start", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.startDate)}</span> },
               { key: "end", header: "Target end", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.endDate)}</span> },
-              { key: "budget", header: "Budget", numeric: true, cell: (row) => row.budget === null || row.budget === undefined ? <span className="text-muted-foreground">—</span> : formatMoneyDetail(Number(row.budget)) },
+              { key: "budget", header: "Budget", numeric: true, cell: (row) => row.budget === null || row.budget === undefined || row.budget === "" ? "" : formatMoneyDetail(Number(row.budget)) },
             ]}
             rowAction={(row) => <Button variant="outline" size="sm" onClick={() => setSelected(row)}>Open</Button>}
           />

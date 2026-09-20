@@ -4,7 +4,7 @@ import type { AdminProject, Pagination } from "@/types/admin"
 
 export async function listCustomerProjectResults(signal?: AbortSignal): Promise<CustomerProjectResultSet> {
   try {
-    const data = await apiRequest<{ projects: AdminProject[]; pagination: Pagination }>("/projects", {
+    const data = await apiRequest<{ projects: AdminProject[]; pagination: Pagination }>("/projects?source=MOBILE_AR_3D", {
       authenticated: true,
       signal,
     })

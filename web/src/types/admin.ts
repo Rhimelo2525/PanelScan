@@ -1,4 +1,5 @@
 import type { UserRole } from "@/types/auth"
+import type { DeliveryApprovalStatus } from "@/types/delivery"
 import type { OrderStatus } from "@/types/order"
 
 /**
@@ -105,9 +106,18 @@ export interface OrderReportRow {
   customerId: string
   customerName: string
   status: OrderStatus
+  moderatorApproved?: boolean
+  isPaid?: boolean
+  paymentStatus?: string | null
+  shippingAddress?: string
+  deliveryStatus?: string | null
+  deliveryApprovalStatus?: DeliveryApprovalStatus
+  deliveryRequestedAt?: string | null
+  deliveryApprovedAt?: string | null
+  deliveryDeclinedAt?: string | null
+  deliveryDeclineReason?: string | null
   itemCount: number
   createdAt: string
-  /** OWNER only. */
   totalAmount?: number
 }
 
@@ -167,6 +177,8 @@ export interface ProjectPerson {
   email: string
 }
 
+export type ProjectSource = "MANUAL" | "MOBILE_AR_3D"
+
 export interface AdminProject {
   id: string
   customerId: string
@@ -176,6 +188,12 @@ export interface AdminProject {
   description: string | null
   notes: string | null
   status: ProjectStatus
+  source?: ProjectSource
+  externalProjectId?: string | null
+  arDataUrl?: string | null
+  arMetadata?: Record<string, unknown> | null
+  threeDModelUrl?: string | null
+  threeDMetadata?: Record<string, unknown> | null
   budget: string | null
   startDate: string | null
   endDate: string | null
@@ -307,3 +325,48 @@ export interface AdminListQuery {
   dateFrom?: string
   dateTo?: string
 }
+
+// ------------------------------------------------ installation requests / bookings
+
+export interface AdminBookingOrderItem {
+  id: string
+  productId: string
+  productName: string
+  quantity: number
+  unitPrice: number | string
+  lineTotal: number | string
+}
+
+export interface AdminBookingOrder {
+  id: string
+  orderNumber: string
+  status: OrderStatus
+  totalAmount: number | string
+  createdAt: string
+  items: AdminBookingOrderItem[]
+}
+
+export interface AdminBookingCustomer {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string | null
+}
+
+export interface AdminBooking {
+  id: string
+  customerId: string
+  orderId: string | null
+  installerId: string | null
+  status: BookingStatus
+  scheduledDate: string
+  address: string
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+  customer?: AdminBookingCustomer
+  installer?: Installer | null
+  order?: AdminBookingOrder | null
+}
+

@@ -9,6 +9,7 @@ export interface AuthUser {
   googleId?: string | null
   role: UserRole
   isActive: boolean
+  termsAcceptedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -24,6 +25,7 @@ export interface RegisterInput {
   email: string
   password: string
   phone?: string
+  acceptedTerms: boolean
 }
 
 export interface LoginResponse {

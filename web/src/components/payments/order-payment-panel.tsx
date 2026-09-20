@@ -1,5 +1,6 @@
 import { AlertCircle, ArrowRight, CreditCard, Loader2, ShieldCheck } from "lucide-react"
 
+import { StatusBadge } from "@/components/admin/status-badge"
 import { PaymentStatusBadge } from "@/components/payments/payment-status-badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,10 +21,8 @@ interface OrderPaymentPanelProps {
 
 export function OrderPaymentPanel({ order, payment, isLoading, error, onRetryLoad }: OrderPaymentPanelProps) {
   const { startPayment, isStarting } = useStartPayment()
-  // While the payment record is unknown, no payment action is offered: starting a
-  // second checkout for an order that may already be paid is the one mistake
-  // this panel must not make.
-  const isPayable = !isLoading && !error && canStartPayment(order.status, payment)
+  const isApproved = Boolean(order.moderatorApproved)
+  const isPayable = !isLoading && !error && isApproved && canStartPayment(order.status, payment, isApproved)
 
   return (
     <section className="surface-card p-6" aria-labelledby="payment-title">
@@ -33,6 +32,16 @@ export function OrderPaymentPanel({ order, payment, isLoading, error, onRetryLoa
         <div className="mt-4 space-y-3" aria-label="Loading payment status" aria-busy="true"><Skeleton className="h-6 w-40" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-3/4" /></div>
       ) : error ? (
         <div className="mt-4"><p className="flex items-start gap-2 text-sm leading-6 text-muted-foreground"><AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />{error}</p><Button variant="outline" size="sm" className="mt-4" onClick={onRetryLoad}>Check payment status</Button></div>
+      ) : !isApproved && order.status !== "CANCELLED" ? (
+        <>
+          <div className="mt-4"><StatusBadge status="PENDING" label="Awaiting Approval" /></div>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Your order is currently being reviewed. Payment will become available once your order has been approved.
+          </p>
+          <dl className="mt-5 space-y-3 border-t border-border pt-4 text-sm">
+            <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Amount due</dt><dd className="font-medium tabular-nums">{formatProductPrice(order.totalAmount)}</dd></div>
+          </dl>
+        </>
       ) : payment ? (
         <>
           <div className="mt-4"><PaymentStatusBadge status={payment.status} /></div>
@@ -46,7 +55,8 @@ export function OrderPaymentPanel({ order, payment, isLoading, error, onRetryLoa
         </>
       ) : (
         <>
-          <p className="mt-4 text-sm leading-6 text-muted-foreground">No payment has been started for this order yet.</p>
+          <div className="mt-4"><StatusBadge status="APPROVED" label="Ready for Payment" /></div>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Your order has been approved. You can now proceed to payment.</p>
           <dl className="mt-5 space-y-3 border-t border-border pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">Amount due</dt><dd className="font-medium tabular-nums">{formatProductPrice(order.totalAmount)}</dd></div></dl>
         </>
       )}

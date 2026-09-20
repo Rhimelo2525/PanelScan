@@ -1,5 +1,11 @@
-export const MODERATOR_PASSWORD_MIN_LENGTH = 8
-export const MODERATOR_PASSWORD_MAX_LENGTH = 16
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  validatePasswordPolicy,
+} from "@/auth/password-policy"
+
+export const MODERATOR_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH
+export const MODERATOR_PASSWORD_MAX_LENGTH = PASSWORD_MAX_LENGTH
 
 export interface ModeratorFormValues {
   firstName: string
@@ -28,12 +34,16 @@ export function validateModeratorForm(values: ModeratorFormValues): ModeratorFor
 
   if (!values.contactNumber.trim()) errors.contactNumber = "Contact number is required."
 
-  if (!values.temporaryPassword) errors.temporaryPassword = "Temporary password is required."
-  else if (values.temporaryPassword.length < MODERATOR_PASSWORD_MIN_LENGTH) errors.temporaryPassword = "Use at least 8 characters."
-  else if (values.temporaryPassword.length > MODERATOR_PASSWORD_MAX_LENGTH) errors.temporaryPassword = "Use no more than 16 characters."
+  const passwordResult = validatePasswordPolicy(values.temporaryPassword)
+  if (!passwordResult.isValid && passwordResult.error) {
+    errors.temporaryPassword = passwordResult.error
+  }
 
-  if (!values.confirmTemporaryPassword) errors.confirmTemporaryPassword = "Confirm the temporary password."
-  else if (values.confirmTemporaryPassword !== values.temporaryPassword) errors.confirmTemporaryPassword = "Passwords do not match."
+  if (!values.confirmTemporaryPassword) {
+    errors.confirmTemporaryPassword = "Confirm the temporary password."
+  } else if (values.confirmTemporaryPassword !== values.temporaryPassword) {
+    errors.confirmTemporaryPassword = "Passwords do not match."
+  }
 
   return errors
 }

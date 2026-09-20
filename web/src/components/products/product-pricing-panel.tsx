@@ -1,4 +1,4 @@
-import { Check, Loader2, LockKeyhole, PhilippinePeso, ShoppingCart } from "lucide-react"
+import { ArrowRight, Check, Loader2, LockKeyhole, PhilippinePeso, ShoppingCart } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
@@ -10,6 +10,7 @@ import { QuantityControl } from "@/components/cart/quantity-control"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatProductPrice } from "@/lib/format-price"
+import type { CartItem } from "@/types/cart"
 import type { Product } from "@/types/product"
 
 interface ProductPricingPanelProps {
@@ -34,14 +35,23 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
     const timeoutId = window.setTimeout(() => setJustAdded(false), 1600)
     return () => window.clearTimeout(timeoutId)
   }, [justAdded])
-  const canAdd = user?.role === "CUSTOMER" && product.isActive && !product.deletedAt && remainingQuantity > 0
+  const canAdd = user?.role === "CUSTOMER" && product.isActive && !product.deletedAt && remainingQuantity > 0 && quantity <= remainingQuantity
+  const canDirectCheckout = user?.role === "CUSTOMER" && product.isActive && !product.deletedAt && availableQuantity > 0 && quantity <= availableQuantity
 
   useEffect(() => setQuantity(1), [product.id])
   useEffect(() => {
-    if (remainingQuantity > 0) setQuantity((current) => Math.min(current, remainingQuantity))
-  }, [remainingQuantity])
+    if (availableQuantity > 0) setQuantity((current) => Math.min(current, availableQuantity))
+  }, [availableQuantity])
 
   async function handleAddToCart() {
+    if (quantity > remainingQuantity) {
+      toast.error(
+        existingQuantity > 0
+          ? `Only ${remainingQuantity} more can be added to your cart (you already have ${existingQuantity} in your cart).`
+          : `Only ${availableQuantity} items are available.`
+      )
+      return
+    }
     try {
       await addItem(product.id, quantity)
       toast.success(`${product.name} added to your cart.`, {
@@ -55,6 +65,42 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
     }
   }
 
+  function handleProceedToCheckout() {
+    if (!product.isActive || product.deletedAt || availableQuantity <= 0) {
+      toast.error("This product is currently out of stock.")
+      return
+    }
+    if (quantity > availableQuantity) {
+      toast.error(`Only ${availableQuantity} items are available.`)
+      return
+    }
+
+    const directItem: CartItem = {
+      id: `direct-${product.id}`,
+      cartId: "direct",
+      productId: product.id,
+      quantity,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      product: {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        sku: product.sku,
+        price: product.price ?? "0.00",
+        unit: product.unit,
+        isActive: product.isActive,
+        deletedAt: product.deletedAt,
+        images: product.images,
+        inventory: product.inventory,
+      },
+    }
+
+    sessionStorage.setItem("panelscan_direct_checkout", JSON.stringify(directItem))
+    navigate("/checkout?direct=1", {
+      state: { directCheckout: directItem },
+    })
+  }
 
   if (isLoading) {
     return <aside className="rounded-lg border border-border bg-secondary/55 p-5 sm:p-6" aria-label="Checking price access" aria-busy="true"><div className="flex gap-3"><Skeleton className="size-9 shrink-0 rounded-full" /><div className="w-full space-y-3"><Skeleton className="h-6 w-44" /><Skeleton className="h-4 w-full" /></div></div><Skeleton className="mt-5 h-11 w-full" /></aside>
@@ -75,14 +121,44 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
         {user?.role === "CUSTOMER" ? (
           <div className="mt-6 border-t border-border pt-5">
             {existingQuantity > 0 && <p className="mb-4 text-sm font-medium">{existingQuantity} currently in your cart</p>}
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <QuantityControl value={quantity} max={Math.max(1, remainingQuantity)} disabled={!canAdd || isPending} productName={product.name} onChange={setQuantity} />
-              <Button size="lg" className="min-w-40 flex-1" disabled={!canAdd || isPending} onClick={() => void handleAddToCart()}>
-                {isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : justAdded ? <Check data-icon="inline-start" aria-hidden="true" /> : <ShoppingCart data-icon="inline-start" aria-hidden="true" />}
-                <span key={isPending ? "pending" : justAdded ? "added" : "idle"} className="motion-fade">{isPending ? "Adding…" : justAdded ? "Added" : "Add to cart"}</span>
-              </Button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="sm:self-start">
+                <QuantityControl
+                  value={quantity}
+                  min={1}
+                  max={Math.max(1, availableQuantity)}
+                  disabled={availableQuantity <= 0 || isPending}
+                  productName={product.name}
+                  onChange={setQuantity}
+                  onMaxReached={() => toast.warning(`Only ${availableQuantity} items are available.`)}
+                />
+              </div>
+              <div className="flex flex-1 flex-col gap-2.5">
+                <Button size="lg" className="w-full" disabled={!canAdd || isPending} onClick={() => void handleAddToCart()}>
+                  {isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : justAdded ? <Check data-icon="inline-start" aria-hidden="true" /> : <ShoppingCart data-icon="inline-start" aria-hidden="true" />}
+                  <span key={isPending ? "pending" : justAdded ? "added" : "idle"} className="motion-fade">{isPending ? "Adding…" : justAdded ? "Added" : "Add to cart"}</span>
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full"
+                  disabled={!canDirectCheckout || isPending}
+                  onClick={handleProceedToCheckout}
+                >
+                  Proceed to Checkout
+                  <ArrowRight data-icon="inline-end" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
-            {!canAdd && <p className="mt-3 text-xs leading-5 text-muted-foreground">{remainingQuantity === 0 && existingQuantity > 0 ? "All currently available stock is already in your cart." : "This product cannot be added to the cart right now."}</p>}
+            {availableQuantity <= 0 ? (
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                This product is currently out of stock.
+              </p>
+            ) : !canAdd && remainingQuantity === 0 && existingQuantity > 0 ? (
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                All currently available stock is already in your cart. You can proceed to checkout directly or review your cart.
+              </p>
+            ) : null}
           </div>
         ) : <p className="mt-5 border-t border-border pt-4 text-xs text-muted-foreground">Cart access is available to customer accounts only.</p>}
       </aside>

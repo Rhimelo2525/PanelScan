@@ -1,6 +1,6 @@
 import { ChevronDown, HardHat, LayoutDashboard, LogOut, Menu, MessageSquare, PackageCheck, PanelsTopLeft, ScanLine, ShoppingCart, Star } from "lucide-react"
 import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 
 import { isAdminRole } from "@/admin/admin-nav"
 import { useAuth } from "@/auth/use-auth"
@@ -30,7 +30,24 @@ export function SiteHeader() {
   const { user, isAuthenticated, isLoading, logout } = useAuth()
   const { itemCount, isLoading: isCartLoading, error: cartError } = useCart()
   const navigate = useNavigate()
+  const location = useLocation()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  const handleNavClick = (href: string, e: React.MouseEvent) => {
+    if (href.includes("#")) {
+      const [path, hash] = href.split("#")
+      const targetPath = path || "/"
+      const targetId = hash
+      if (location.pathname === targetPath) {
+        e.preventDefault()
+        const element = document.getElementById(targetId)
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth" })
+          window.history.pushState(null, "", `#${targetId}`)
+        }
+      }
+    }
+  }
 
   async function handleLogout() {
     setIsLoggingOut(true)
@@ -50,9 +67,14 @@ export function SiteHeader() {
         <Brand />
         <nav className="hidden items-center gap-7 lg:flex" aria-label="Primary navigation">
           {navigation.map((item) => (
-            item.href.startsWith("/#")
-              ? <a key={item.label} href={item.href} className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{item.label}</a>
-              : <Link key={item.label} to={item.href} className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{item.label}</Link>
+            <Link
+              key={item.label}
+              to={item.href}
+              onClick={(e) => handleNavClick(item.href, e)}
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {item.label}
+            </Link>
           ))}
         </nav>
         <div className="hidden min-w-44 items-center justify-end gap-2 lg:flex">
@@ -96,14 +118,22 @@ export function SiteHeader() {
             <SheetHeader className="border-b border-border px-6 py-6 text-left">
               <SheetTitle className="sr-only">Website navigation</SheetTitle>
               <SheetDescription className="sr-only">Navigate PanelScan public pages and account options.</SheetDescription>
-              <Brand />
+              <SheetClose asChild>
+                <div>
+                  <Brand />
+                </div>
+              </SheetClose>
             </SheetHeader>
             <nav className="flex flex-col px-4 py-5" aria-label="Mobile navigation">
               {navigation.map((item) => (
                 <SheetClose key={item.label} asChild>
-                  {item.href.startsWith("/#")
-                    ? <a href={item.href} className="rounded-lg px-3 py-3.5 text-base font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{item.label}</a>
-                    : <Link to={item.href} className="rounded-lg px-3 py-3.5 text-base font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{item.label}</Link>}
+                  <Link
+                    to={item.href}
+                    onClick={(e) => handleNavClick(item.href, e)}
+                    className="rounded-lg px-3 py-3.5 text-base font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {item.label}
+                  </Link>
                 </SheetClose>
               ))}
             </nav>

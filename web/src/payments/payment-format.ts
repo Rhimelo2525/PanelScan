@@ -35,8 +35,9 @@ export function describePaymentStatus(status: PaymentStatus): string {
  * REFUNDED cannot be paid again. Everything else is accepted by the backend,
  * including retrying a PENDING or FAILED attempt (the payment row is reused).
  */
-export function canStartPayment(orderStatus: OrderStatus, payment: Payment | null): boolean {
+export function canStartPayment(orderStatus: OrderStatus, payment: Payment | null, moderatorApproved?: boolean): boolean {
   if (orderStatus === "CANCELLED") return false
+  if (moderatorApproved === false) return false
   if (payment && (payment.status === "PAID" || payment.status === "REFUNDED")) return false
   return true
 }

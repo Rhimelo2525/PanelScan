@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 
 import { cn } from "@/lib/utils"
 
@@ -52,6 +52,21 @@ interface BrandProps {
 }
 
 export function Brand({ inverse = false, className, asStatic = false }: BrandProps) {
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const handleBrandClick = (e: React.MouseEvent) => {
+    if (location.pathname === "/") {
+      e.preventDefault()
+      if (location.hash) {
+        navigate("/", { replace: true })
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" })
+      return
+    }
+    window.scrollTo({ top: 0, behavior: "instant" })
+  }
+
   const content = (
     <>
       <BrandMark className="size-9 sm:size-10" />
@@ -71,6 +86,7 @@ export function Brand({ inverse = false, className, asStatic = false }: BrandPro
   return (
     <Link
       to="/"
+      onClick={handleBrandClick}
       className={cn("inline-flex items-center gap-2.5 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4", className)}
       aria-label="PanelScan home"
     >

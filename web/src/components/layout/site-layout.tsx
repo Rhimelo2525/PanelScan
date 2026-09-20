@@ -8,11 +8,28 @@ import { SiteFooter } from "@/components/layout/site-footer"
 import { SiteHeader } from "@/components/layout/site-header"
 
 export function SiteLayout() {
-  const { pathname } = useLocation()
+  const location = useLocation()
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" })
-  }, [pathname])
+    if (location.hash) {
+      const id = location.hash.replace("#", "")
+      let attempts = 0
+      const maxAttempts = 20
+      const scrollToHashElement = () => {
+        const element = document.getElementById(id)
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth" })
+        } else if (attempts < maxAttempts) {
+          attempts++
+          setTimeout(scrollToHashElement, 50)
+        }
+      }
+      const timer = setTimeout(scrollToHashElement, 30)
+      return () => clearTimeout(timer)
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" })
+    }
+  }, [location.pathname, location.hash])
 
   return (
     <div className="min-h-screen overflow-x-clip">
@@ -23,7 +40,7 @@ export function SiteLayout() {
           same route (one product to the next). Nothing animates on exit, so
           navigation is never held back waiting for an outgoing animation, and
           #main-content always exists for the skip link. */}
-      <main id="main-content" key={pathname} className="motion-page"><Outlet /></main>
+      <main id="main-content" key={location.pathname} className="motion-page"><Outlet /></main>
       <aside className="border-t border-border bg-secondary/30 py-5" aria-label="Customer support"><Container className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Questions about your panels?</p><p className="mt-1 text-xs text-muted-foreground">Chat directly with our team for orders, specs, or installation advice.</p></div><Button variant="outline" asChild><Link to="/messages"><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Link></Button></Container></aside>
       <SiteFooter />
 

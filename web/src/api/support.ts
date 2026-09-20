@@ -93,7 +93,7 @@ export interface Booking {
 }
 
 /** CUSTOMER only. The backend requires a future date and an address of at least 10 characters. */
-export async function requestInstallation(input: { scheduledDate: string; address: string; notes?: string }): Promise<Booking> {
+export async function requestInstallation(input: { scheduledDate: string; address: string; notes?: string; orderId?: string }): Promise<Booking> {
   const response = await apiRequest<{ booking: Booking }>("/bookings", { method: "POST", authenticated: true, body: input })
   return response.booking
 }

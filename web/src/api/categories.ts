@@ -14,11 +14,15 @@ export async function getCategories(signal?: AbortSignal): Promise<Category[]> {
     return cachedCategories
   }
 
+  if (signal?.aborted) {
+    throw new DOMException("The user aborted a request.", "AbortError")
+  }
+
   if (inFlightRequest) {
     return inFlightRequest
   }
 
-  inFlightRequest = apiRequest<{ categories: Category[] }>("/categories", { signal })
+  inFlightRequest = apiRequest<{ categories: Category[] }>("/categories")
     .then((data) => {
       cachedCategories = data.categories
       inFlightRequest = null

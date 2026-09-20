@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { PasswordInput } from "@/components/auth/password-input"
+import { PasswordRequirements } from "@/components/auth/password-requirements"
+import { checkPasswordRequirements, validatePasswordPolicy, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH } from "@/auth/password-policy"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { AdminUser } from "@/types/admin"
 
@@ -110,21 +113,54 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
   const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [phone, setPhone] = useState("")
+  const [errorPassword, setErrorPassword] = useState<string | undefined>()
+  const [errorConfirmPassword, setErrorConfirmPassword] = useState<string | undefined>()
   const [isSaving, setIsSaving] = useState(false)
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false)
+
+  const passwordRequirements = useMemo(() => checkPasswordRequirements(password), [password])
+  const isPasswordAllMet = useMemo(() => Object.values(passwordRequirements).every(Boolean), [passwordRequirements])
+  const showPasswordRequirements = isPasswordFocused || (password.length > 0 && !isPasswordAllMet) || Boolean(errorPassword && !isPasswordAllMet)
 
   const reset = () => {
     setFirstName("")
     setLastName("")
     setEmail("")
     setPassword("")
+    setConfirmPassword("")
     setPhone("")
+    setErrorPassword(undefined)
+    setErrorConfirmPassword(undefined)
+    setIsPasswordFocused(false)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) {
+    setErrorPassword(undefined)
+    setErrorConfirmPassword(undefined)
+
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password) {
       toast.error("Please fill in all required fields.")
+      return
+    }
+
+    const passwordValidation = validatePasswordPolicy(password)
+    if (!passwordValidation.isValid) {
+      setErrorPassword(passwordValidation.error)
+      toast.error(passwordValidation.error || "Password does not meet requirements.")
+      return
+    }
+
+    if (!confirmPassword) {
+      setErrorConfirmPassword("Confirm your password.")
+      return
+    }
+
+    if (confirmPassword !== password) {
+      setErrorConfirmPassword("Passwords do not match.")
+      toast.error("Passwords do not match.")
       return
     }
 
@@ -150,7 +186,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
 
   return (
     <Sheet open={open} onOpenChange={(isOpen) => { if (!isOpen) { reset(); onClose() } }}>
-      <SheetContent className="admin-surface w-full sm:max-w-md">
+      <SheetContent className="admin-surface w-full sm:max-w-md overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Add Moderator</SheetTitle>
           <SheetDescription>Provision a new staff moderator account with operations access.</SheetDescription>
@@ -173,10 +209,42 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
             <Input id="mod-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="mod-password">Temporary password *</Label>
-            <Input id="mod-password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" />
-          </div>
+            <PasswordInput
+              id="mod-password"
+              name="password"
+              label="Temporary password *"
+              value={password}
+              onChange={(val) => {
+                setPassword(val)
+                setErrorPassword(undefined)
+              }}
+              onFocus={() => setIsPasswordFocused(true)}
+              onBlur={() => setIsPasswordFocused(false)}
+              autoComplete="new-password"
+              error={errorPassword}
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength={PASSWORD_MAX_LENGTH}
+            >
+              <PasswordRequirements
+                requirements={passwordRequirements}
+                visible={showPasswordRequirements}
+              />
+            </PasswordInput>
+
+          <PasswordInput
+            id="mod-confirm-password"
+            name="confirmPassword"
+            label="Confirm temporary password *"
+            value={confirmPassword}
+            onChange={(val) => {
+              setConfirmPassword(val)
+              setErrorConfirmPassword(undefined)
+            }}
+            autoComplete="new-password"
+            error={errorConfirmPassword}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
+          />
 
           <div className="space-y-1.5">
             <Label htmlFor="mod-phone">Phone number (optional)</Label>

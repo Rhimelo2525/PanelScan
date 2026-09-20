@@ -1,4 +1,4 @@
-import { Building2, Info, Mail, MapPin, Phone } from "lucide-react"
+import { Building2, Mail, MapPin, MessageSquare, Phone } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Container } from "@/components/layout/container"
@@ -29,40 +29,100 @@ export function AboutPage() {
               </div>
             </section>
 
-            <PendingCompanyContent
-              id="mission"
-              title="Mission"
-              note="Disenyo Interior Solution's own mission statement belongs here."
-            />
-            <PendingCompanyContent
-              id="vision"
-              title="Vision"
-              note="The company's vision statement belongs here."
-            />
-            <PendingCompanyContent
-              id="values"
-              title="Core values"
-              note="The company's core values belong here, in the company's own words."
-            />
+            <section aria-labelledby="mission">
+              <h2 id="mission" className="type-h2">Mission</h2>
+              <div className="mt-6 text-base leading-7 text-muted-foreground">
+                <p>To provide quality and stylish interior finishing solutions that help customers improve their spaces through reliable PVC wall and ceiling panels, professional service, and convenient ordering.</p>
+              </div>
+            </section>
+
+            <section aria-labelledby="vision">
+              <h2 id="vision" className="type-h2">Vision</h2>
+              <div className="mt-6 text-base leading-7 text-muted-foreground">
+                <p>To become a trusted provider of modern interior solutions by offering dependable products, convenient services, and an easier way for customers to plan and improve their interior spaces.</p>
+              </div>
+            </section>
+
+            <section aria-labelledby="values">
+              <h2 id="values" className="type-h2">Core values</h2>
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <div className="surface-card p-5">
+                  <h3 className="text-base font-semibold text-foreground">Quality</h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    We aim to provide reliable products and workmanship that meet the needs of our customers.
+                  </p>
+                </div>
+                <div className="surface-card p-5">
+                  <h3 className="text-base font-semibold text-foreground">Customer Service</h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    We listen to our customers and provide clear, helpful, and responsive assistance.
+                  </p>
+                </div>
+                <div className="surface-card p-5">
+                  <h3 className="text-base font-semibold text-foreground">Reliability</h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    We value dependable service, accurate information, and responsible handling of every order and project.
+                  </p>
+                </div>
+                <div className="surface-card p-5">
+                  <h3 className="text-base font-semibold text-foreground">Continuous Improvement</h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    We continue improving our products, services, processes, and customer experience.
+                  </p>
+                </div>
+              </div>
+            </section>
 
             <section aria-labelledby="background">
               <h2 id="background" className="type-h2">Business background</h2>
-              <div className="mt-5 flex items-start gap-3 rounded-lg border border-dashed border-border bg-card p-5">
-                <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <p className="text-sm leading-6 text-muted-foreground"><span className="font-medium text-foreground">Information pending.</span> Company history, service area, and team background will be published after the business has supplied and approved them.</p>
+              <div className="mt-6 space-y-6 text-base leading-7 text-muted-foreground">
+                <p>iDISENYO Interior Solutions provides PVC wall panels and PVC ceiling panels for interior finishing applications. The business helps customers improve residential and commercial spaces through the supply of interior panel products and installation services.</p>
+                <p>To make the customer experience more convenient, the business uses PanelScan as its digital platform for browsing available products, checking product information, placing orders, and requesting installation services.</p>
               </div>
             </section>
           </div>
 
           <aside className="space-y-5 lg:sticky lg:top-28">
             <section className="surface-card p-6" aria-labelledby="contact">
-              <div className="flex items-center gap-2"><Building2 className="size-4 text-primary" aria-hidden="true" /><h2 id="contact" className="font-semibold">Contact</h2></div>
+              <div className="flex items-center gap-2">
+                <Building2 className="size-4 text-primary" aria-hidden="true" />
+                <h2 id="contact" className="font-semibold text-foreground">Contact</h2>
+              </div>
               <ul className="mt-5 space-y-4 text-sm">
-                <li className="flex items-start gap-2.5"><MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Business address to be supplied by Disenyo Interior Solution.</span></li>
-                <li className="flex items-start gap-2.5"><Phone className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Contact number to be supplied.</span></li>
-                <li className="flex items-start gap-2.5"><Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Enquiry email address to be supplied.</span></li>
+                <li className="flex items-start gap-2.5">
+                  <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <div className="text-muted-foreground">
+                    <p className="font-medium text-foreground">iDISENYO Interior Solutions</p>
+                    <p>1 M. Villarica Rd</p>
+                    <p>San Jose Del Monte City, Bulacan</p>
+                    <p>Philippines 3023</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <Phone className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <a
+                    href="tel:09686876753"
+                    className="text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                  >
+                    0968 687 6753
+                  </a>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <a
+                    href="mailto:idisenyo.interiors2024@gmail.com"
+                    className="break-all text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                  >
+                    idisenyo.interiors2024@gmail.com
+                  </a>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <MessageSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="text-muted-foreground">
+                    Idisenyo Interior Solutions
+                  </span>
+                </li>
               </ul>
-              <p className="mt-5 text-xs leading-5 text-muted-foreground">Contact details are deliberately left unfilled rather than guessed — publishing an incorrect address or number would misdirect real customers.</p>
             </section>
 
             <section className="rounded-lg border border-border bg-primary p-6 text-primary-foreground" aria-labelledby="start">
@@ -74,17 +134,5 @@ export function AboutPage() {
         </div>
       </Container>
     </>
-  )
-}
-
-function PendingCompanyContent({ id, title, note }: { id: string; title: string; note: string }) {
-  return (
-    <section aria-labelledby={id}>
-      <h2 id={id} className="type-h2">{title}</h2>
-      <div className="mt-5 flex items-start gap-3 rounded-lg border border-dashed border-border bg-card p-5">
-        <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <p className="text-sm leading-6 text-muted-foreground"><span className="font-medium text-foreground">Information pending.</span> {note} This section remains unfilled until the company supplies and approves the wording.</p>
-      </div>
-    </section>
   )
 }

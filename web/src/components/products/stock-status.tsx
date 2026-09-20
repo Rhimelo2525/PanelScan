@@ -9,7 +9,7 @@ interface StockStatusProps {
 }
 
 function getStockLabel(inventory: ProductInventory | null): string {
-  if (!inventory) return "Availability on request"
+  if (!inventory) return "Out of stock"
   const available = inventory.quantity - inventory.reservedQty
   if (available <= 0) return "Out of stock"
   if (available <= inventory.reorderLevel) return "Low stock"

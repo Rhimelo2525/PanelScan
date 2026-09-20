@@ -1,5 +1,5 @@
 import { ArrowUpRight } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 
 import { useAuth } from "@/auth/use-auth"
 import { BrandLogo } from "@/components/layout/brand"
@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator"
 const exploreLinks = [
   { label: "PVC wall panels", href: "/products?category=wall-panels" },
   { label: "PVC ceiling panels", href: "/products?category=ceiling-panels" },
-  { label: "Installation", href: "/installation" },
+  { label: "Installation", href: "/#installation" },
   { label: "How ordering works", href: "/#how-it-works" },
   { label: "About", href: "/about" },
 ]
@@ -21,6 +21,23 @@ const legalLinks = [
 
 export function SiteFooter() {
   const { user, isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  const handleNavClick = (href: string, e: React.MouseEvent) => {
+    if (href.includes("#")) {
+      const [path, hash] = href.split("#")
+      const targetPath = path || "/"
+      const targetId = hash
+      if (location.pathname === targetPath) {
+        e.preventDefault()
+        const element = document.getElementById(targetId)
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth" })
+          window.history.pushState(null, "", `#${targetId}`)
+        }
+      }
+    }
+  }
 
   return (
     <footer className="bg-primary text-primary-foreground">
@@ -35,7 +52,13 @@ export function SiteFooter() {
             <ul className="mt-5 space-y-3">
               {exploreLinks.map((link) => (
                 <li key={link.label}>
-                  <a href={link.href} className="text-sm text-primary-foreground/78 transition-colors hover:text-primary-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground">{link.label}</a>
+                  <Link
+                    to={link.href}
+                    onClick={(e) => handleNavClick(link.href, e)}
+                    className="text-sm text-primary-foreground/78 transition-colors hover:text-primary-foreground focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
+                  >
+                    {link.label}
+                  </Link>
                 </li>
               ))}
             </ul>

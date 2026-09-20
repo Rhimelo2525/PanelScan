@@ -1,17 +1,21 @@
 import { LoaderCircle } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
 import { getRegisterErrorMessage } from "@/auth/errors"
+import { checkPasswordRequirements } from "@/auth/password-policy"
 import { getSafeRedirect } from "@/auth/redirect"
 import { calculateAge, dateInputValue, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, validateRegistration } from "@/auth/registration-validation"
 import type { RegisterErrors, RegisterField, RegisterValues } from "@/auth/registration-validation"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
+import { BirthdateInput } from "@/components/auth/birthdate-input"
 import { FormError } from "@/components/auth/form-error"
 import { PasswordInput } from "@/components/auth/password-input"
+import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,7 +26,7 @@ interface RegisterTextFieldProps {
   label: string
   value: string
   error?: string
-  onChange: (field: RegisterField, value: string) => void
+  onChange: (field: Exclude<RegisterField, "acceptedTerms">, value: string) => void
   type?: "text" | "email" | "tel"
   autoComplete: string
   inputMode?: "email" | "tel"
@@ -46,10 +50,30 @@ export function RegisterPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const destination = getSafeRedirect(location.state, "/dashboard")
-  const [values, setValues] = useState<RegisterValues>({ firstName: "", lastName: "", birthdate: "", email: "", phone: "", password: "", confirmPassword: "" })
+  const [values, setValues] = useState<RegisterValues>({
+    firstName: "",
+    lastName: "",
+    birthdate: "",
+    email: "",
+    phone: "",
+    password: "",
+    confirmPassword: "",
+    acceptedTerms: false,
+  })
   const [errors, setErrors] = useState<RegisterErrors>({})
   const [submissionError, setSubmissionError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false)
+
+  const passwordRequirements = useMemo(() => checkPasswordRequirements(values.password), [values.password])
+  const isPasswordAllMet = useMemo(
+    () => Object.values(passwordRequirements).every(Boolean),
+    [passwordRequirements]
+  )
+  const showPasswordRequirements =
+    isPasswordFocused ||
+    (values.password.length > 0 && !isPasswordAllMet) ||
+    Boolean(errors.password && !isPasswordAllMet)
 
   if (isRestoring) {
     return <AuthShell eyebrow="Customer registration" title="Create your account" description="Checking for an existing PanelScan session." asideTitle="A clearer material journey starts here." asideDescription="Create one customer account for pricing, ordering, and organized project results."><div className="grid gap-5 sm:grid-cols-2" aria-label="Restoring your session" aria-busy="true">{Array.from({ length: 8 }, (_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div></AuthShell>
@@ -57,8 +81,11 @@ export function RegisterPage() {
 
   if (isAuthenticated) return <Navigate to={destination} replace />
 
-  function updateValue(field: RegisterField, value: string) {
-    setValues((current) => ({ ...current, [field]: value }))
+  function updateValue(field: Exclude<RegisterField, "acceptedTerms">, value: string) {
+    setValues((current) => {
+      const next = { ...current, [field]: value }
+      return next
+    })
     setErrors((current) => {
       if (!current[field] && !(field === "password" && current.confirmPassword)) return current
       return { ...current, [field]: undefined, ...(field === "password" ? { confirmPassword: undefined } : {}) }
@@ -74,7 +101,14 @@ export function RegisterPage() {
 
     setIsSubmitting(true)
     try {
-      await register({ firstName: values.firstName.trim(), lastName: values.lastName.trim(), email: values.email.trim().toLowerCase(), password: values.password, ...(values.phone.trim() ? { phone: values.phone.trim() } : {}) })
+      await register({
+        firstName: values.firstName.trim(),
+        lastName: values.lastName.trim(),
+        email: values.email.trim().toLowerCase(),
+        password: values.password,
+        ...(values.phone.trim() ? { phone: values.phone.trim() } : {}),
+        acceptedTerms: values.acceptedTerms,
+      })
       navigate(destination, { replace: true })
     } catch (error) {
       setSubmissionError(getRegisterErrorMessage(error))
@@ -94,7 +128,17 @@ export function RegisterPage() {
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
             <Label htmlFor="register-birthdate">Birthdate</Label>
-            <Input id="register-birthdate" name="birthdate" type="date" autoComplete="bday" value={values.birthdate} onChange={(event) => updateValue("birthdate", event.target.value)} max={today} className="mt-2 h-11" aria-invalid={Boolean(errors.birthdate)} aria-describedby={errors.birthdate ? "register-birthdate-error" : "register-age"} required />
+            <BirthdateInput
+              id="register-birthdate"
+              name="birthdate"
+              value={values.birthdate}
+              onChange={(value) => updateValue("birthdate", value)}
+              max={today}
+              error={errors.birthdate}
+              describedBy={errors.birthdate ? "register-birthdate-error" : "register-age"}
+              className="mt-2"
+              required
+            />
             {errors.birthdate && <p id="register-birthdate-error" className="motion-swap mt-1.5 text-xs text-destructive">{errors.birthdate}</p>}
           </div>
           <div>
@@ -106,8 +150,85 @@ export function RegisterPage() {
         </div>
         <RegisterTextField field="email" label="Email address" value={values.email} error={errors.email} onChange={updateValue} type="email" inputMode="email" autoComplete="email" maxLength={254} />
         <RegisterTextField field="phone" label="Contact number" value={values.phone} error={errors.phone} onChange={updateValue} type="tel" inputMode="tel" autoComplete="tel" maxLength={20} />
-        <PasswordInput id="register-password" name="password" label="Password" value={values.password} onChange={(value) => updateValue("password", value)} autoComplete="new-password" error={errors.password} description="8–16 characters" minLength={PASSWORD_MIN_LENGTH} maxLength={PASSWORD_MAX_LENGTH} />
-        <PasswordInput id="register-confirm-password" name="confirmPassword" label="Confirm password" value={values.confirmPassword} onChange={(value) => updateValue("confirmPassword", value)} autoComplete="new-password" error={errors.confirmPassword} minLength={PASSWORD_MIN_LENGTH} maxLength={PASSWORD_MAX_LENGTH} />
+        <PasswordInput
+          id="register-password"
+          name="password"
+          label="Password"
+          value={values.password}
+          onChange={(value) => updateValue("password", value)}
+          onFocus={() => setIsPasswordFocused(true)}
+          onBlur={() => setIsPasswordFocused(false)}
+          autoComplete="new-password"
+          error={errors.password}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
+        >
+          <PasswordRequirements
+            requirements={passwordRequirements}
+            visible={showPasswordRequirements}
+          />
+        </PasswordInput>
+        <PasswordInput
+          id="register-confirm-password"
+          name="confirmPassword"
+          label="Confirm password"
+          value={values.confirmPassword}
+          onChange={(value) => updateValue("confirmPassword", value)}
+          autoComplete="new-password"
+          error={errors.confirmPassword}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
+        />
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-start gap-2.5">
+            <Checkbox
+              id="register-terms"
+              name="acceptedTerms"
+              checked={values.acceptedTerms}
+              onCheckedChange={(checked) => {
+                const isChecked = checked === true
+                setValues((current) => ({ ...current, acceptedTerms: isChecked }))
+                if (isChecked) {
+                  setErrors((current) => ({ ...current, acceptedTerms: undefined }))
+                }
+              }}
+              aria-invalid={Boolean(errors.acceptedTerms)}
+              aria-describedby={errors.acceptedTerms ? "register-terms-error" : undefined}
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor="register-terms"
+              className="text-sm font-normal leading-snug text-muted-foreground cursor-pointer select-none"
+            >
+              By creating an account, you confirm that you have read and agree to PanelScan&apos;s{" "}
+              <Link
+                to="/terms"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="font-medium text-foreground underline underline-offset-4 hover:text-primary transition-colors"
+              >
+                Terms of Use
+              </Link>{" "}
+              and{" "}
+              <Link
+                to="/privacy"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="font-medium text-foreground underline underline-offset-4 hover:text-primary transition-colors"
+              >
+                Privacy Policy
+              </Link>
+              .
+            </Label>
+          </div>
+          {errors.acceptedTerms && (
+            <p id="register-terms-error" className="motion-swap text-xs text-destructive">
+              {errors.acceptedTerms}
+            </p>
+          )}
+        </div>
         <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting}>{isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}{isSubmitting ? "Creating account…" : "Create customer account"}</Button>
       </form>
       <p className="mt-7 text-center text-sm text-muted-foreground">Already registered? <Link to="/login" state={{ from: destination }} className="font-semibold text-primary underline-offset-4 hover:underline">Log in</Link></p>

@@ -47,20 +47,34 @@ export function ProductsPage() {
       setError(false)
 
       try {
-        // Only the two categories the client actually sells are offered, and the
-        // response is filtered again by category so a seeded flooring, partition,
-        // or cladding record can never appear as an offering.
-        const panelCategories = inScopeCategories(await getCategories(controller.signal))
-        const selectedCategory = panelCategories.find((category) => category.slug === categorySlug)
-        const nextResult = categorySlug && !selectedCategory
-          ? { products: [], pagination: { page: 1, limit: 100, total: 0, totalPages: 1 } }
-          : await getProducts({ search: search || undefined, categoryId: selectedCategory?.id, categorySlug: categorySlug || undefined, sort, limit: 100 }, controller.signal)
+        let panelCategories: Category[]
+        let nextResult: PaginatedProducts
+
+        if (!categorySlug) {
+          const [rawCategories, productsResult] = await Promise.all([
+            getCategories(controller.signal),
+            getProducts({ search: search || undefined, sort, limit: 100 }, controller.signal),
+          ])
+          if (controller.signal.aborted) return
+          panelCategories = inScopeCategories(rawCategories)
+          nextResult = productsResult
+        } else {
+          panelCategories = inScopeCategories(await getCategories(controller.signal))
+          if (controller.signal.aborted) return
+
+          const selectedCategory = panelCategories.find((category) => category.slug === categorySlug)
+          nextResult = !selectedCategory
+            ? { products: [], pagination: { page: 1, limit: 100, total: 0, totalPages: 1 } }
+            : await getProducts({ search: search || undefined, categoryId: selectedCategory.id, categorySlug, sort, limit: 100 }, controller.signal)
+        }
+
+        if (controller.signal.aborted) return
 
         const panelProducts = inScopeProducts(nextResult.products)
         setCategories(panelCategories)
         setResult({ ...nextResult, products: panelProducts, pagination: { ...nextResult.pagination, total: panelProducts.length } })
       } catch (caughtError) {
-        if (caughtError instanceof DOMException && caughtError.name === "AbortError") return
+        if (controller.signal.aborted) return
         setError(true)
       } finally {
         if (!controller.signal.aborted) setIsLoading(false)

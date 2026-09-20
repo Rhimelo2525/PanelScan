@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Users } from "lucide-react"
+import { BarChart3, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Users, Wrench } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import type { UserRole } from "@/types/auth"
@@ -38,6 +38,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       { to: "/admin/projects", label: "Projects", icon: ClipboardList, roles: ["OWNER", "MODERATOR"], description: "Customer project monitoring and management" },
       { to: "/admin/inventory", label: "Inventory", icon: Boxes, roles: ["OWNER", "MODERATOR"], description: "Stock levels, reorder thresholds, adjustments" },
       { to: "/admin/sales", label: "Sales", icon: BarChart3, roles: ["OWNER", "MODERATOR"], description: "Orders, revenue, and fulfilment status" },
+      { to: "/admin/installation-requests", label: "Installation Requests", icon: Wrench, roles: ["OWNER", "MODERATOR"], description: "Operational queue for customer installation requests" },
       { to: "/admin/installers", label: "Installers", icon: HardHat, roles: ["MODERATOR"], description: "Installer directory and availability" },
     ],
   },
@@ -79,5 +80,5 @@ export function isAdminRole(role: UserRole | undefined): boolean {
 
 /** Where each role lands after signing in. */
 export function landingPathForRole(role: UserRole): string {
-  return isAdminRole(role) ? "/admin" : "/dashboard"
+  return isAdminRole(role) ? "/admin" : "/"
 }

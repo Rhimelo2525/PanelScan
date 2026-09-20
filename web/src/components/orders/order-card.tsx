@@ -19,7 +19,22 @@ export function OrderCard({ order }: { order: Order }) {
         <div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center bg-secondary"><Package className="size-4 text-primary" aria-hidden="true" /></div><div><p className="text-xs text-muted-foreground">Items</p><p className="font-semibold">{itemCount}</p></div></div>
         <div className="text-right"><p className="text-xs text-muted-foreground">Order total</p><p className="mt-1 text-xl font-semibold tabular-nums">{formatProductPrice(order.totalAmount)}</p></div>
       </div>
-      <Button variant="outline" className="mt-5 w-full sm:w-auto" asChild><Link to={`/orders/${order.id}`}>View order <ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <Button variant="outline" className="w-full sm:w-auto" asChild>
+          <Link to={`/orders/${order.id}`}>View order <ArrowRight data-icon="inline-end" aria-hidden="true" /></Link>
+        </Button>
+        {order.status === "DELIVERED" && (
+          <Button
+            variant={order.feedback ? "outline" : "default"}
+            className="w-full sm:w-auto"
+            asChild
+          >
+            <Link to={`/orders/${order.id}#feedback`}>
+              {order.feedback ? "View Feedback" : "Leave Feedback"}
+            </Link>
+          </Button>
+        )}
+      </div>
     </article>
   )
 }

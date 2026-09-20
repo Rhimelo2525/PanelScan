@@ -2,8 +2,7 @@ import { Boxes, Loader2, Minus, Plus, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { addStock, createProduct, deleteProduct, getInventory, getInventoryReport, reduceStock, uploadProductImage } from "@/api/admin"
-import { getCategories } from "@/api/categories"
+import { addStock, adjustStock, createInventory, deleteInventory, getAvailableProductsForRecordStock, getInventory, getInventoryReport, reduceStock } from "@/api/admin"
 import { availableStock, formatCount, formatDate, formatMoney, stockStatus } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { useAuth } from "@/auth/use-auth"
@@ -30,28 +29,24 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { PANEL_TYPES } from "@/products/panel-types"
 import type { InventoryRecord } from "@/types/admin"
-import type { Category } from "@/types/category"
+import type { Product } from "@/types/product"
 
 /**
  * Inventory Assessment (owner) and Inventory Management (moderator) share this
- * screen because the backend grants both roles the same inventory routes. Unit
- * prices come from the inventory report, which omits them for a moderator.
+ * screen. Stock modifications (Record Stock, Adjust) are MODERATOR-only and
+ * create change requests. OWNER has view, review, and approval responsibilities.
  */
 export function AdminInventoryPage() {
   useDocumentTitle("Inventory | PanelScan Admin")
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
-  const isOwner = user?.role === "OWNER"
-  // Both roles can add/delete products from here: MODERATOR goes through the
-  // owner approval workflow, OWNER writes apply directly (backend already
-  // supports both - see inventory.controller.ts / product.controller.ts).
-  const canManageProducts = isModerator || isOwner
+  const canManageStock = isModerator
 
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
   const [adjusting, setAdjusting] = useState<InventoryRecord | null>(null)
-  const [showAddProduct, setShowAddProduct] = useState(false)
+  const [showRecordStock, setShowRecordStock] = useState(false)
 
   const inventory = useAdminResource((signal) => getInventory({ page, limit: 20 }, signal), [page])
   // Second read purely for the value/price summary the inventory routes do not carry.
@@ -76,10 +71,10 @@ export function AdminInventoryPage() {
         title="Inventory"
         description="Live stock levels, reserved quantities, and reorder thresholds for PVC wall and ceiling panels."
         actions={
-          canManageProducts ? (
-            <Button onClick={() => setShowAddProduct(true)}>
+          canManageStock ? (
+            <Button onClick={() => setShowRecordStock(true)}>
               <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
-              Add product
+              Record stock
             </Button>
           ) : undefined
         }
@@ -116,7 +111,17 @@ export function AdminInventoryPage() {
             isLoading={inventory.isLoading}
             rows={filtered}
             getRowId={(row) => row.id}
-            empty={<EmptyState icon={Boxes} title="No inventory matches these filters" description="Adjust the search or stock-level filter to see tracked products." />}
+            empty={
+              <EmptyState
+                icon={Boxes}
+                title={records.length === 0 ? "No inventory yet" : "No inventory matches these filters"}
+                description={
+                  records.length === 0
+                    ? "Inventory will appear when products are added and stock is recorded."
+                    : "Adjust the search or stock-level filter to see tracked products."
+                }
+              />
+            }
             columns={[
               { key: "product", header: "Product", primary: true, cell: (row) => <span><span className="block font-medium">{row.product.name}</span><span className="block text-xs text-muted-foreground">{row.product.sku}</span></span> },
               { key: "type", header: "Type", cell: (row) => <span className="text-muted-foreground">{panelLineForSku(row.product.sku)}</span> },
@@ -127,7 +132,7 @@ export function AdminInventoryPage() {
               { key: "reorder", header: "Reorder at", numeric: true, secondary: true, cell: (row) => formatCount(row.reorderLevel) },
               { key: "restocked", header: "Last restock", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.lastRestockedAt)}</span> },
             ]}
-            rowAction={(row) => <Button variant="outline" size="sm" onClick={() => setAdjusting(row)}>Adjust</Button>}
+            rowAction={canManageStock ? (row) => <Button variant="outline" size="sm" onClick={() => setAdjusting(row)}>Adjust</Button> : undefined}
           />
           </div>
 
@@ -135,102 +140,85 @@ export function AdminInventoryPage() {
         </>
       )}
 
-      <StockAdjustSheet record={adjusting} onClose={() => setAdjusting(null)} onDone={() => { setAdjusting(null); inventory.reload(); report.reload() }} />
-      {canManageProducts && (
-        <AddProductSheet open={showAddProduct} onClose={() => setShowAddProduct(false)} onDone={() => { setShowAddProduct(false); inventory.reload(); report.reload() }} />
+      {canManageStock && (
+        <>
+          <StockAdjustSheet record={adjusting} onClose={() => setAdjusting(null)} onDone={() => { setAdjusting(null); inventory.reload(); report.reload() }} />
+          <RecordStockSheet open={showRecordStock} onClose={() => setShowRecordStock(false)} onDone={() => { setShowRecordStock(false); inventory.reload(); report.reload() }} />
+        </>
       )}
     </div>
   )
 }
 
-function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
-  const { user } = useAuth()
-  const isModerator = user?.role === "MODERATOR"
-  const [categories, setCategories] = useState<Category[]>([])
-  const [name, setName] = useState("")
-  const [categoryId, setCategoryId] = useState("")
-  const [sku, setSku] = useState("")
-  const [price, setPrice] = useState("")
-  const [material, setMaterial] = useState("")
-  const [unit, setUnit] = useState("panel")
-  const [width, setWidth] = useState("")
-  const [height, setHeight] = useState("")
-  const [thickness, setThickness] = useState("")
-  const [stock, setStock] = useState("50")
+function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const [products, setProducts] = useState<Product[]>([])
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false)
+  const [productId, setProductId] = useState("")
+  const [quantity, setQuantity] = useState("50")
   const [reorderLevel, setReorderLevel] = useState("10")
-  const [description, setDescription] = useState("")
-  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [warehouseLocation, setWarehouseLocation] = useState("Main Warehouse")
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     if (open) {
-      getCategories()
-        .then((cats) => {
-          const inScope = cats.filter((c) => c.slug === "wall-panels" || c.slug === "ceiling-panels")
-          setCategories(inScope)
-          if (inScope.length > 0) setCategoryId((prev) => prev || inScope[0].id)
+      setIsLoadingProducts(true)
+      getAvailableProductsForRecordStock()
+        .then((res) => {
+          setProducts(res.products)
+          if (res.products.length > 0) {
+            setProductId(res.products[0].id)
+          } else {
+            setProductId("")
+          }
         })
         .catch(() => {})
+        .finally(() => setIsLoadingProducts(false))
     }
   }, [open])
 
   const reset = () => {
-    setName("")
-    setSku("")
-    setPrice("")
-    setMaterial("")
-    setUnit("panel")
-    setWidth("")
-    setHeight("")
-    setThickness("")
-    setStock("50")
+    setQuantity("50")
     setReorderLevel("10")
-    setDescription("")
-    setImageFile(null)
+    setWarehouseLocation("Main Warehouse")
+    setProductId("")
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name.trim() || !sku.trim() || !categoryId || !price.trim()) {
-      toast.error("Please fill in Name, Category, SKU, and Price.")
+    if (!productId) {
+      toast.error("Please select a product from the catalogue.")
+      return
+    }
+
+    const parsedQty = Number(quantity)
+    if (!Number.isInteger(parsedQty) || parsedQty < 0) {
+      toast.error("Stock quantity must be a non-negative whole number.")
+      return
+    }
+
+    const parsedReorder = Number(reorderLevel)
+    if (!Number.isInteger(parsedReorder) || parsedReorder < 0) {
+      toast.error("Reorder level must be a non-negative whole number.")
       return
     }
 
     setIsSaving(true)
     try {
-      let imageUrl: string | undefined
-      if (imageFile) {
-        const uploadResult = await uploadProductImage(imageFile)
-        imageUrl = uploadResult.url
-      }
-
-      await createProduct({
-        categoryId,
-        name: name.trim(),
-        sku: sku.trim().toUpperCase(),
-        price: Number(price),
-        material: material.trim() || undefined,
-        unit: unit.trim() || "panel",
-        width: width ? Number(width) : undefined,
-        height: height ? Number(height) : undefined,
-        thickness: thickness ? Number(thickness) : undefined,
-        stock: Number(stock) || 0,
-        reorderLevel: Number(reorderLevel) || 10,
-        description: description.trim() || undefined,
-        images: imageUrl ? [{ url: imageUrl, isPrimary: true, altText: name.trim() }] : undefined,
+      const selectedProduct = products.find((p) => p.id === productId)
+      await createInventory({
+        productId,
+        quantity: parsedQty,
+        reorderLevel: parsedReorder,
+        warehouseLocation: warehouseLocation.trim() || "Main Warehouse",
       })
 
-      if (isModerator) {
-        toast.success("Change request submitted for owner approval", {
-          description: `Request to add "${name.trim()}" has been sent for owner review.`,
-        })
-      } else {
-        toast.success(`Product "${name.trim()}" created and inventory initialized.`)
-      }
+      toast.success("Stock recording request submitted for owner approval", {
+        description: `Request to record ${parsedQty} units for "${selectedProduct?.name ?? 'product'}" has been sent for owner review.`,
+      })
       reset()
       onDone()
     } catch (error) {
-      toast.error("Could not create product", { description: getAdminErrorMessage(error) })
+      toast.error("Could not record physical stock", { description: getAdminErrorMessage(error) })
     } finally {
       setIsSaving(false)
     }
@@ -240,106 +228,75 @@ function AddProductSheet({ open, onClose, onDone }: { open: boolean; onClose: ()
     <Sheet open={open} onOpenChange={(isOpen) => { if (!isOpen) { reset(); onClose() } }}>
       <SheetContent className="admin-surface w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Add Product</SheetTitle>
-          <SheetDescription>Create a new panel product. Stock and inventory tracking are initialized immediately.</SheetDescription>
+          <SheetTitle>Record Physical Stock</SheetTitle>
+          <SheetDescription>Record initial physical inventory for a product in your catalogue.</SheetDescription>
         </SheetHeader>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4 px-4 pb-6">
           <div className="space-y-1.5">
-            <Label htmlFor="prod-name">Product name *</Label>
-            <Input id="prod-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Fluted Walnut Wall Panel" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-cat">Category *</Label>
+            <Label htmlFor="stock-product">Catalogue Product *</Label>
+            {isLoadingProducts ? (
+              <p className="text-xs text-muted-foreground">Loading available products...</p>
+            ) : products.length === 0 ? (
+              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                No products awaiting initial stock. All approved products either have existing inventory records or have initial stock requests pending owner review.
+              </p>
+            ) : (
               <select
-                id="prod-cat"
+                id="stock-product"
                 required
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id} className="bg-background text-foreground">{c.name}</option>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-background text-foreground">
+                    {p.name} ({p.sku})
+                  </option>
                 ))}
               </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-sku">SKU *</Label>
-              <Input id="prod-sku" required value={sku} onChange={(e) => setSku(e.target.value)} placeholder="e.g. WP-WAL-003" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-price">Price (₱) *</Label>
-              <Input id="prod-price" type="number" step="0.01" min="1" required value={price} onChange={(e) => setPrice(e.target.value)} placeholder="1850.00" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-unit">Unit</Label>
-              <Input id="prod-unit" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="panel" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-material">Material</Label>
-              <Input id="prod-material" value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="PVC / Oak" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-width">Width (cm)</Label>
-              <Input id="prod-width" type="number" step="0.1" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="60" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-height">Height (cm)</Label>
-              <Input id="prod-height" type="number" step="0.1" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="240" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-thick">Thickness (cm)</Label>
-              <Input id="prod-thick" type="number" step="0.1" value={thickness} onChange={(e) => setThickness(e.target.value)} placeholder="1.2" />
-            </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="prod-stock">Initial stock *</Label>
-              <Input id="prod-stock" type="number" min="0" required value={stock} onChange={(e) => setStock(e.target.value)} />
+              <Label htmlFor="stock-initial-qty">Initial physical stock *</Label>
+              <Input
+                id="stock-initial-qty"
+                type="number"
+                min="0"
+                required
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="prod-reorder">Reorder level</Label>
-              <Input id="prod-reorder" type="number" min="0" value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} />
+              <Label htmlFor="stock-reorder-lvl">Reorder threshold</Label>
+              <Input
+                id="stock-reorder-lvl"
+                type="number"
+                min="0"
+                value={reorderLevel}
+                onChange={(e) => setReorderLevel(e.target.value)}
+              />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="prod-image">Product Image (optional)</Label>
+            <Label htmlFor="stock-location">Warehouse Location</Label>
             <Input
-              id="prod-image"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-            />
-            {imageFile && <p className="text-xs text-muted-foreground">{imageFile.name} ({(imageFile.size / 1024).toFixed(0)} KB)</p>}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="prod-desc">Description (optional)</Label>
-            <textarea
-              id="prod-desc"
-              rows={3}
-              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Product highlights, specifications, and finish details..."
+              id="stock-location"
+              value={warehouseLocation}
+              onChange={(e) => setWarehouseLocation(e.target.value)}
+              placeholder="Main Warehouse"
             />
           </div>
 
           <div className="flex gap-2 pt-4">
             <Button type="button" variant="outline" className="flex-1" onClick={() => { reset(); onClose() }} disabled={isSaving}>Cancel</Button>
-            <Button type="submit" className="flex-1" disabled={isSaving}>
+            <Button type="submit" className="flex-1" disabled={isSaving || products.length === 0}>
               {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}
-              Add Product
+              Record Stock
             </Button>
           </div>
         </form>
@@ -361,13 +318,17 @@ function panelLineForSku(sku: string): string {
 }
 
 function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord | null; onClose: () => void; onDone: () => void }) {
-  const { user } = useAuth()
-  const isModerator = user?.role === "MODERATOR"
-  const isOwner = user?.role === "OWNER"
   const [quantity, setQuantity] = useState("1")
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+
+  // Initialize input to current quantity when record is opened
+  useEffect(() => {
+    if (record) {
+      setQuantity(String(record.quantity))
+    }
+  }, [record])
 
   async function adjust(direction: "add" | "reduce") {
     if (!record) return
@@ -380,14 +341,34 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
     try {
       if (direction === "add") await addStock(record.productId, parsed)
       else await reduceStock(record.productId, parsed)
-      if (isModerator) {
-        toast.success("Change request submitted for owner approval", {
-          description: `Request to ${direction === "add" ? "add" : "reduce"} ${parsed} unit(s) for "${record.product.name}" has been sent for owner review.`,
-        })
-      } else {
-        toast.success(`${record.product.name}: ${direction === "add" ? "added" : "removed"} ${parsed} unit(s).`)
-      }
-      setQuantity("1")
+      toast.success("Change request submitted for owner approval", {
+        description: `Request to ${direction === "add" ? "add" : "reduce"} ${parsed} unit(s) for "${record.product.name}" has been sent for owner review.`,
+      })
+      onDone()
+    } catch (error) {
+      toast.error("Stock not updated", { description: getAdminErrorMessage(error) })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleSetStock() {
+    if (!record) return
+    const parsed = Number(quantity)
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      toast.error("Enter a non-negative whole number (0 or greater).")
+      return
+    }
+    if (parsed < record.reservedQty) {
+      toast.error(`Cannot set stock below reserved quantity (${record.reservedQty}).`)
+      return
+    }
+    setIsSaving(true)
+    try {
+      await adjustStock(record.productId, parsed)
+      toast.success("Change request submitted for owner approval", {
+        description: `Request to set on-hand stock from ${record.quantity} to ${parsed} for "${record.product.name}" has been sent for owner review.`,
+      })
       onDone()
     } catch (error) {
       toast.error("Stock not updated", { description: getAdminErrorMessage(error) })
@@ -400,20 +381,14 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
     if (!record) return
     setIsDeleting(true)
     try {
-      await deleteProduct(record.productId)
-      if (isModerator) {
-        toast.success("Delete request submitted for owner approval", {
-          description: `Request to delete "${record.product.name}" has been sent for owner review.`,
-        })
-      } else {
-        toast.success("Product deleted successfully", {
-          description: `"${record.product.name}" has been removed from catalogue and inventory.`,
-        })
-      }
+      await deleteInventory(record.productId)
+      toast.success("Removal request submitted for owner approval", {
+        description: `Request to remove inventory record for "${record.product.name}" has been sent for owner review.`,
+      })
       setShowDeleteDialog(false)
       onDone()
     } catch (error) {
-      toast.error("Could not delete product", { description: getAdminErrorMessage(error) })
+      toast.error("Could not remove inventory record", { description: getAdminErrorMessage(error) })
       setShowDeleteDialog(false)
     } finally {
       setIsDeleting(false)
@@ -437,39 +412,40 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
               </dl>
 
               <div className="space-y-2">
-                <Label htmlFor="stock-quantity">Quantity</Label>
+                <Label htmlFor="stock-quantity">Stock quantity / Units</Label>
                 <Input id="stock-quantity" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={isSaving || isDeleting} />
-                <p className="text-xs text-muted-foreground">Whole units. Reducing stock cannot take available quantity below zero — the backend rejects that.</p>
+                <p className="text-xs text-muted-foreground">Set new target on-hand stock directly, or add/reduce by units. Stock cannot go below reserved quantity.</p>
               </div>
 
-              <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => void adjust("add")} disabled={isSaving || isDeleting}>
-                  {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}Add stock
+              <div className="space-y-2">
+                <Button className="w-full" variant="secondary" onClick={() => void handleSetStock()} disabled={isSaving || isDeleting}>
+                  Set On-Hand Stock to {quantity.trim() || "0"}
                 </Button>
-                <Button variant="outline" className="flex-1" onClick={() => void adjust("reduce")} disabled={isSaving || isDeleting}>
-                  <Minus data-icon="inline-start" aria-hidden="true" />Reduce
-                </Button>
-              </div>
-
-              {(isModerator || isOwner) && (
-                <div className="border-t border-border pt-4">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    className="w-full"
-                    onClick={() => setShowDeleteDialog(true)}
-                    disabled={isSaving || isDeleting}
-                  >
-                    <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />
-                    Delete
+                <div className="flex gap-2">
+                  <Button className="flex-1" variant="outline" onClick={() => void adjust("add")} disabled={isSaving || isDeleting}>
+                    {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus data-icon="inline-start" aria-hidden="true" />}Add units
+                  </Button>
+                  <Button variant="outline" className="flex-1" onClick={() => void adjust("reduce")} disabled={isSaving || isDeleting}>
+                    <Minus data-icon="inline-start" aria-hidden="true" />Reduce units
                   </Button>
                 </div>
-              )}
+              </div>
+
+              <div className="border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full"
+                  onClick={() => setShowDeleteDialog(true)}
+                  disabled={isSaving || isDeleting}
+                >
+                  <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />
+                  Remove Inventory Record
+                </Button>
+              </div>
 
               <p className="text-xs leading-5 text-muted-foreground">
-                {isModerator
-                  ? "Adjustments are submitted for owner approval and are attributed to your account. They take effect once approved."
-                  : "Adjustments apply immediately and are attributed to your account by the backend."}
+                Stock adjustments are submitted for owner approval. Live inventory remains unchanged until an owner approves the request.
               </p>
             </div>
           )}
@@ -480,9 +456,9 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
         <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete Product?</AlertDialogTitle>
+              <AlertDialogTitle>Remove Inventory Record?</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete &ldquo;{record.product.name}&rdquo; ({record.product.sku})? This action cannot be undone.
+                Are you sure you want to remove the inventory record for &ldquo;{record.product.name}&rdquo; ({record.product.sku})? The product will remain in the catalogue with 0 stock.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -495,7 +471,7 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
                   void handleDelete()
                 }}
               >
-                {isDeleting ? "Deleting…" : "Delete"}
+                {isDeleting ? "Removing…" : "Remove Record"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -12,6 +12,6 @@ export function isCartProductAvailable(product: CartProduct): boolean {
 export function getCartProductWarning(product: CartProduct, quantity: number): string | null {
   if (product.deletedAt || !product.isActive) return "This product is no longer available. Remove it to continue."
   if (!product.inventory || getAvailableQuantity(product) === 0) return "This product is currently out of stock. Remove it to continue."
-  if (quantity > getAvailableQuantity(product)) return `Only ${getAvailableQuantity(product)} ${product.unit} currently available. Reduce the quantity or remove this item.`
+  if (quantity > getAvailableQuantity(product)) return "Some items in your cart have limited availability. Please update your quantity before checkout."
   return null
 }

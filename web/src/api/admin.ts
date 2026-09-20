@@ -1,11 +1,14 @@
 import { apiRequest } from "@/api/client"
 import type { Product } from "@/types/product"
 import type {
+  AdminBooking,
   AdminFeedback,
   AdminListQuery,
   AdminProject,
+  ProjectSource,
   AdminRequest,
   AdminUser,
+  BookingStatus,
   ChatConversation,
   ChatMessage,
   CreateInstallerInput,
@@ -97,9 +100,9 @@ export interface CreateProductAdminInput {
   images?: Array<{ url: string; altText?: string; isPrimary?: boolean; sortOrder?: number }>
 }
 
-/** MODERATOR only. Creates products and synchronizes inventory atomically. */
+/** Creates products. For MODERATOR, creates an approval request. */
 export function createProduct(body: CreateProductAdminInput) {
-  return apiRequest<{ product: Product }>("/products", { method: "POST", authenticated: true, body })
+  return apiRequest<{ product?: Product; request?: AdminRequest; requiresApproval?: boolean }>("/products", { method: "POST", authenticated: true, body })
 }
 
 export interface UpdateProductAdminInput {
@@ -120,14 +123,14 @@ export interface UpdateProductAdminInput {
   images?: Array<{ url: string; altText?: string; isPrimary?: boolean; sortOrder?: number }>
 }
 
-/** MODERATOR only. Updates product details and inventory synchronization. */
+/** Updates product details. For MODERATOR, creates an approval request. */
 export function updateProduct(id: string, body: UpdateProductAdminInput) {
-  return apiRequest<{ product: Product }>(`/products/${id}`, { method: "PATCH", authenticated: true, body })
+  return apiRequest<{ product?: Product; request?: AdminRequest; requiresApproval?: boolean }>(`/products/${id}`, { method: "PATCH", authenticated: true, body })
 }
 
-/** MODERATOR only. Soft-deletes a product listing. */
+/** Soft-deletes a product listing. For MODERATOR, creates an approval request. */
 export function deleteProduct(id: string) {
-  return apiRequest<{ product: Product }>(`/products/${id}`, { method: "DELETE", authenticated: true })
+  return apiRequest<{ product?: Product; request?: AdminRequest; requiresApproval?: boolean }>(`/products/${id}`, { method: "DELETE", authenticated: true })
 }
 
 /** OWNER and MODERATOR can upload persisted product imagery. */
@@ -152,17 +155,47 @@ export function getLowStock(signal?: AbortSignal) {
   return apiRequest<{ inventory: InventoryRecord[] }>("/inventory/low-stock", { authenticated: true, signal })
 }
 
+export interface CreateInventoryAdminInput {
+  productId: string
+  quantity: number
+  reorderLevel?: number
+  warehouseLocation?: string
+}
+
+export function createInventory(body: CreateInventoryAdminInput) {
+  return apiRequest<{ inventory?: InventoryRecord; request?: AdminRequest; requiresApproval?: boolean }>("/inventory", {
+    method: "POST",
+    authenticated: true,
+    body,
+  })
+}
+
+export function deleteInventory(productId: string) {
+  return apiRequest<{ request?: AdminRequest; requiresApproval?: boolean }>(`/inventory/${productId}`, {
+    method: "DELETE",
+    authenticated: true,
+  })
+}
+
+export function getAvailableProductsForRecordStock(signal?: AbortSignal) {
+  return apiRequest<{ products: Product[] }>("/inventory/available-products", { authenticated: true, signal })
+}
+
 export function addStock(productId: string, quantity: number) {
-  return apiRequest<{ inventory: InventoryRecord }>(`/inventory/${productId}/add`, { method: "PATCH", authenticated: true, body: { quantity } })
+  return apiRequest<{ inventory?: InventoryRecord; request?: AdminRequest; requiresApproval?: boolean }>(`/inventory/${productId}/add`, { method: "PATCH", authenticated: true, body: { quantity } })
 }
 
 export function reduceStock(productId: string, quantity: number) {
-  return apiRequest<{ inventory: InventoryRecord }>(`/inventory/${productId}/reduce`, { method: "PATCH", authenticated: true, body: { quantity } })
+  return apiRequest<{ inventory?: InventoryRecord; request?: AdminRequest; requiresApproval?: boolean }>(`/inventory/${productId}/reduce`, { method: "PATCH", authenticated: true, body: { quantity } })
+}
+
+export function adjustStock(productId: string, targetQuantity: number) {
+  return apiRequest<{ inventory?: InventoryRecord; request?: AdminRequest; requiresApproval?: boolean }>(`/inventory/${productId}/adjust`, { method: "PATCH", authenticated: true, body: { targetQuantity } })
 }
 
 // ----------------------------------------------------------------- projects
 
-export function getProjects(query: AdminListQuery & { moderatorId?: string; customerId?: string } = {}, signal?: AbortSignal) {
+export function getProjects(query: AdminListQuery & { moderatorId?: string; customerId?: string; source?: ProjectSource; externalProjectId?: string } = {}, signal?: AbortSignal) {
   return apiRequest<{ projects: AdminProject[]; pagination: Pagination }>(`/projects${toQuery({ ...query })}`, { authenticated: true, signal })
 }
 
@@ -194,6 +227,26 @@ export function createProject(body: { customerId: string; name: string; descript
 /** OWNER/MODERATOR fulfilment update. Payment state is never changed from here. */
 export function updateOrderStatus(orderId: string, status: string) {
   return apiRequest<{ order: { id: string; status: string } }>(`/orders/${orderId}/status`, { method: "PATCH", authenticated: true, body: { status } })
+}
+
+/** MODERATOR only. Approves order so customer can proceed with payment. */
+export function approveOrder(orderId: string) {
+  return apiRequest<{ order: { id: string; status: string; moderatorApproved: boolean } }>(`/orders/${orderId}/approve`, { method: "PATCH", authenticated: true })
+}
+
+/** MODERATOR/OWNER staff action. Arranges delivery with Lalamove integration for eligible order. */
+export function arrangeDelivery(orderId: string) {
+  return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/arrange`, { method: "POST", authenticated: true })
+}
+
+/** MODERATOR/OWNER staff action. Approves customer delivery request. */
+export function approveDeliveryRequest(orderId: string) {
+  return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/approve`, { method: "PATCH", authenticated: true })
+}
+
+/** MODERATOR/OWNER staff action. Declines customer delivery request with optional reason. */
+export function declineDeliveryRequest(orderId: string, reason?: string) {
+  return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/decline`, { method: "PATCH", authenticated: true, body: reason ? { reason } : {} })
 }
 
 // ----------------------------------------------------------------- requests
@@ -277,4 +330,32 @@ export function getMessages(conversationId: string, query: AdminListQuery = {}, 
 /** CUSTOMER or MODERATOR only - OWNER is read-only on chat by backend rule. */
 export function sendMessage(conversationId: string, content: string) {
   return apiRequest<{ message: ChatMessage }>(`/chat/${conversationId}/messages`, { method: "POST", authenticated: true, body: { content } })
+}
+
+// ------------------------------------------------ installation requests / bookings
+
+export function getBookings(query: AdminListQuery & { onlyOrders?: boolean } = {}, signal?: AbortSignal) {
+  return apiRequest<{ bookings: AdminBooking[]; pagination: Pagination }>(`/bookings/all${toQuery({ ...query, onlyOrders: query.onlyOrders ? "true" : undefined })}`, { authenticated: true, signal })
+}
+
+export function getBookingById(id: string, signal?: AbortSignal) {
+  return apiRequest<{ booking: AdminBooking }>(`/bookings/${id}`, { authenticated: true, signal })
+}
+
+/** MODERATOR only. Backend rejects OWNER with 403. */
+export function updateBookingStatus(id: string, status: BookingStatus, scheduledDate?: string) {
+  return apiRequest<{ booking: AdminBooking }>(`/bookings/${id}/status`, {
+    method: "PATCH",
+    authenticated: true,
+    body: { status, ...(scheduledDate ? { scheduledDate } : {}) },
+  })
+}
+
+/** MODERATOR only. Backend rejects OWNER with 403. */
+export function assignBookingInstaller(id: string, installerId: string) {
+  return apiRequest<{ booking: AdminBooking }>(`/bookings/${id}/assign-installer`, {
+    method: "PATCH",
+    authenticated: true,
+    body: { installerId },
+  })
 }

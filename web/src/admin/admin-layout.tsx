@@ -131,7 +131,12 @@ function AdminBrand() {
   return (
     <div className="flex items-center gap-2.5 border-b border-border px-4 py-3.5">
       <BrandMark className="size-8" />
-      <span className="leading-tight"><span className="block text-sm font-semibold tracking-[-0.01em]">PanelScan</span><span className="block text-[0.65rem] tracking-[0.14em] text-muted-foreground uppercase">Admin</span></span>
+      <span className="min-w-0 leading-tight">
+        <span className="block text-sm font-semibold tracking-[-0.01em]">PanelScan</span>
+        <span className="block truncate text-[0.55rem] font-medium tracking-[0.11em] text-muted-foreground uppercase">
+          Disenyo Interior Solution
+        </span>
+      </span>
     </div>
   )
 }

@@ -49,12 +49,8 @@ export function AdminProductsPage() {
   useDocumentTitle("Products | PanelScan Admin")
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
-  const isOwner = user?.role === "OWNER"
-  // Both roles can manage products: MODERATOR writes go through the owner
-  // approval workflow (see EditProductSheet/AddProductSheet), OWNER writes
-  // apply directly - the backend (product.controller.ts) already supports
-  // both, this just makes sure the OWNER sees the same management controls.
-  const canManageProducts = isModerator || isOwner
+  // Operational changes are MODERATOR-only (creates change requests). OWNER views, reviews, and approves.
+  const canManageProducts = isModerator
 
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("")
@@ -272,8 +268,20 @@ export function AdminProductsPage() {
               empty={
                 <EmptyState
                   icon={PackageSearch}
-                  title="No products found"
-                  description="No catalogue products match the active search and filter criteria."
+                  title={products.length === 0 ? "No products yet" : "No products found"}
+                  description={
+                    products.length === 0
+                      ? "Add your first product to start building the PanelScan catalog."
+                      : "No catalogue products match the active search and filter criteria."
+                  }
+                  action={
+                    products.length === 0 && canManageProducts ? (
+                      <Button onClick={() => setShowAddProduct(true)}>
+                        <Plus className="size-4" data-icon="inline-start" aria-hidden="true" />
+                        Add Product
+                      </Button>
+                    ) : undefined
+                  }
                 />
               }
               columns={columns}
@@ -414,8 +422,6 @@ function EditProductSheet({
   const [width, setWidth] = useState(product.width ?? "")
   const [height, setHeight] = useState(product.height ?? "")
   const [thickness, setThickness] = useState(product.thickness ?? "")
-  const [stock, setStock] = useState(String(product.inventory?.quantity ?? 0))
-  const [reorderLevel, setReorderLevel] = useState(String(product.inventory?.reorderLevel ?? 10))
   const [isActive, setIsActive] = useState(product.isActive)
   const [description, setDescription] = useState(product.description ?? "")
 
@@ -435,11 +441,11 @@ function EditProductSheet({
     try {
       await deleteProduct(product.id)
       if (isModerator) {
-        toast.success("Delete request submitted for owner approval", {
-          description: `Request to delete "${product.name}" has been sent for owner review.`,
+        toast.success("Removal request submitted for owner approval", {
+          description: `Request to remove "${product.name}" has been sent for owner review.`,
         })
       } else {
-        toast.success("Product deleted successfully", {
+        toast.success("Product removed successfully", {
           description: `"${product.name}" has been removed from the catalogue.`,
         })
       }
@@ -502,8 +508,6 @@ function EditProductSheet({
         width: width ? Number(width) : undefined,
         height: height ? Number(height) : undefined,
         thickness: thickness ? Number(thickness) : undefined,
-        stock: stock ? Number(stock) : undefined,
-        reorderLevel: reorderLevel ? Number(reorderLevel) : undefined,
         isActive,
         description: description.trim() || undefined,
         images: finalImageUrl
@@ -534,7 +538,7 @@ function EditProductSheet({
       <SheetContent className="admin-surface w-[calc(100vw-1rem)]! max-w-none! overflow-y-auto sm:max-w-2xl!">
         <SheetHeader className="pr-12">
           <SheetTitle>Edit product</SheetTitle>
-          <SheetDescription>Update product details, specifications, and stock level.</SheetDescription>
+          <SheetDescription>Update product details and specifications.</SheetDescription>
         </SheetHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6 px-4 pb-6">
@@ -638,30 +642,6 @@ function EditProductSheet({
             </div>
 
             <div>
-              <Label htmlFor="edit-stock">Stock quantity</Label>
-              <Input
-                id="edit-stock"
-                type="number"
-                min="0"
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-                className="mt-1.5"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="edit-reorder">Reorder threshold</Label>
-              <Input
-                id="edit-reorder"
-                type="number"
-                min="0"
-                value={reorderLevel}
-                onChange={(e) => setReorderLevel(e.target.value)}
-                className="mt-1.5"
-              />
-            </div>
-
-            <div>
               <Label htmlFor="edit-material">Material / Finish</Label>
               <Input
                 id="edit-material"
@@ -751,7 +731,7 @@ function EditProductSheet({
               disabled={isSaving || isDeleting}
             >
               <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />
-              Delete product
+              Remove Product
             </Button>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" onClick={onClose} disabled={isSaving || isDeleting}>
@@ -767,9 +747,9 @@ function EditProductSheet({
         <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete Product?</AlertDialogTitle>
+              <AlertDialogTitle>Remove Product?</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete &ldquo;{product.name}&rdquo;? This action cannot be undone.
+                Are you sure you want to remove &ldquo;{product.name}&rdquo;? This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -782,7 +762,7 @@ function EditProductSheet({
                   void handleDelete()
                 }}
               >
-                {isDeleting ? "Deleting…" : "Delete"}
+                {isDeleting ? "Removing…" : "Remove Product"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -814,8 +794,6 @@ function AddProductSheet({
   const [width, setWidth] = useState("")
   const [height, setHeight] = useState("")
   const [thickness, setThickness] = useState("")
-  const [stock, setStock] = useState("50")
-  const [reorderLevel, setReorderLevel] = useState("10")
   const [description, setDescription] = useState("")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -838,8 +816,6 @@ function AddProductSheet({
     setWidth("")
     setHeight("")
     setThickness("")
-    setStock("50")
-    setReorderLevel("10")
     setDescription("")
     setImageFile(null)
     setImagePreview(null)
@@ -895,8 +871,6 @@ function AddProductSheet({
         width: width ? Number(width) : undefined,
         height: height ? Number(height) : undefined,
         thickness: thickness ? Number(thickness) : undefined,
-        stock: stock ? Number(stock) : 0,
-        reorderLevel: reorderLevel ? Number(reorderLevel) : 10,
         description: description.trim() || undefined,
         images: uploadedImageUrl
           ? [{ url: uploadedImageUrl, altText: name.trim(), isPrimary: true, sortOrder: 0 }]
@@ -909,7 +883,7 @@ function AddProductSheet({
         })
       } else {
         toast.success("Product created successfully", {
-          description: `${name} has been added to the catalogue and inventory.`,
+          description: `${name} has been added to the catalogue.`,
         })
       }
       resetForm()
@@ -1039,32 +1013,6 @@ function AddProductSheet({
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 placeholder="1850.00"
-                required
-                className="mt-1.5"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="add-stock">Initial stock *</Label>
-              <Input
-                id="add-stock"
-                type="number"
-                min="0"
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-                required
-                className="mt-1.5"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="add-reorder">Reorder threshold *</Label>
-              <Input
-                id="add-reorder"
-                type="number"
-                min="0"
-                value={reorderLevel}
-                onChange={(e) => setReorderLevel(e.target.value)}
                 required
                 className="mt-1.5"
               />
