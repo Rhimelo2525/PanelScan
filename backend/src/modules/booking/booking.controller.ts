@@ -23,6 +23,7 @@ const parseBookingFilters = (query: Request['query']): BookingFilters => ({
   page: typeof query.page === 'string' ? Number(query.page) : undefined,
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   status: typeof query.status === 'string' ? (query.status as BookingFilters['status']) : undefined,
+  onlyOrders: query.onlyOrders === 'true' ? true : undefined,
 });
 
 export class BookingController {
@@ -61,7 +62,12 @@ export class BookingController {
 
   updateStatus = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
-    const booking = await this.bookingService.updateBookingStatus(req.params.id as string, requester.id, req.body.status);
+    const booking = await this.bookingService.updateBookingStatus(
+      req.params.id as string,
+      requester.id,
+      req.body.status,
+      req.body.scheduledDate ? new Date(req.body.scheduledDate) : undefined,
+    );
     sendSuccess(res, 200, 'Booking status updated successfully.', { booking });
   });
 

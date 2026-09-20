@@ -39,6 +39,11 @@ export class CartController {
     sendSuccess(res, 200, 'Item removed from cart successfully.', { cart });
   });
 
+  removeItems = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const cart = await this.cartService.removeItems(this.getCustomerId(req), req.body.productIds);
+    sendSuccess(res, 200, 'Selected items removed from cart successfully.', { cart });
+  });
+
   clearCart = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const cart = await this.cartService.clearCart(this.getCustomerId(req));
     sendSuccess(res, 200, 'Cart cleared successfully.', { cart });

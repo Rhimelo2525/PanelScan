@@ -80,6 +80,9 @@ export class PaymentService {
     if (order.status === OrderStatus.CANCELLED) {
       throw new AppError('This order has been cancelled and cannot be paid.', 400);
     }
+    if (!order.moderatorApproved) {
+      throw new AppError('This order is awaiting moderator approval before payment can proceed.', 400);
+    }
     if (order.payment && (order.payment.status === PaymentStatus.PAID || order.payment.status === PaymentStatus.REFUNDED)) {
       throw new AppError('This order has already been paid.', 400);
     }

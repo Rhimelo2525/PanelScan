@@ -163,7 +163,7 @@ export class AuthController {
       throw new AppError('Either credential or authorization code is required.', 400);
     }
 
-    const result = await this.authService.loginWithGoogle(profile);
+    const result = await this.authService.loginWithGoogle(profile, req.body.acceptedTerms);
     sendSuccess(res, 200, 'Login successful.', result);
   });
 }

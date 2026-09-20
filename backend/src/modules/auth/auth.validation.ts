@@ -1,22 +1,21 @@
 import { z } from 'zod';
 
+import { passwordSchema } from '../../utils/passwordPolicy';
+
 export const registerSchema = z.object({
   body: z.object({
     firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50, 'First name is too long.'),
     lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50, 'Last name is too long.'),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters long.')
-      .max(72, 'Password must not exceed 72 characters.')
-      .regex(/[a-z]/, 'Password must contain at least one lowercase letter.')
-      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter.')
-      .regex(/[0-9]/, 'Password must contain at least one number.'),
+    password: passwordSchema,
     phone: z
       .string()
       .trim()
       .regex(/^\+?[0-9\s\-()]{7,20}$/, 'Please provide a valid phone number.')
       .optional(),
+    acceptedTerms: z.literal(true, {
+      errorMap: () => ({ message: 'You must agree to the Terms of Use and Privacy Policy before creating an account.' }),
+    }),
   }),
 });
 
@@ -44,6 +43,7 @@ export const googleAuthSchema = z.object({
     .object({
       credential: z.string().optional(),
       code: z.string().optional(),
+      acceptedTerms: z.boolean().optional(),
     })
     .refine((data) => Boolean(data.credential || data.code), {
       message: 'Either credential or authorization code is required.',

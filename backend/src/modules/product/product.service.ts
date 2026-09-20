@@ -208,18 +208,9 @@ export class ProductService {
           thickness: input.thickness,
           unit: input.unit ?? 'panel',
           material: input.material,
+          isActive: input.isActive ?? true,
           isFeatured: input.isFeatured ?? false,
           images: input.images ? { create: input.images } : undefined,
-        },
-      });
-
-      await tx.inventory.create({
-        data: {
-          productId: product.id,
-          quantity: input.stock ?? 0,
-          reservedQty: 0,
-          reorderLevel: input.reorderLevel ?? 10,
-          warehouseLocation: 'Main Warehouse',
         },
       });
 
@@ -262,7 +253,7 @@ export class ProductService {
       }
     }
 
-    const { images, stock, reorderLevel, ...scalarFields } = input;
+    const { images, stock: _stock, reorderLevel: _reorderLevel, ...scalarFields } = input;
     if (trimmedSku) {
       scalarFields.sku = trimmedSku;
     }
@@ -273,23 +264,6 @@ export class ProductService {
     return prisma.$transaction(async (tx) => {
       if (images) {
         await tx.productImage.deleteMany({ where: { productId: id } });
-      }
-
-      if (stock !== undefined || reorderLevel !== undefined) {
-        await tx.inventory.upsert({
-          where: { productId: id },
-          update: {
-            ...(stock !== undefined ? { quantity: stock } : {}),
-            ...(reorderLevel !== undefined ? { reorderLevel } : {}),
-          },
-          create: {
-            productId: id,
-            quantity: stock ?? 0,
-            reservedQty: 0,
-            reorderLevel: reorderLevel ?? 10,
-            warehouseLocation: 'Main Warehouse',
-          },
-        });
       }
 
       return tx.product.update({

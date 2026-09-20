@@ -7,6 +7,15 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required.'),
+
+  // Supabase PostgreSQL backup/disaster-recovery database (see
+  // prisma/schema.backup.prisma and scripts/syncToBackup.ts). Entirely
+  // optional - the app boots and runs fine with these unset, since
+  // CockroachDB (DATABASE_URL above) remains the only database the
+  // running application reads/writes. These are only consulted by the
+  // backup Prisma client and the one-way sync job.
+  BACKUP_DATABASE_URL: z.string().optional(),
+  BACKUP_DIRECT_URL: z.string().optional(),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters long.'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().default('*'),

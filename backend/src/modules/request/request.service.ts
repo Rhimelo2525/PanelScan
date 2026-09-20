@@ -311,16 +311,6 @@ export class RequestService {
         },
       });
 
-      await tx.inventory.create({
-        data: {
-          productId: product.id,
-          quantity: data.stock ? Number(data.stock) : 0,
-          reservedQty: 0,
-          reorderLevel: data.reorderLevel ? Number(data.reorderLevel) : 10,
-          warehouseLocation: 'Main Warehouse',
-        },
-      });
-
       if (data.images && Array.isArray(data.images) && data.images.length > 0) {
         await tx.productImage.createMany({
           data: data.images.map((img: any, idx: number) => ({
@@ -339,7 +329,7 @@ export class RequestService {
         throw new AppError('Product not found or has been deleted.', 404);
       }
 
-      const { name, categoryId, sku, price, material, unit, width, height, thickness, stock, reorderLevel, isActive, isFeatured, description, images } = payload.updateData;
+      const { name, categoryId, sku, price, material, unit, width, height, thickness, isActive, isFeatured, description, images } = payload.updateData;
 
       if (sku) {
         const trimmedSku = sku.trim().toUpperCase();
@@ -387,23 +377,6 @@ export class RequestService {
         }
       }
 
-      if (stock !== undefined || reorderLevel !== undefined) {
-        await tx.inventory.upsert({
-          where: { productId },
-          update: {
-            ...(stock !== undefined ? { quantity: Number(stock) } : {}),
-            ...(reorderLevel !== undefined ? { reorderLevel: Number(reorderLevel) } : {}),
-          },
-          create: {
-            productId,
-            quantity: stock ? Number(stock) : 0,
-            reservedQty: 0,
-            reorderLevel: reorderLevel ? Number(reorderLevel) : 10,
-            warehouseLocation: 'Main Warehouse',
-          },
-        });
-      }
-
       await tx.product.update({
         where: { id: productId },
         data: scalarFields,
@@ -414,22 +387,40 @@ export class RequestService {
       if (!existing) {
         throw new AppError('Product not found or has already been deleted.', 404);
       }
+      const timestamp = Date.now();
       await tx.product.update({
         where: { id: productId },
-        data: { deletedAt: new Date(), isActive: false },
+        data: {
+          deletedAt: new Date(),
+          isActive: false,
+          sku: `${existing.sku}__ARCHIVED_${timestamp}`,
+          slug: `${existing.slug}__archived_${timestamp}`,
+        },
       });
     } else if (payload.action === 'ADJUST_STOCK' && payload.productId && payload.adjustData) {
       const productId = payload.productId;
       const inventory = await tx.inventory.findUnique({ where: { productId } });
       if (!inventory) {
-        throw new AppError('Inventory record not found for this product.', 404);
+        throw new AppError('Inventory record not found for this product. Use Record Stock for initial physical stock.', 404);
       }
-      if (payload.adjustData.direction === 'add') {
+      if (payload.adjustData.targetQuantity !== undefined) {
+        const target = payload.adjustData.targetQuantity;
+        if (target < inventory.reservedQty) {
+          throw new AppError(`Cannot reduce stock below reserved quantity (${inventory.reservedQty}).`, 400);
+        }
+        await tx.inventory.update({
+          where: { productId },
+          data: {
+            quantity: target,
+            lastRestockedAt: target > inventory.quantity ? new Date() : undefined,
+          },
+        });
+      } else if (payload.adjustData.direction === 'add' && payload.adjustData.quantity !== undefined) {
         await tx.inventory.update({
           where: { productId },
           data: { quantity: { increment: payload.adjustData.quantity }, lastRestockedAt: new Date() },
         });
-      } else if (payload.adjustData.direction === 'reduce') {
+      } else if (payload.adjustData.direction === 'reduce' && payload.adjustData.quantity !== undefined) {
         if (inventory.quantity - inventory.reservedQty < payload.adjustData.quantity) {
           throw new AppError('Cannot reduce stock below reserved quantity.', 400);
         }
@@ -438,6 +429,26 @@ export class RequestService {
           data: { quantity: { decrement: payload.adjustData.quantity } },
         });
       }
+    } else if (payload.action === 'ADD_INVENTORY' && payload.productData) {
+      const { productId, quantity, reorderLevel, warehouseLocation } = payload.productData;
+      const existing = await tx.inventory.findUnique({ where: { productId } });
+      if (existing) {
+        throw new AppError('Product already has an inventory record. Use Adjust instead.', 409);
+      }
+      await tx.inventory.create({
+        data: {
+          productId,
+          quantity: Number(quantity),
+          reservedQty: 0,
+          reorderLevel: reorderLevel ? Number(reorderLevel) : 10,
+          warehouseLocation: warehouseLocation || 'Main Warehouse',
+          lastRestockedAt: new Date(),
+        },
+      });
+    } else if (payload.action === 'DELETE_INVENTORY' && payload.productId) {
+      await tx.inventory.deleteMany({
+        where: { productId: payload.productId },
+      });
     }
   }
 

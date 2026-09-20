@@ -269,21 +269,28 @@ describe('Reports module', () => {
       const dbOrderCount = await prisma.order.count();
       expect(data.summary.totalOrders).toBe(dbOrderCount);
 
-      const deliveredRow = (data.orders as Array<{ id: string; totalAmount: number }>).find((row) => row.id === fixtures.orderDelivered.id);
+      const deliveredRow = (data.orders as Array<{ id: string; totalAmount: number; paymentStatus: string }>).find(
+        (row) => row.id === fixtures.orderDelivered.id,
+      );
       expect(deliveredRow?.totalAmount).toBe(200);
+      expect(deliveredRow?.paymentStatus).toBe('PAID');
     });
 
-    it('omits revenue fields and per-row totalAmount for MODERATOR', async () => {
+    it('returns revenue fields, per-row totalAmount, and paymentStatus for MODERATOR', async () => {
       const fixtures = await seedReportsFixtures();
 
       const response = await request(app).get('/api/reports/sales').set('Authorization', `Bearer ${fixtures.moderator.token}`);
 
       expectApiSuccess(response, 200);
-      expect(response.body.data.summary.totalRevenue).toBeUndefined();
-      expect(response.body.data.summary.averageOrderValue).toBeUndefined();
-      const orders = response.body.data.orders as Array<{ totalAmount?: number }>;
-      expect(orders.every((row) => row.totalAmount === undefined)).toBe(true);
+      expect(response.body.data.summary.totalRevenue).toBe(300);
+      expect(response.body.data.summary.averageOrderValue).toBe(150);
+      const orders = response.body.data.orders as Array<{ totalAmount?: number; paymentStatus?: string }>;
+      expect(orders.every((row) => typeof row.totalAmount === 'number')).toBe(true);
+      expect(orders.every((row) => Boolean(row.paymentStatus))).toBe(true);
       expect(response.body.data.summary.totalOrders).toBe(3);
+
+      const pendingRow = orders.find((row) => (row as { id?: string }).id === fixtures.orderPending.id);
+      expect(pendingRow?.paymentStatus).toBe('PENDING');
     });
 
     it('filters orders by date range, verified against the database', async () => {

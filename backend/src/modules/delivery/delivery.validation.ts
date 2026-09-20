@@ -35,6 +35,10 @@ export const idParamsSchema = z.object({
   params: z.object({ id: z.string().uuid('Invalid delivery id.') }),
 });
 
+export const orderIdParamsSchema = z.object({
+  params: z.object({ orderId: z.string().uuid('Invalid order id.') }),
+});
+
 export const listDeliveriesSchema = z.object({
   query: z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
@@ -48,3 +52,15 @@ export const listDeliveriesSchema = z.object({
 
 export type CreateDeliveryInput = z.infer<typeof createDeliverySchema>['body'];
 export type UpdateDeliveryInput = z.infer<typeof updateDeliverySchema>['body'];
+
+export const declineDeliverySchema = z.object({
+  params: z.object({ orderId: z.string().uuid('Invalid order id.') }),
+  body: z
+    .object({
+      reason: z.string().trim().max(500, 'Decline reason is too long.').optional(),
+    })
+    .optional(),
+});
+
+export type DeclineDeliveryInput = z.infer<typeof declineDeliverySchema>['body'];
+

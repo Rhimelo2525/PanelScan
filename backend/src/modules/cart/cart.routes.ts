@@ -5,7 +5,7 @@ import { authenticate } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { cartController } from './cart.controller';
-import { addCartItemSchema, productIdParamsSchema, updateCartItemSchema } from './cart.validation';
+import { addCartItemSchema, productIdParamsSchema, removeSelectedItemsSchema, updateCartItemSchema } from './cart.validation';
 
 const router = Router();
 
@@ -18,6 +18,9 @@ router.get('/', cartController.getCart);
 
 // POST /api/cart/items
 router.post('/items', validate(addCartItemSchema), cartController.addItem);
+
+// POST /api/cart/remove-items (bulk delete)
+router.post('/remove-items', validate(removeSelectedItemsSchema), cartController.removeItems);
 
 // PATCH /api/cart/items/:productId
 router.patch('/items/:productId', validate(updateCartItemSchema), cartController.updateItem);

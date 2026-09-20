@@ -13,3 +13,7 @@ uploads/*
 .env*
 !.env.example
 !.env.*.example
+
+# Generated backup (Supabase) Prisma client - regenerated via
+# `npm run prisma:backup:generate`, never committed (same as node_modules).
+src/generated/

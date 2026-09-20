@@ -48,7 +48,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"moderator@panelscan.com\",\n  \"password\": \"Moderator@12345\"\n}" }
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"moderator@gmail.com\",\n  \"password\": \"Moderator@12345\"\n}" }
           },
           "event": [
             {

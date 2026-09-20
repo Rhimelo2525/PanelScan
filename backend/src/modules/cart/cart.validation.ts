@@ -10,7 +10,13 @@ export const addCartItemSchema = z.object({
 export const updateCartItemSchema = z.object({
   params: z.object({ productId: z.string().uuid('Invalid product id.') }),
   body: z.object({
-    quantity: z.number().int('Quantity must be a whole number.').positive('Quantity must be greater than 0.'),
+    quantity: z.number().int('Quantity must be a whole number.').min(0, 'Quantity cannot be negative.'),
+  }),
+});
+
+export const removeSelectedItemsSchema = z.object({
+  body: z.object({
+    productIds: z.array(z.string().uuid('Invalid product id.')).min(1, 'At least one product id is required.'),
   }),
 });
 
@@ -20,3 +26,4 @@ export const productIdParamsSchema = z.object({
 
 export type AddCartItemInput = z.infer<typeof addCartItemSchema>['body'];
 export type UpdateCartItemInput = z.infer<typeof updateCartItemSchema>['body'];
+export type RemoveSelectedItemsInput = z.infer<typeof removeSelectedItemsSchema>['body'];

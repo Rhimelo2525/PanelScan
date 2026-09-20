@@ -1,4 +1,4 @@
-import type { Prisma, ProjectStatus } from '@prisma/client';
+import type { Prisma, ProjectSource, ProjectStatus } from '@prisma/client';
 
 export const projectInclude = {
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
@@ -19,6 +19,8 @@ export interface ProjectFilters {
   page?: number;
   limit?: number;
   status?: ProjectStatus;
+  source?: ProjectSource;
+  externalProjectId?: string;
   customerId?: string;
   moderatorId?: string;
   ownerId?: string;

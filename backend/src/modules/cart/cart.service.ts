@@ -82,7 +82,7 @@ export class CartService {
 
       const desiredQuantity = (existingItem?.quantity ?? 0) + input.quantity;
       if (desiredQuantity > available) {
-        throw new AppError(`Only ${available} unit(s) of this product are available.`, 400);
+        throw new AppError(`Only ${available} items are available.`, 400);
       }
 
       if (existingItem) {
@@ -107,10 +107,15 @@ export class CartService {
         throw new AppError('This product is not in your cart.', 404);
       }
 
+      if (quantity <= 0) {
+        await tx.cartItem.delete({ where: { id: item.id } });
+        return tx.cart.findUniqueOrThrow({ where: { id: cart.id }, include: cartInclude });
+      }
+
       const product = await getPurchasableProductOrThrow(tx, productId);
       const available = getAvailableQuantity(product.inventory);
       if (quantity > available) {
-        throw new AppError(`Only ${available} unit(s) of this product are available.`, 400);
+        throw new AppError(`Only ${available} items are available.`, 400);
       }
 
       await tx.cartItem.update({ where: { id: item.id }, data: { quantity } });
@@ -131,6 +136,24 @@ export class CartService {
     }
 
     await prisma.cartItem.delete({ where: { id: item.id } });
+
+    return prisma.cart.findUniqueOrThrow({ where: { id: cart.id }, include: cartInclude });
+  }
+
+  async removeItems(customerId: string, productIds: string[]): Promise<CartWithItems> {
+    const cart = await prisma.cart.findUnique({ where: { customerId } });
+    if (!cart) {
+      throw new AppError('Your cart is empty.', 404);
+    }
+
+    if (productIds.length > 0) {
+      await prisma.cartItem.deleteMany({
+        where: {
+          cartId: cart.id,
+          productId: { in: productIds },
+        },
+      });
+    }
 
     return prisma.cart.findUniqueOrThrow({ where: { id: cart.id }, include: cartInclude });
   }

@@ -55,7 +55,7 @@ describe('Inventory module', () => {
   });
 
   describe('PATCH /api/inventory/:productId/add (add stock)', () => {
-    it('increases quantity and stamps lastRestockedAt', async () => {
+    it('rejects direct add stock by OWNER with 403', async () => {
       const { token } = await createOwner();
       const product = await createTestProduct({ withInventory: true, quantity: 10 });
 
@@ -64,8 +64,32 @@ describe('Inventory module', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ quantity: 20 });
 
-      expect(response.status).toBe(200);
-      expect(response.body.data.inventory.quantity).toBe(30);
+      expect(response.status).toBe(403);
+    });
+
+    it('creates a Change Request when called by MODERATOR and applies on OWNER approval', async () => {
+      const { token: modToken } = await createModerator();
+      const { token: ownerToken } = await createOwner();
+      const product = await createTestProduct({ withInventory: true, quantity: 10 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${product.id}/add`)
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ quantity: 20 });
+
+      expect(response.status).toBe(202);
+      expect(response.body.data.request).toBeDefined();
+      const requestId = response.body.data.request.id;
+
+      // Unchanged before approval
+      const unapproved = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(unapproved?.quantity).toBe(10);
+
+      // Owner approves
+      const approveRes = await request(app)
+        .post(`/api/requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(approveRes.status).toBe(200);
 
       const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
       expect(dbInventory?.quantity).toBe(30);
@@ -74,7 +98,7 @@ describe('Inventory module', () => {
   });
 
   describe('PATCH /api/inventory/:productId/reduce (reduce stock)', () => {
-    it('decreases quantity', async () => {
+    it('rejects direct reduce stock by OWNER with 403', async () => {
       const { token } = await createOwner();
       const product = await createTestProduct({ withInventory: true, quantity: 20 });
 
@@ -83,21 +107,48 @@ describe('Inventory module', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ quantity: 5 });
 
-      expect(response.status).toBe(200);
-      expect(response.body.data.inventory.quantity).toBe(15);
+      expect(response.status).toBe(403);
     });
 
-    it('prevents quantity from going negative and leaves the row unchanged', async () => {
-      const { token } = await createOwner();
+    it('creates a Change Request when called by MODERATOR and applies on OWNER approval', async () => {
+      const { token: modToken } = await createModerator();
+      const { token: ownerToken } = await createOwner();
+      const product = await createTestProduct({ withInventory: true, quantity: 20 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${product.id}/reduce`)
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ quantity: 5 });
+
+      expect(response.status).toBe(202);
+      const requestId = response.body.data.request.id;
+
+      const approveRes = await request(app)
+        .post(`/api/requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(approveRes.status).toBe(200);
+
+      const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(dbInventory?.quantity).toBe(15);
+    });
+
+    it('prevents quantity from going negative when approved', async () => {
+      const { token: modToken } = await createModerator();
+      const { token: ownerToken } = await createOwner();
       const product = await createTestProduct({ withInventory: true, quantity: 5 });
 
       const response = await request(app)
         .patch(`/api/inventory/${product.id}/reduce`)
-        .set('Authorization', `Bearer ${token}`)
+        .set('Authorization', `Bearer ${modToken}`)
         .send({ quantity: 10 });
 
-      expect(response.status).toBe(400);
-      expect(response.body.success).toBe(false);
+      expect(response.status).toBe(202);
+      const requestId = response.body.data.request.id;
+
+      const approveRes = await request(app)
+        .post(`/api/requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(approveRes.status).toBe(400);
 
       const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
       expect(dbInventory?.quantity).toBe(5);
@@ -178,6 +229,141 @@ describe('Inventory module', () => {
       const productIds = (response.body.data.inventory as Array<{ productId: string }>).map((i) => i.productId);
       expect(productIds).toContain(lowStock.id);
       expect(productIds).toHaveLength(1);
+    });
+  });
+
+  describe('POST /api/inventory (Record Initial Stock)', () => {
+    it('rejects direct creation by OWNER with 403', async () => {
+      const { token } = await createOwner();
+      const product = await createTestProduct({ withInventory: false });
+
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ productId: product.id, quantity: 50, reorderLevel: 5 });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('creates a Change Request when called by MODERATOR and creates live inventory on OWNER approval', async () => {
+      const { token: modToken } = await createModerator();
+      const { token: ownerToken } = await createOwner();
+      const product = await createTestProduct({ withInventory: false });
+
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ productId: product.id, quantity: 50, reorderLevel: 5 });
+
+      expect(response.status).toBe(202);
+      expect(response.body.data.request).toBeDefined();
+      const requestId = response.body.data.request.id;
+
+      // Unchanged before approval
+      const unapproved = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(unapproved).toBeNull();
+
+      // Owner approves
+      const approveRes = await request(app)
+        .post(`/api/requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(approveRes.status).toBe(200);
+
+      const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(dbInventory?.quantity).toBe(50);
+      expect(dbInventory?.reorderLevel).toBe(5);
+    });
+
+    it('returns 400 when product already has inventory', async () => {
+      const { token: modToken } = await createModerator();
+      const product = await createTestProduct({ withInventory: true, quantity: 10 });
+
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ productId: product.id, quantity: 20 });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('returns 409 when product already has a pending ADD_INVENTORY request', async () => {
+      const { token: modToken } = await createModerator();
+      const product = await createTestProduct({ withInventory: false });
+
+      // First request
+      await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ productId: product.id, quantity: 30 });
+
+      // Second duplicate request
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ productId: product.id, quantity: 40 });
+
+      expect(response.status).toBe(409);
+    });
+  });
+
+  describe('GET /api/inventory/available-products (Record Stock eligible products)', () => {
+    it('returns only approved products without inventory and without pending initial stock request', async () => {
+      const { token: modToken } = await createModerator();
+      const productEligible = await createTestProduct({ withInventory: false });
+      const productWithInventory = await createTestProduct({ withInventory: true, quantity: 10 });
+      const productPending = await createTestProduct({ withInventory: false });
+
+      // Submit pending initial stock for productPending
+      await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ productId: productPending.id, quantity: 25 });
+
+      const response = await request(app)
+        .get('/api/inventory/available-products')
+        .set('Authorization', `Bearer ${modToken}`);
+
+      expect(response.status).toBe(200);
+      const productIds = (response.body.data.products as Array<{ id: string }>).map((p) => p.id);
+      expect(productIds).toContain(productEligible.id);
+      expect(productIds).not.toContain(productWithInventory.id);
+      expect(productIds).not.toContain(productPending.id);
+    });
+  });
+
+  describe('PATCH /api/inventory/:productId/adjust (adjust stock)', () => {
+    it('rejects direct adjust stock by OWNER with 403', async () => {
+      const { token } = await createOwner();
+      const product = await createTestProduct({ withInventory: true, quantity: 20 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${product.id}/adjust`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ targetQuantity: 75 });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('creates a Change Request when called by MODERATOR and updates quantity on OWNER approval', async () => {
+      const { token: modToken } = await createModerator();
+      const { token: ownerToken } = await createOwner();
+      const product = await createTestProduct({ withInventory: true, quantity: 20 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${product.id}/adjust`)
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ targetQuantity: 75 });
+
+      expect(response.status).toBe(202);
+      const requestId = response.body.data.request.id;
+
+      const approveRes = await request(app)
+        .post(`/api/requests/${requestId}/approve`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(approveRes.status).toBe(200);
+
+      const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(dbInventory?.quantity).toBe(75);
     });
   });
 });

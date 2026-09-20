@@ -1,4 +1,4 @@
-import { NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { BookingStatus, NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
@@ -6,6 +6,10 @@ import { AppError } from '../../utils/AppError';
 import type { CreateOrderInput } from './order.validation';
 import { orderInclude } from './order.types';
 import type { OrderFilters, OrderWithItems, PaginatedOrders } from './order.types';
+import { validatePsgcHierarchy } from '../delivery/data/psgc-luzon.data.js';
+import { isLocationInPanelScanCoverage } from '../delivery/delivery-coverage.config.js';
+import { formatPhilippineDeliveryAddress } from '../delivery/utils/address-formatter.js';
+import { normalizePhilippinePhone } from '../delivery/utils/phone-normalizer.js';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -54,44 +58,141 @@ export class OrderService {
    */
   async createOrderFromCart(customerId: string, input: CreateOrderInput): Promise<OrderWithItems> {
     return prisma.$transaction(async (tx) => {
-      const cart = await tx.cart.findUnique({
-        where: { customerId },
-        include: { items: { include: { product: { include: { inventory: true } } } } },
-      });
-
-      if (!cart || cart.items.length === 0) {
-        throw new AppError('Your cart is empty.', 400);
-      }
-
       let subtotal = new Prisma.Decimal(0);
       const orderItemsData: OrderItemDraft[] = [];
+      const inventoryDecrements: { productId: string; quantity: number }[] = [];
+      const cartItemIdsToDelete: string[] = [];
+      let cartIdForDeletion: string | null = null;
 
-      for (const cartItem of cart.items) {
-        const { product } = cartItem;
+      if (input.directItem) {
+        const product = await tx.product.findUnique({
+          where: { id: input.directItem.productId },
+          include: { inventory: true },
+        });
 
-        if (product.deletedAt || !product.isActive) {
-          throw new AppError(`"${product.name}" is no longer available and cannot be ordered.`, 400);
+        if (!product || product.deletedAt || !product.isActive) {
+          throw new AppError('The selected product is no longer available and cannot be ordered.', 400);
         }
 
         const available = product.inventory ? product.inventory.quantity - product.inventory.reservedQty : 0;
-        if (cartItem.quantity > available) {
-          throw new AppError(`Only ${available} unit(s) of "${product.name}" are available.`, 400);
+        if (input.directItem.quantity > available) {
+          throw new AppError('The selected product has limited availability. Please update your quantity before checkout.', 400);
         }
 
-        const lineTotal = product.price.mul(cartItem.quantity);
-        subtotal = subtotal.add(lineTotal);
+        const lineTotal = product.price.mul(input.directItem.quantity);
+        subtotal = lineTotal;
 
         orderItemsData.push({
           productId: product.id,
           productName: product.name,
           unitPrice: product.price,
-          quantity: cartItem.quantity,
+          quantity: input.directItem.quantity,
           lineTotal,
         });
+
+        inventoryDecrements.push({
+          productId: product.id,
+          quantity: input.directItem.quantity,
+        });
+      } else {
+        const cart = await tx.cart.findUnique({
+          where: { customerId },
+          include: { items: { include: { product: { include: { inventory: true } } } } },
+        });
+
+        if (!cart || cart.items.length === 0) {
+          throw new AppError('Your cart is empty.', 400);
+        }
+
+        let itemsToCheckout = cart.items;
+        if (input.selectedItemIds && input.selectedItemIds.length > 0) {
+          itemsToCheckout = itemsToCheckout.filter((item) => input.selectedItemIds!.includes(item.id));
+        }
+        if (input.selectedProductIds && input.selectedProductIds.length > 0) {
+          itemsToCheckout = itemsToCheckout.filter((item) => input.selectedProductIds!.includes(item.productId));
+        }
+
+        if (itemsToCheckout.length === 0) {
+          throw new AppError('No selected items found in your cart.', 400);
+        }
+
+        cartIdForDeletion = cart.id;
+        for (const cartItem of itemsToCheckout) {
+          const { product } = cartItem;
+
+          if (product.deletedAt || !product.isActive) {
+            throw new AppError(`"${product.name}" is no longer available and cannot be ordered.`, 400);
+          }
+
+          const available = product.inventory ? product.inventory.quantity - product.inventory.reservedQty : 0;
+          if (cartItem.quantity > available) {
+            throw new AppError('Some items in your cart have limited availability. Please update your quantity before checkout.', 400);
+          }
+
+          const lineTotal = product.price.mul(cartItem.quantity);
+          subtotal = subtotal.add(lineTotal);
+
+          orderItemsData.push({
+            productId: product.id,
+            productName: product.name,
+            unitPrice: product.price,
+            quantity: cartItem.quantity,
+            lineTotal,
+          });
+
+          inventoryDecrements.push({
+            productId: cartItem.productId,
+            quantity: cartItem.quantity,
+          });
+          cartItemIdsToDelete.push(cartItem.id);
+        }
       }
 
       const shippingFee = new Prisma.Decimal(0);
       const totalAmount = subtotal.add(shippingFee);
+
+      let finalShippingAddress = input.shippingAddress || '';
+      let deliveryLocationSnapshot: Prisma.InputJsonValue | undefined = undefined;
+
+      if (input.deliveryLocation) {
+        const { regionCode, provinceCode, cityMunicipalityCode, barangayCode } = input.deliveryLocation;
+
+        // 1. Validate PSGC Hierarchy
+        const hierarchyCheck = validatePsgcHierarchy({
+          regionCode,
+          provinceCode: provinceCode ?? null,
+          cityMunicipalityCode,
+          barangayCode,
+        });
+
+        if (!hierarchyCheck.isValid) {
+          throw new AppError(hierarchyCheck.error || 'Invalid delivery location hierarchy.', 400);
+        }
+
+        // 2. Validate preliminary coverage
+        if (!isLocationInPanelScanCoverage(regionCode, provinceCode)) {
+          throw new AppError('The selected location is outside PanelScan preliminary delivery coverage.', 400);
+        }
+
+        // 3. Format address via canonical single formatter
+        const formatted = formatPhilippineDeliveryAddress(input.deliveryLocation);
+        finalShippingAddress = formatted;
+
+        // 4. Normalize phone if present
+        const normalizedPhone = input.deliveryLocation.recipientPhone
+          ? normalizePhilippinePhone(input.deliveryLocation.recipientPhone)
+          : undefined;
+
+        // 5. Build snapshot (coordinates strictly null until authorized geocoder runs in Lalamove phase)
+        deliveryLocationSnapshot = {
+          ...input.deliveryLocation,
+          formattedAddress: formatted,
+          recipientPhone: normalizedPhone || input.deliveryLocation.recipientPhone,
+          latitude: null,
+          longitude: null,
+          geocodingStatus: 'pending',
+        } as unknown as Prisma.InputJsonValue;
+      }
 
       const order = await tx.order.create({
         data: {
@@ -101,20 +202,28 @@ export class OrderService {
           subtotal,
           shippingFee,
           totalAmount,
-          shippingAddress: input.shippingAddress,
+          shippingAddress: finalShippingAddress,
+          deliveryLocation: deliveryLocationSnapshot ?? Prisma.JsonNull,
           notes: input.notes,
           items: { createMany: { data: orderItemsData } },
         },
       });
 
-      for (const cartItem of cart.items) {
+      for (const item of inventoryDecrements) {
         await tx.inventory.update({
-          where: { productId: cartItem.productId },
-          data: { quantity: { decrement: cartItem.quantity } },
+          where: { productId: item.productId },
+          data: { quantity: { decrement: item.quantity } },
         });
       }
 
-      await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+      if (cartIdForDeletion && cartItemIdsToDelete.length > 0) {
+        await tx.cartItem.deleteMany({
+          where: {
+            cartId: cartIdForDeletion,
+            id: { in: cartItemIdsToDelete },
+          },
+        });
+      }
 
       await createNotification(
         {
@@ -126,6 +235,30 @@ export class OrderService {
         },
         tx,
       );
+
+      if (input.installation) {
+        await tx.booking.create({
+          data: {
+            customerId,
+            orderId: order.id,
+            scheduledDate: input.installation.scheduledDate,
+            address: input.installation.address,
+            notes: input.installation.notes,
+            status: BookingStatus.PENDING,
+          },
+        });
+
+        await createNotification(
+          {
+            userId: customerId,
+            type: NotificationType.BOOKING,
+            title: 'Installation requested',
+            message: `Installation for order ${order.orderNumber} was requested and is pending confirmation.`,
+            metadata: { orderId: order.id, orderNumber: order.orderNumber },
+          },
+          tx,
+        );
+      }
 
       return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
     });
@@ -231,6 +364,39 @@ export class OrderService {
           title: 'Order status updated',
           message: `Your order ${order.orderNumber} is now ${status.toLowerCase()}.`,
           metadata: { orderId: order.id, orderNumber: order.orderNumber, status },
+        },
+        tx,
+      );
+
+      return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
+    });
+  }
+
+  async approveOrder(orderId: string, _moderatorId: string): Promise<OrderWithItems> {
+    return prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId } });
+      if (!order) {
+        throw new AppError('Order not found.', 404);
+      }
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new AppError('Cannot approve a cancelled order.', 400);
+      }
+      if (order.moderatorApproved) {
+        return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
+      }
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: { moderatorApproved: true },
+      });
+
+      await createNotification(
+        {
+          userId: order.customerId,
+          type: NotificationType.ORDER,
+          title: 'Order approved',
+          message: `Your order ${order.orderNumber} has been approved. You can now proceed with payment.`,
+          metadata: { orderId: order.id, orderNumber: order.orderNumber, event: 'ORDER_APPROVED' },
         },
         tx,
       );

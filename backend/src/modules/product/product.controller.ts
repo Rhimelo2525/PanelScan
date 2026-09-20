@@ -37,6 +37,10 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   create = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'OWNER') {
+      throw new AppError('Owners cannot directly perform operational changes. Changes must be requested by a Moderator and approved by an Owner.', 403);
+    }
+
     if (req.user?.role === 'MODERATOR') {
       const skuConflict = await prisma.product.findFirst({
         where: { sku: { equals: req.body.sku.trim(), mode: 'insensitive' }, deletedAt: null },
@@ -52,7 +56,7 @@ export class ProductController {
 
       const priceNum = Number(req.body.price);
       const priceFormatted = `₱${priceNum.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      const summary = `Request to add product "${req.body.name.trim()}" (${req.body.sku.trim().toUpperCase()}) in category "${category.name}" with price ${priceFormatted} and initial stock of ${req.body.stock ?? 0} units.`;
+      const summary = `Request to add product "${req.body.name.trim()}" (${req.body.sku.trim().toUpperCase()}) in category "${category.name}" with price ${priceFormatted}.`;
 
       const payload: ChangeRequestPayload = {
         action: 'ADD_PRODUCT',
@@ -65,8 +69,6 @@ export class ProductController {
           Category: category.name,
           SKU: req.body.sku.trim().toUpperCase(),
           Price: priceFormatted,
-          Stock: req.body.stock ?? 0,
-          'Reorder Level': req.body.reorderLevel ?? 10,
         },
         productData: req.body,
       };
@@ -81,11 +83,14 @@ export class ProductController {
       return;
     }
 
-    const product = await this.productService.createProduct(req.body);
-    sendSuccess(res, 201, 'Product created successfully.', { product });
+    throw new AppError('Operational changes must be submitted by a Moderator.', 403);
   });
 
   update = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'OWNER') {
+      throw new AppError('Owners cannot directly perform operational changes. Changes must be requested by a Moderator and approved by an Owner.', 403);
+    }
+
     if (req.user?.role === 'MODERATOR') {
       const product = await prisma.product.findFirst({
         where: { id: req.params.id as string, deletedAt: null },
@@ -117,22 +122,6 @@ export class ProductController {
         currentValues.SKU = product.sku;
         proposedValues.SKU = req.body.sku.trim().toUpperCase();
         diffList.push(`SKU: ${product.sku} → ${proposedValues.SKU}`);
-      }
-      if (req.body.stock !== undefined && product.inventory) {
-        const newStock = Number(req.body.stock);
-        if (product.inventory.quantity !== newStock) {
-          currentValues.Stock = product.inventory.quantity;
-          proposedValues.Stock = newStock;
-          diffList.push(`Stock: Current: ${product.inventory.quantity} | Proposed: ${newStock}`);
-        }
-      }
-      if (req.body.reorderLevel !== undefined && product.inventory) {
-        const newReorder = Number(req.body.reorderLevel);
-        if (product.inventory.reorderLevel !== newReorder) {
-          currentValues['Reorder Level'] = product.inventory.reorderLevel;
-          proposedValues['Reorder Level'] = newReorder;
-          diffList.push(`Reorder level: Current: ${product.inventory.reorderLevel} | Proposed: ${newReorder}`);
-        }
       }
       if (req.body.material !== undefined && req.body.material !== product.material) {
         currentValues.Material = product.material || 'None';
@@ -170,11 +159,14 @@ export class ProductController {
       return;
     }
 
-    const product = await this.productService.updateProduct(req.params.id as string, req.body);
-    sendSuccess(res, 200, 'Product updated successfully.', { product });
+    throw new AppError('Operational changes must be submitted by a Moderator.', 403);
   });
 
   softDelete = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'OWNER') {
+      throw new AppError('Owners cannot directly perform operational changes. Changes must be requested by a Moderator and approved by an Owner.', 403);
+    }
+
     if (req.user?.role === 'MODERATOR') {
       const product = await prisma.product.findFirst({
         where: { id: req.params.id as string, deletedAt: null },
@@ -204,8 +196,7 @@ export class ProductController {
       return;
     }
 
-    const product = await this.productService.softDeleteProduct(req.params.id as string);
-    sendSuccess(res, 200, 'Product deleted successfully.', { product });
+    throw new AppError('Operational changes must be submitted by a Moderator.', 403);
   });
 
   getById = catchAsync(async (req: Request, res: Response): Promise<void> => {

@@ -12,8 +12,9 @@ describe('Auth module', () => {
         firstName: 'Justin',
         lastName: 'Ablog',
         email: 'justin.register@panelscan.test',
-        password: 'Password123',
+        password: 'P@nelScan2026',
         phone: '09123456789',
+        acceptedTerms: true,
       });
 
       expect(response.status).toBe(201);
@@ -26,8 +27,9 @@ describe('Auth module', () => {
 
       const dbUser = await prisma.user.findUnique({ where: { email: 'justin.register@panelscan.test' } });
       expect(dbUser).not.toBeNull();
-      expect(dbUser?.password).not.toBe('Password123');
+      expect(dbUser?.password).not.toBe('P@nelScan2026');
       expect(dbUser?.role).toBe('CUSTOMER');
+      expect(dbUser?.termsAcceptedAt).not.toBeNull();
     });
 
     it('ignores a client-supplied role and still creates a CUSTOMER', async () => {
@@ -35,8 +37,9 @@ describe('Auth module', () => {
         firstName: 'Sneaky',
         lastName: 'User',
         email: 'sneaky@panelscan.test',
-        password: 'Password123',
+        password: 'P@nelScan2026',
         role: 'OWNER',
+        acceptedTerms: true,
       });
 
       expect(response.status).toBe(201);
@@ -48,7 +51,8 @@ describe('Auth module', () => {
         firstName: 'Dup',
         lastName: 'User',
         email: 'dup@panelscan.test',
-        password: 'Password123',
+        password: 'P@nelScan2026',
+        acceptedTerms: true,
       };
 
       const first = await request(app).post('/api/auth/register').send(payload);
@@ -64,12 +68,40 @@ describe('Auth module', () => {
       expect(count).toBe(1);
     });
 
+    it('rejects registration with acceptedTerms: false → FAIL (400)', async () => {
+      const response = await request(app).post('/api/auth/register').send({
+        firstName: 'Terms',
+        lastName: 'Declined',
+        email: 'terms.declined@panelscan.test',
+        password: 'P@nelScan2026',
+        acceptedTerms: false,
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(JSON.stringify(response.body.errors)).toMatch(/Terms of Use and Privacy Policy/i);
+    });
+
+    it('rejects registration missing acceptedTerms consent → FAIL (400)', async () => {
+      const response = await request(app).post('/api/auth/register').send({
+        firstName: 'Missing',
+        lastName: 'Consent',
+        email: 'missing.consent@panelscan.test',
+        password: 'P@nelScan2026',
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(JSON.stringify(response.body.errors)).toMatch(/Terms of Use and Privacy Policy/i);
+    });
+
     it('rejects invalid registration input with 400 and field-level errors', async () => {
       const response = await request(app).post('/api/auth/register').send({
         firstName: 'A',
         lastName: 'User',
         email: 'not-an-email',
         password: 'short',
+        acceptedTerms: true,
       });
 
       expect(response.status).toBe(400);

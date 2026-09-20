@@ -35,6 +35,8 @@ const parseProjectFilters = (query: Request['query']): ProjectFilters => {
     page: typeof query.page === 'string' ? Number(query.page) : undefined,
     limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
     status: typeof query.status === 'string' ? (query.status as ProjectFilters['status']) : undefined,
+    source: typeof query.source === 'string' ? (query.source as ProjectFilters['source']) : undefined,
+    externalProjectId: typeof query.externalProjectId === 'string' ? query.externalProjectId : undefined,
     customerId: typeof query.customerId === 'string' ? query.customerId : undefined,
     moderatorId: typeof query.moderatorId === 'string' ? query.moderatorId : undefined,
     ownerId: typeof query.ownerId === 'string' ? query.ownerId : undefined,

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authenticate } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
+import { passwordSchema } from '../../utils/passwordPolicy';
 import { usersController } from './users.controller';
 
 const idParamsSchema = z.object({
@@ -31,7 +32,7 @@ const createModeratorSchema = z.object({
     firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50),
     lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
-    password: z.string().min(8, 'Password must be at least 8 characters.').max(100),
+    password: passwordSchema,
     phone: z
       .string()
       .trim()

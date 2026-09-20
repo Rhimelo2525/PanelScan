@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 
 import { env } from './config/env';
+import { checkBackupHealth, checkPrimaryHealth } from './config/database';
 import { globalErrorHandler } from './middleware/error.middleware';
 import { notFound } from './middleware/notFound.middleware';
 import { apiRateLimiter } from './middleware/rateLimit.middleware';
@@ -62,6 +63,19 @@ app.use(cookieParser());
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Monitoring only - reports connectivity of both the production database
+// (CockroachDB) and the backup/disaster-recovery database (Supabase). Does
+// NOT switch which database the application uses; that remains CockroachDB
+// unconditionally (see DATABASE_URL / src/config/database.ts).
+app.get('/health/backup-status', async (_req: Request, res: Response) => {
+  const [primary, backup] = await Promise.all([checkPrimaryHealth(), checkBackupHealth()]);
+  res.status(200).json({
+    timestamp: new Date().toISOString(),
+    cockroachdb: primary,
+    supabaseBackup: backup,
+  });
 });
 
 // API routes - rate limiter scoped to /api so /health above is never throttled.

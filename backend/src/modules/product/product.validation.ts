@@ -29,6 +29,7 @@ export const createProductSchema = z.object({
     thickness: z.number().positive('Thickness must be greater than 0.').optional(),
     unit: z.string().trim().max(20, 'Unit is too long.').optional(),
     material: z.string().trim().max(100, 'Material is too long.').optional(),
+    isActive: z.boolean().optional(),
     isFeatured: z.boolean().optional(),
     stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').optional(),
     reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').optional(),

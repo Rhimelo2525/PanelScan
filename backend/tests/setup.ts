@@ -5,6 +5,16 @@ import { cleanDatabase, disconnectDatabase } from './helpers/db';
 import { seedDatabase } from '../prisma/seed';
 
 beforeAll(async () => {
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isDedicatedTestDb = dbUrl.includes('panelscan_test') || dbUrl.includes('localhost:26257/panelscan_test');
+
+  if (!isDedicatedTestDb) {
+    throw new Error(
+      '\n[CRITICAL SAFETY STOP] Tests were attempted against a live/shared database!\n' +
+        'Create .env.test pointing to a dedicated test database (e.g. localhost:26257/panelscan_test) before running tests.\n'
+    );
+  }
+
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch (error) {
@@ -26,13 +36,15 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  try {
-    // Restore base seed data (OWNER, MODERATOR, categories, products, inventory)
-    // so development and deployment logins continue working after tests finish.
-    await seedDatabase(prisma);
-  } catch (error) {
-    console.error('Failed to restore seed data in afterAll:', error);
-  } finally {
-    await disconnectDatabase();
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isDedicatedTestDb = dbUrl.includes('panelscan_test') || dbUrl.includes('localhost:26257/panelscan_test');
+
+  if (isDedicatedTestDb) {
+    try {
+      await seedDatabase(prisma);
+    } catch (error) {
+      console.error('Failed to restore seed data in afterAll:', error);
+    }
   }
+  await disconnectDatabase();
 });

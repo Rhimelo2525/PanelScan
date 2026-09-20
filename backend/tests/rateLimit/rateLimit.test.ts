@@ -192,7 +192,8 @@ describe('Rate limiting', () => {
         firstName: 'Rate',
         lastName: 'Limit',
         email: `rate-limit-${Date.now()}@panelscan.test`,
-        password: 'Passw0rd123',
+        password: 'Passw0rd123!',
+        acceptedTerms: true,
       });
 
       expect(response.status).toBe(201);

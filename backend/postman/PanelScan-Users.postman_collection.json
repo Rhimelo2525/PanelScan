@@ -48,7 +48,7 @@
             "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"owner@panelscan.com\",\n  \"password\": \"Owner@12345\"\n}"
+              "raw": "{\n  \"email\": \"owner@gmail.com\",\n  \"password\": \"Owner@12345\"\n}"
             }
           },
           "event": [

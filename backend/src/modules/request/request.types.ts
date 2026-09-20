@@ -33,7 +33,7 @@ export interface PaginatedRequests {
   pagination: PaginationMeta;
 }
 
-export type ChangeRequestAction = 'ADD_PRODUCT' | 'EDIT_PRODUCT' | 'DELETE_PRODUCT' | 'ADJUST_STOCK';
+export type ChangeRequestAction = 'ADD_PRODUCT' | 'EDIT_PRODUCT' | 'DELETE_PRODUCT' | 'ADJUST_STOCK' | 'ADD_INVENTORY' | 'DELETE_INVENTORY';
 
 export interface ChangeRequestPayload {
   action: ChangeRequestAction;
@@ -45,7 +45,7 @@ export interface ChangeRequestPayload {
   proposedValues?: Record<string, any>;
   productData?: any;
   updateData?: any;
-  adjustData?: { direction: 'add' | 'reduce'; quantity: number };
+  adjustData?: { direction?: 'add' | 'reduce'; quantity?: number; targetQuantity?: number };
 }
 
 export const CHANGE_PAYLOAD_DELIMITER = '\n\n__PANELSCAN_CHANGE_PAYLOAD__:\n';

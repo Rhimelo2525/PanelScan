@@ -31,4 +31,12 @@ router.patch(
   orderController.updateStatus,
 );
 
+// PATCH /api/orders/:id/approve - MODERATOR only.
+router.patch(
+  '/:id/approve',
+  restrictTo(UserRole.MODERATOR),
+  validate(idParamsSchema),
+  orderController.approve,
+);
+
 export default router;

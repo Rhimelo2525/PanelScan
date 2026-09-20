@@ -35,7 +35,7 @@ describe('Product module', () => {
       expect(dbProduct).toBeNull();
     });
 
-    it('creates a product directly when called by OWNER', async () => {
+    it('rejects direct product creation by OWNER with 403', async () => {
       const { token } = await createOwner();
       const category = await createTestCategory();
       const sku = `SKU-OWNER-${Date.now()}`;
@@ -50,15 +50,13 @@ describe('Product module', () => {
           price: 1850,
         });
 
-      expect(response.status).toBe(201);
-      expect(response.body.data.product.name).toBe('Owner Panel');
-
+      expect(response.status).toBe(403);
       const dbProduct = await prisma.product.findFirst({ where: { sku } });
-      expect(dbProduct).not.toBeNull();
+      expect(dbProduct).toBeNull();
     });
 
     it('rejects invalid input (non-positive price) with 400', async () => {
-      const { token } = await createOwner();
+      const { token } = await createModerator();
       const category = await createTestCategory();
 
       const response = await request(app)
@@ -71,7 +69,7 @@ describe('Product module', () => {
     });
 
     it('returns 404 when the category does not exist', async () => {
-      const { token } = await createOwner();
+      const { token } = await createModerator();
 
       const response = await request(app)
         .post('/api/products')
@@ -106,7 +104,7 @@ describe('Product module', () => {
       expect(Number(dbProduct?.price)).toBe(100);
     });
 
-    it('updates a product directly when called by OWNER', async () => {
+    it('rejects direct product update by OWNER with 403', async () => {
       const { token } = await createOwner();
       const product = await createTestProduct({ price: 100 });
 
@@ -115,11 +113,10 @@ describe('Product module', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ price: 250 });
 
-      expect(response.status).toBe(200);
-      expect(Number(response.body.data.product.price)).toBe(250);
+      expect(response.status).toBe(403);
 
       const dbProduct = await prisma.product.findUnique({ where: { id: product.id } });
-      expect(Number(dbProduct?.price)).toBe(250);
+      expect(Number(dbProduct?.price)).toBe(100);
     });
   });
 
@@ -138,16 +135,16 @@ describe('Product module', () => {
       expect(dbProduct?.isActive).toBe(true);
     });
 
-    it('soft deletes a product directly when called by OWNER', async () => {
+    it('rejects direct product deletion by OWNER with 403', async () => {
       const { token } = await createOwner();
       const product = await createTestProduct();
 
       const response = await request(app).delete(`/api/products/${product.id}`).set('Authorization', `Bearer ${token}`);
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(403);
 
       const dbProduct = await prisma.product.findUnique({ where: { id: product.id } });
-      expect(dbProduct?.deletedAt).not.toBeNull();
-      expect(dbProduct?.isActive).toBe(false);
+      expect(dbProduct?.deletedAt).toBeNull();
+      expect(dbProduct?.isActive).toBe(true);
     });
   });
 

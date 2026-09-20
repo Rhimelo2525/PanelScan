@@ -1,8 +1,8 @@
 import { Prisma, UserRole } from '@prisma/client';
-import bcrypt from 'bcrypt';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { hashPassword } from '../../utils/password';
 
 const userSelect = {
   id: true,
@@ -40,7 +40,7 @@ export class UsersService {
       throw new AppError('An account with this email address already exists.', 409);
     }
 
-    const hashedPassword = await bcrypt.hash(input.password, 12);
+    const hashedPassword = await hashPassword(input.password);
 
     return prisma.user.create({
       data: {

@@ -213,6 +213,7 @@ export interface CreateTestOrderOptions {
   customerId: string;
   status?: OrderStatus;
   items?: CreateTestOrderItemInput[];
+  moderatorApproved?: boolean;
 }
 
 /**
@@ -229,6 +230,7 @@ export const createTestOrder = async (options: CreateTestOrderOptions): Promise<
       orderNumber: `TEST-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       customerId: options.customerId,
       status: options.status ?? OrderStatus.PENDING,
+      moderatorApproved: options.moderatorApproved ?? true,
       subtotal,
       shippingFee: 0,
       totalAmount: subtotal,

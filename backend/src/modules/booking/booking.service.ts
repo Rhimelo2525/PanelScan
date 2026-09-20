@@ -1,4 +1,4 @@
-import { BookingStatus, NotificationType, Prisma, ProjectStatus, UserRole } from '@prisma/client';
+import { BookingStatus, NotificationType, OrderStatus, Prisma, ProjectSource, ProjectStatus, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
@@ -18,18 +18,49 @@ const DEFAULT_LIMIT = 20;
  * broader cancellation right than the customer's own PENDING-only cancel).
  */
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
-  [BookingStatus.PENDING]: [BookingStatus.APPROVED, BookingStatus.CANCELLED],
-  [BookingStatus.APPROVED]: [BookingStatus.CANCELLED],
-  [BookingStatus.SCHEDULED]: [BookingStatus.COMPLETED, BookingStatus.CANCELLED],
+  [BookingStatus.PENDING]: [BookingStatus.APPROVED, BookingStatus.SCHEDULED, BookingStatus.CANCELLED],
+  [BookingStatus.APPROVED]: [BookingStatus.SCHEDULED, BookingStatus.COMPLETED, BookingStatus.CANCELLED],
+  [BookingStatus.SCHEDULED]: [BookingStatus.APPROVED, BookingStatus.COMPLETED, BookingStatus.CANCELLED],
   [BookingStatus.COMPLETED]: [],
   [BookingStatus.CANCELLED]: [],
 };
 
 export class BookingService {
   async createBooking(customerId: string, input: CreateBookingInput): Promise<BookingWithRelations> {
+    // 1. Verify customer has at least one valid completed/checked-out order
+    const qualifyingOrders = await prisma.order.findMany({
+      where: {
+        customerId,
+        status: { not: OrderStatus.CANCELLED },
+      },
+      include: { booking: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (qualifyingOrders.length === 0) {
+      throw new AppError('You need to complete an order before requesting installation.', 400);
+    }
+
+    let linkedOrderId: string | undefined = undefined;
+    if (input.orderId) {
+      const match = qualifyingOrders.find((o) => o.id === input.orderId);
+      if (!match) {
+        throw new AppError('You need to complete an order before requesting installation.', 400);
+      }
+      if (!match.booking) {
+        linkedOrderId = match.id;
+      }
+    } else {
+      const unbookedOrder = qualifyingOrders.find((o) => !o.booking);
+      if (unbookedOrder) {
+        linkedOrderId = unbookedOrder.id;
+      }
+    }
+
     const booking = await prisma.booking.create({
       data: {
         customerId,
+        orderId: linkedOrderId,
         scheduledDate: input.scheduledDate,
         address: input.address,
         notes: input.notes,
@@ -66,6 +97,7 @@ export class BookingService {
     const where: Prisma.BookingWhereInput = {
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.onlyOrders ? { orderId: { not: null } } : {}),
     };
 
     const [bookings, total] = await Promise.all([
@@ -119,22 +151,31 @@ export class BookingService {
     return updated;
   }
 
-  async updateBookingStatus(bookingId: string, actingUserId: string, newStatus: BookingStatus): Promise<BookingWithRelations> {
+  async updateBookingStatus(
+    bookingId: string,
+    actingUserId: string,
+    newStatus: BookingStatus,
+    scheduledDate?: Date,
+  ): Promise<BookingWithRelations> {
     return prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({ where: { id: bookingId } });
       if (!booking) {
         throw new AppError('Booking not found.', 404);
       }
 
-      const allowedNext = ALLOWED_STATUS_TRANSITIONS[booking.status];
-      if (!allowedNext.includes(newStatus)) {
-        if (booking.status === BookingStatus.APPROVED && newStatus === BookingStatus.SCHEDULED) {
-          throw new AppError('Assign an installer to move this booking to SCHEDULED.', 400);
+      if (booking.status !== newStatus) {
+        const allowedNext = ALLOWED_STATUS_TRANSITIONS[booking.status];
+        if (!allowedNext.includes(newStatus)) {
+          throw new AppError(`Cannot change booking status from ${booking.status} to ${newStatus}.`, 400);
         }
-        throw new AppError(`Cannot change booking status from ${booking.status} to ${newStatus}.`, 400);
       }
 
-      const updated = await tx.booking.update({ where: { id: bookingId }, data: { status: newStatus } });
+      const updateData: Prisma.BookingUpdateInput = {
+        status: newStatus,
+        ...(scheduledDate ? { scheduledDate } : {}),
+      };
+
+      await tx.booking.update({ where: { id: bookingId }, data: updateData });
 
       if (newStatus === BookingStatus.APPROVED || newStatus === BookingStatus.CANCELLED) {
         await createNotification(
@@ -153,7 +194,7 @@ export class BookingService {
       }
 
       if (newStatus === BookingStatus.COMPLETED) {
-        await this.syncProjectOnBookingCompleted(tx, updated, actingUserId);
+        await this.syncProjectOnBookingCompleted(tx, booking, actingUserId);
       }
 
       return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: bookingInclude });
@@ -166,8 +207,8 @@ export class BookingService {
       if (!booking) {
         throw new AppError('Booking not found.', 404);
       }
-      if (booking.status !== BookingStatus.APPROVED) {
-        throw new AppError('An installer can only be assigned to an APPROVED booking.', 400);
+      if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
+        throw new AppError('Cannot assign an installer to a completed or cancelled booking.', 400);
       }
 
       const installer = await tx.installer.findUnique({ where: { id: installerId } });
@@ -178,26 +219,20 @@ export class BookingService {
         throw new AppError('Cannot assign an inactive installer.', 400);
       }
 
+      const nextStatus =
+        booking.status === BookingStatus.PENDING || booking.status === BookingStatus.APPROVED
+          ? BookingStatus.SCHEDULED
+          : booking.status;
+
       await tx.booking.update({
         where: { id: bookingId },
-        data: { installerId, status: BookingStatus.SCHEDULED },
+        data: { installerId, status: nextStatus },
       });
 
       return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: bookingInclude });
     });
   }
 
-  /**
-   * The schema has no direct Booking<->Project foreign key (Project only
-   * carries customerId/ownerId/moderatorId), so this correlates purely by
-   * customerId: reuse the customer's most recent IN_PROGRESS project if one
-   * exists (mark it COMPLETED), otherwise create a new project directly as
-   * COMPLETED (there was nothing "in progress" to represent - the booking's
-   * own PENDING->APPROVED->SCHEDULED lifecycle was the project's lifecycle).
-   * A customer with multiple simultaneous IN_PROGRESS projects is an edge
-   * case this can't disambiguate without a schema change, which was out of
-   * scope for this phase.
-   */
   private async syncProjectOnBookingCompleted(
     tx: Prisma.TransactionClient,
     booking: { customerId: string; address: string; createdAt: Date },
@@ -216,9 +251,6 @@ export class BookingService {
 
       await createNotification(
         {
-          // NotificationType has no PROJECT value (only ORDER/PAYMENT/BOOKING/
-          // CHAT/SYSTEM exist) - SYSTEM is the closest fit without a schema
-          // change, disambiguated via metadata.event for API consumers.
           userId: booking.customerId,
           type: NotificationType.SYSTEM,
           title: 'Project updated',
@@ -236,6 +268,7 @@ export class BookingService {
         moderatorId,
         name: `Installation - ${booking.address}`,
         status: ProjectStatus.COMPLETED,
+        source: ProjectSource.MANUAL,
         startDate: booking.createdAt,
         endDate: new Date(),
       },

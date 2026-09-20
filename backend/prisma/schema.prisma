@@ -64,6 +64,11 @@ enum ProjectStatus {
   CANCELLED
 }
 
+enum ProjectSource {
+  MANUAL
+  MOBILE_AR_3D
+}
+
 enum NotificationType {
   ORDER
   PAYMENT
@@ -97,6 +102,13 @@ enum RequestStatus {
   CANCELLED
 }
 
+enum DeliveryApprovalStatus {
+  NOT_REQUESTED
+  PENDING_APPROVAL
+  APPROVED
+  DECLINED
+}
+
 // ================================================================
 // USERS
 // ================================================================
@@ -111,6 +123,7 @@ model User {
   phone     String?
   role      UserRole @default(CUSTOMER)
   isActive  Boolean  @default(true) @map("is_active")
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -271,6 +284,8 @@ model Order {
   shippingFee     Decimal     @default(0) @map("shipping_fee") @db.Decimal(12, 2)
   totalAmount     Decimal     @map("total_amount") @db.Decimal(12, 2)
   shippingAddress String      @map("shipping_address")
+  deliveryLocation Json?      @map("delivery_location")
+  moderatorApproved Boolean   @default(false) @map("moderator_approved")
   notes           String?
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
@@ -281,7 +296,8 @@ model Order {
   items     OrderItem[]
   payment   Payment?
   delivery  Delivery?
-  feedbacks Feedback[]
+  booking   Booking?
+  feedback  Feedback?
 
   @@index([customerId])
   @@index([status])
@@ -327,18 +343,28 @@ model Payment {
 }
 
 model Delivery {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orderId        String    @unique @map("order_id") @db.Uuid
-  courierName    String?   @map("courier_name")
-  trackingNumber String?   @map("tracking_number")
-  address        String
-  scheduledDate  DateTime? @map("scheduled_date")
-  deliveredAt    DateTime? @map("delivered_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId          String                 @unique @map("order_id") @db.Uuid
+  approvalStatus   DeliveryApprovalStatus @default(NOT_REQUESTED) @map("approval_status")
+  requestedAt      DateTime?              @map("requested_at")
+  approvedAt       DateTime?              @map("approved_at")
+  approvedById     String?                @map("approved_by_id") @db.Uuid
+  declinedAt       DateTime?              @map("declined_at")
+  declineReason    String?                @map("decline_reason")
+  courierName      String?                @map("courier_name")
+  trackingNumber   String?                @map("tracking_number")
+  address          String
+  deliveryProvider String?                @default("LALAMOVE") @map("delivery_provider")
+  deliveryStatus   String?                @default("NOT_REQUESTED") @map("delivery_status")
+  providerMetadata Json?                  @map("provider_metadata")
+  scheduledDate    DateTime?              @map("scheduled_date")
+  deliveredAt      DateTime?              @map("delivered_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  @@index([approvalStatus])
   @@map("deliveries")
 }
 
@@ -366,6 +392,7 @@ model Installer {
 model Booking {
   id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   customerId    String        @map("customer_id") @db.Uuid
+  orderId       String?       @unique @map("order_id") @db.Uuid
   installerId   String?       @map("installer_id") @db.Uuid
   status        BookingStatus @default(PENDING)
   scheduledDate DateTime      @map("scheduled_date")
@@ -375,6 +402,7 @@ model Booking {
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
   customer  User       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order     Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
   installer Installer? @relation(fields: [installerId], references: [id], onDelete: SetNull)
 
   @@index([customerId])
@@ -411,7 +439,7 @@ model Measurement {
 model Feedback {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   customerId String   @map("customer_id") @db.Uuid
-  orderId    String?  @map("order_id") @db.Uuid
+  orderId    String?  @unique @map("order_id") @db.Uuid
   rating     Int
   comment    String?
   createdAt  DateTime @default(now()) @map("created_at")
@@ -421,7 +449,6 @@ model Feedback {
   order    Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([customerId])
-  @@index([orderId])
   @@map("feedbacks")
 }
 
@@ -521,6 +548,12 @@ model Project {
   // other's.
   notes       String?
   status      ProjectStatus @default(PENDING)
+  source      ProjectSource @default(MANUAL) @map("source")
+  externalProjectId String? @map("external_project_id")
+  arDataUrl   String?       @map("ar_data_url")
+  arMetadata  Json?         @map("ar_metadata")
+  threeDModelUrl String?    @map("three_d_model_url")
+  threeDMetadata Json?      @map("three_d_metadata")
   startDate   DateTime?     @map("start_date")
   endDate     DateTime?     @map("end_date")
   budget      Decimal?      @db.Decimal(12, 2)
@@ -535,6 +568,8 @@ model Project {
   @@index([ownerId])
   @@index([moderatorId])
   @@index([status])
+  @@index([source])
+  @@index([externalProjectId])
   @@map("projects")
 }
 

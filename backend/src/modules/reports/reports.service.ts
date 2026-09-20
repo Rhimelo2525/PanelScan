@@ -43,7 +43,24 @@ const paginationMeta = (page: number, limit: number, total: number) => ({
 });
 
 type OrderWithRelations = Prisma.OrderGetPayload<{
-  include: { customer: { select: { firstName: true; lastName: true } }; items: { select: { id: true } } };
+  include: {
+    customer: { select: { firstName: true; lastName: true } };
+    items: { select: { id: true } };
+    payment: { select: { status: true } };
+    delivery: {
+      select: {
+        id: true;
+        deliveryStatus: true;
+        courierName: true;
+        trackingNumber: true;
+        approvalStatus: true;
+        requestedAt: true;
+        approvedAt: true;
+        declinedAt: true;
+        declineReason: true;
+      };
+    };
+  };
 }>;
 
 export class ReportsService {
@@ -64,7 +81,24 @@ export class ReportsService {
       prisma.order.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.order.findMany({
         where,
-        include: { customer: { select: { firstName: true, lastName: true } }, items: { select: { id: true } } },
+        include: {
+          customer: { select: { firstName: true, lastName: true } },
+          items: { select: { id: true } },
+          payment: { select: { status: true } },
+          delivery: {
+            select: {
+              id: true,
+              deliveryStatus: true,
+              courierName: true,
+              trackingNumber: true,
+              approvalStatus: true,
+              requestedAt: true,
+              approvedAt: true,
+              declinedAt: true,
+              declineReason: true,
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -74,7 +108,7 @@ export class ReportsService {
     const totalOrders = ordersByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
     const summary: SalesReport['summary'] = { totalOrders, ordersByStatus: toStatusBreakdown(ordersByStatusRaw) };
 
-    if (role === UserRole.OWNER) {
+    if (role === UserRole.OWNER || role === UserRole.MODERATOR) {
       const paymentWhere: Prisma.PaymentWhereInput = {
         status: PaymentStatus.PAID,
         ...(filters.dateFrom || filters.dateTo
@@ -92,7 +126,7 @@ export class ReportsService {
 
     return {
       summary,
-      orders: orders.map((order) => this.toOrderRow(order, role)),
+      orders: orders.map((order) => this.toOrderRow(order, role === UserRole.OWNER || role === UserRole.MODERATOR)),
       pagination: paginationMeta(page, limit, totalOrders),
     };
   }
@@ -116,7 +150,24 @@ export class ReportsService {
       prisma.order.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.order.findMany({
         where,
-        include: { customer: { select: { firstName: true, lastName: true } }, items: { select: { id: true } } },
+        include: {
+          customer: { select: { firstName: true, lastName: true } },
+          items: { select: { id: true } },
+          payment: { select: { status: true } },
+          delivery: {
+            select: {
+              id: true,
+              deliveryStatus: true,
+              courierName: true,
+              trackingNumber: true,
+              approvalStatus: true,
+              requestedAt: true,
+              approvedAt: true,
+              declinedAt: true,
+              declineReason: true,
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -127,22 +178,33 @@ export class ReportsService {
 
     return {
       summary: { totalOrders, ordersByStatus: toStatusBreakdown(ordersByStatusRaw) },
-      orders: orders.map((order) => this.toOrderRow(order, role)),
+      orders: orders.map((order) => this.toOrderRow(order, role === UserRole.OWNER)),
       pagination: paginationMeta(page, limit, totalOrders),
     };
   }
 
-  private toOrderRow(order: OrderWithRelations, role: UserRole): OrderReportRow {
+  private toOrderRow(order: OrderWithRelations, includeAmount: boolean): OrderReportRow {
+    const paymentStatus = order.payment?.status ?? PaymentStatus.PENDING;
     const row: OrderReportRow = {
       id: order.id,
       orderNumber: order.orderNumber,
       customerId: order.customerId,
       customerName: `${order.customer.firstName} ${order.customer.lastName}`,
       status: order.status,
+      moderatorApproved: Boolean(order.moderatorApproved),
+      isPaid: paymentStatus === PaymentStatus.PAID,
+      paymentStatus,
+      shippingAddress: order.shippingAddress,
+      deliveryStatus: order.delivery?.deliveryStatus ?? null,
+      deliveryApprovalStatus: order.delivery?.approvalStatus ?? 'NOT_REQUESTED',
+      deliveryRequestedAt: order.delivery?.requestedAt ?? null,
+      deliveryApprovedAt: order.delivery?.approvedAt ?? null,
+      deliveryDeclinedAt: order.delivery?.declinedAt ?? null,
+      deliveryDeclineReason: order.delivery?.declineReason ?? null,
       itemCount: order.items.length,
       createdAt: order.createdAt,
     };
-    if (role === UserRole.OWNER) {
+    if (includeAmount) {
       row.totalAmount = Number(order.totalAmount);
     }
     return row;

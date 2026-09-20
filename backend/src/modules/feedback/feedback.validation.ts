@@ -12,7 +12,13 @@ export const createFeedbackSchema = z.object({
       .int('Rating must be a whole number.')
       .min(1, 'Rating must be between 1 and 5.')
       .max(5, 'Rating must be between 1 and 5.'),
-    comment: z.string().trim().min(3, 'Comment must be at least 3 characters.').max(1000, 'Comment is too long.').optional(),
+    comment: z
+      .string()
+      .trim()
+      .max(1000, 'Comment is too long.')
+      .optional()
+      .transform((val) => (val && val.length > 0 ? val : undefined))
+      .pipe(z.string().min(3, 'Comment must be at least 3 characters.').optional()),
   }),
 });
 

@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+export { DeliveryApprovalStatus } from '@prisma/client';
 
 export const deliveryInclude = {
   order: { select: { id: true, orderNumber: true, customerId: true, status: true } },

@@ -61,6 +61,12 @@ export class OrderController {
     const order = await this.orderService.updateOrderStatus(req.params.id as string, req.body.status);
     sendSuccess(res, 200, 'Order status updated successfully.', { order });
   });
+
+  approve = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const order = await this.orderService.approveOrder(req.params.id as string, requester.id);
+    sendSuccess(res, 200, 'Order approved successfully.', { order });
+  });
 }
 
 export const orderController = new OrderController(orderService);

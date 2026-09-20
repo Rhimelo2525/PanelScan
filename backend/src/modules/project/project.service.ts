@@ -1,4 +1,4 @@
-import { NotificationType, Prisma, ProjectStatus, UserRole } from '@prisma/client';
+import { NotificationType, Prisma, ProjectSource, ProjectStatus, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
@@ -59,6 +59,12 @@ export class ProjectService {
         startDate: input.startDate,
         endDate: input.endDate,
         status: ProjectStatus.PENDING,
+        source: input.source ?? ProjectSource.MANUAL,
+        externalProjectId: input.externalProjectId,
+        arDataUrl: input.arDataUrl,
+        arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
+        threeDModelUrl: input.threeDModelUrl,
+        threeDMetadata: input.threeDMetadata ? (input.threeDMetadata as Prisma.InputJsonValue) : undefined,
       },
       include: projectInclude,
     });
@@ -108,6 +114,8 @@ export class ProjectService {
       ...(filters.moderatorId ? { moderatorId: filters.moderatorId } : {}),
       ...(filters.ownerId ? { ownerId: filters.ownerId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.source ? { source: filters.source } : {}),
+      ...(filters.externalProjectId ? { externalProjectId: filters.externalProjectId } : {}),
       ...(filters.search ? { name: { contains: filters.search, mode: 'insensitive' } } : {}),
       ...(filters.dateFrom || filters.dateTo
         ? {
@@ -193,6 +201,36 @@ export class ProjectService {
         budget: input.budget,
         startDate: input.startDate,
         endDate: input.endDate,
+        source: input.source,
+        externalProjectId: input.externalProjectId,
+        arDataUrl: input.arDataUrl,
+        arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
+        threeDModelUrl: input.threeDModelUrl,
+        threeDMetadata: input.threeDMetadata ? (input.threeDMetadata as Prisma.InputJsonValue) : undefined,
+      },
+      include: projectInclude,
+    });
+  }
+
+  /** Prepared for future mobile AR + 3D integration workflow. */
+  async syncMobileProject(customerId: string, input: CreateProjectInput): Promise<ProjectWithRelations> {
+    await this.assertCustomer(customerId);
+    return prisma.project.create({
+      data: {
+        customerId,
+        name: input.name,
+        description: input.description,
+        notes: input.notes,
+        budget: input.budget,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        status: ProjectStatus.PENDING,
+        source: ProjectSource.MOBILE_AR_3D,
+        externalProjectId: input.externalProjectId,
+        arDataUrl: input.arDataUrl,
+        arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
+        threeDModelUrl: input.threeDModelUrl,
+        threeDMetadata: input.threeDMetadata ? (input.threeDMetadata as Prisma.InputJsonValue) : undefined,
       },
       include: projectInclude,
     });

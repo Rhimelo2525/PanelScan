@@ -1,4 +1,4 @@
-import { ProjectStatus } from '@prisma/client';
+import { ProjectSource, ProjectStatus } from '@prisma/client';
 import { z } from 'zod';
 
 const NUMERIC_STRING = /^\d+$/;
@@ -18,6 +18,12 @@ export const createProjectSchema = z.object({
       budget: z.number().positive('Budget must be greater than 0.').optional(),
       startDate: z.coerce.date({ errorMap: () => ({ message: 'startDate must be a valid date.' }) }).optional(),
       endDate: z.coerce.date({ errorMap: () => ({ message: 'endDate must be a valid date.' }) }).optional(),
+      source: z.nativeEnum(ProjectSource).optional(),
+      externalProjectId: z.string().trim().max(100).optional(),
+      arDataUrl: z.string().url('Invalid AR data URL.').or(z.string().trim().min(1)).optional(),
+      arMetadata: z.record(z.unknown()).optional(),
+      threeDModelUrl: z.string().url('Invalid 3D model URL.').or(z.string().trim().min(1)).optional(),
+      threeDMetadata: z.record(z.unknown()).optional(),
     })
     .refine(datesInOrder, { message: 'endDate cannot be before startDate.', path: ['endDate'] }),
 });
@@ -32,6 +38,12 @@ export const updateProjectSchema = z.object({
       budget: z.number().positive('Budget must be greater than 0.').optional(),
       startDate: z.coerce.date({ errorMap: () => ({ message: 'startDate must be a valid date.' }) }).optional(),
       endDate: z.coerce.date({ errorMap: () => ({ message: 'endDate must be a valid date.' }) }).optional(),
+      source: z.nativeEnum(ProjectSource).optional(),
+      externalProjectId: z.string().trim().max(100).optional(),
+      arDataUrl: z.string().url('Invalid AR data URL.').or(z.string().trim().min(1)).optional(),
+      arMetadata: z.record(z.unknown()).optional(),
+      threeDModelUrl: z.string().url('Invalid 3D model URL.').or(z.string().trim().min(1)).optional(),
+      threeDMetadata: z.record(z.unknown()).optional(),
     })
     .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' })
     .refine(datesInOrder, { message: 'endDate cannot be before startDate.', path: ['endDate'] }),
@@ -66,6 +78,8 @@ export const listProjectsSchema = z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     status: z.nativeEnum(ProjectStatus, { errorMap: () => ({ message: 'Invalid project status.' }) }).optional(),
+    source: z.nativeEnum(ProjectSource).optional(),
+    externalProjectId: z.string().trim().optional(),
     customerId: z.string().uuid('Invalid customer id.').optional(),
     moderatorId: z.string().uuid('Invalid moderator id.').optional(),
     ownerId: z.string().uuid('Invalid owner id.').optional(),

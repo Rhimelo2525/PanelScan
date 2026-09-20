@@ -27,24 +27,31 @@ export class FeedbackService {
       throw new AppError('Feedback can only be submitted for completed (delivered) orders.', 400);
     }
 
-    const existing = await prisma.feedback.findFirst({ where: { customerId, orderId: input.orderId } });
+    const existing = await prisma.feedback.findUnique({ where: { orderId: input.orderId } });
     if (existing) {
       throw new AppError('You have already submitted feedback for this order.', 400);
     }
 
-    const feedback = await prisma.feedback.create({
-      data: {
-        customerId,
-        orderId: input.orderId,
-        rating: input.rating,
-        comment: input.comment,
-      },
-      include: feedbackInclude,
-    });
+    try {
+      const feedback = await prisma.feedback.create({
+        data: {
+          customerId,
+          orderId: input.orderId,
+          rating: input.rating,
+          comment: input.comment,
+        },
+        include: feedbackInclude,
+      });
 
-    await this.notifyStaffOfNewFeedback(feedback);
+      await this.notifyStaffOfNewFeedback(feedback);
 
-    return feedback;
+      return feedback;
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppError('You have already submitted feedback for this order.', 400);
+      }
+      throw error;
+    }
   }
 
   /** CUSTOMER's own feedback. */

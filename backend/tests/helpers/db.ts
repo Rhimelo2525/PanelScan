@@ -9,6 +9,16 @@ import { prisma } from '../../src/config/database';
  * isolation comes from truncating between tests instead of rolling back.
  */
 export const cleanDatabase = async (): Promise<void> => {
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isDedicatedTestDb = dbUrl.includes('panelscan_test') || dbUrl.includes('localhost:26257/panelscan_test');
+
+  if (!isDedicatedTestDb) {
+    console.warn(
+      '[SAFETY GUARD] cleanDatabase() was triggered but DATABASE_URL is not a dedicated test database. Aborting truncation to protect live data.'
+    );
+    return;
+  }
+
   await prisma.$transaction([
     prisma.refreshToken.deleteMany(),
     prisma.chatParticipant.deleteMany(),

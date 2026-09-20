@@ -1,3 +1,5 @@
+import type { DeliveryApprovalStatus, PaymentStatus } from '@prisma/client';
+
 export interface PaginationMeta {
   page: number;
   limit: number;
@@ -20,13 +22,23 @@ export interface StatusBreakdown {
   count: number;
 }
 
-/** Row shape shared by /sales and /orders - `totalAmount` is omitted entirely for MODERATOR, never zeroed. */
+/** Row shape shared by /sales and /orders. */
 export interface OrderReportRow {
   id: string;
   orderNumber: string;
   customerId: string;
   customerName: string;
   status: string;
+  moderatorApproved: boolean;
+  isPaid?: boolean;
+  paymentStatus?: PaymentStatus;
+  shippingAddress: string;
+  deliveryStatus?: string | null;
+  deliveryApprovalStatus?: DeliveryApprovalStatus;
+  deliveryRequestedAt?: Date | null;
+  deliveryApprovedAt?: Date | null;
+  deliveryDeclinedAt?: Date | null;
+  deliveryDeclineReason?: string | null;
   itemCount: number;
   createdAt: Date;
   totalAmount?: number;

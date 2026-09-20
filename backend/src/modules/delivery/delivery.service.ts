@@ -1,4 +1,4 @@
-import { NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { DeliveryApprovalStatus, NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
@@ -6,6 +6,7 @@ import { AppError } from '../../utils/AppError';
 import { deliveryInclude } from './delivery.types';
 import type { DeliveryFilters, DeliveryWithOrder, PaginatedDeliveries } from './delivery.types';
 import type { CreateDeliveryInput, UpdateDeliveryInput } from './delivery.validation';
+import { lalamoveProvider } from './providers/lalamove.provider';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -202,6 +203,341 @@ export class DeliveryService {
     }
 
     await prisma.delivery.delete({ where: { id: deliveryId } });
+  }
+
+  /**
+   * Arranges delivery for an order by authorized staff (MODERATOR/OWNER).
+   * Strictly enforces business rules:
+   * 1. Order must exist and not be CANCELLED.
+   * 2. Order must have been approved by Moderator (moderatorApproved = true).
+   * 3. Order must be fully paid (payment.status = PAID).
+   * 4. Prepares Lalamove delivery stop and integration metadata.
+   */
+  async arrangeDeliveryForOrder(orderId: string, actorId: string, actorRole: UserRole): Promise<DeliveryWithOrder> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: true, payment: true, customer: true },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('Cannot arrange delivery for a cancelled order.', 409);
+    }
+
+    if (!order.moderatorApproved) {
+      throw new AppError('Order must be approved by a moderator before arranging delivery.', 400);
+    }
+
+    if (!order.payment || order.payment.status !== 'PAID') {
+      throw new AppError('Order must be fully paid before arranging delivery.', 400);
+    }
+
+    if (order.delivery && order.delivery.approvalStatus !== DeliveryApprovalStatus.APPROVED) {
+      throw new AppError('Delivery request must be approved by PanelScan staff before arranging delivery.', 400);
+    }
+
+    if (order.delivery && order.delivery.deliveredAt) {
+      throw new AppError('Order has already been delivered.', 409);
+    }
+
+    // Prepare delivery stop details for Lalamove readiness
+    let destinationStop: any = null;
+    if (order.deliveryLocation && typeof order.deliveryLocation === 'object') {
+      try {
+        const loc = order.deliveryLocation as any;
+        destinationStop = lalamoveProvider.buildDeliveryStop({
+          ...loc,
+          recipientName: loc.recipientName || `${order.customer.firstName} ${order.customer.lastName}`,
+          recipientPhone: loc.recipientPhone || order.customer.phone || undefined,
+        });
+      } catch (err) {
+        // Fall back gracefully if structured location fails formatting
+      }
+    }
+
+    // Log provider action safely server-side
+    lalamoveProvider.logProviderAction('DELIVERY_ARRANGED', order.id, {
+      actorId,
+      actorRole,
+      hasStructuredLocation: Boolean(destinationStop),
+      shippingAddress: order.shippingAddress,
+    });
+
+    const deliveryData = {
+      courierName: 'Lalamove',
+      deliveryProvider: 'LALAMOVE',
+      deliveryStatus: 'PREPARING',
+      address: order.shippingAddress,
+      providerMetadata: {
+        provider: 'LALAMOVE',
+        arrangedBy: actorId,
+        arrangedAt: new Date().toISOString(),
+        destinationStop: destinationStop || undefined,
+      },
+    };
+
+    let deliveryRecord: DeliveryWithOrder;
+    if (order.delivery) {
+      deliveryRecord = await prisma.delivery.update({
+        where: { id: order.delivery.id },
+        data: deliveryData,
+        include: deliveryInclude,
+      });
+    } else {
+      deliveryRecord = await prisma.delivery.create({
+        data: {
+          orderId: order.id,
+          ...deliveryData,
+        },
+        include: deliveryInclude,
+      });
+    }
+
+    await createNotification({
+      userId: order.customerId,
+      type: NotificationType.SYSTEM,
+      title: 'Delivery is being prepared',
+      message: `Your order ${order.orderNumber} is being prepared for Lalamove courier dispatch.`,
+      metadata: { deliveryId: deliveryRecord.id, orderId: order.id, event: 'DELIVERY_PREPARING' },
+    });
+
+    return deliveryRecord;
+  }
+
+  /**
+   * CUSTOMER action: Requests delivery for an order.
+   * Enforces:
+   * 1. Order exists and belongs to the authenticated customer.
+   * 2. Order is not cancelled.
+   * 3. No conflicting delivery request already exists (PENDING_APPROVAL or APPROVED).
+   * 4. If previously DECLINED, customer can re-request (resets to PENDING_APPROVAL).
+   * 5. Does NOT create a Lalamove booking.
+   */
+  async requestDelivery(orderId: string, customerId: string): Promise<DeliveryWithOrder> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: true },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    if (order.customerId !== customerId) {
+      throw new AppError('You do not have permission to request delivery for this order.', 403);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('Cannot request delivery for a cancelled order.', 400);
+    }
+
+    if (order.delivery) {
+      if (order.delivery.approvalStatus === DeliveryApprovalStatus.PENDING_APPROVAL) {
+        throw new AppError('A delivery request for this order is already awaiting approval.', 409);
+      }
+      if (order.delivery.approvalStatus === DeliveryApprovalStatus.APPROVED) {
+        throw new AppError('Delivery request has already been approved for this order.', 409);
+      }
+      if (order.delivery.deliveredAt) {
+        throw new AppError('This order has already been delivered.', 409);
+      }
+
+      // Re-requesting after decline or transition from NOT_REQUESTED
+      const updated = await prisma.delivery.update({
+        where: { id: order.delivery.id },
+        data: {
+          approvalStatus: DeliveryApprovalStatus.PENDING_APPROVAL,
+          requestedAt: new Date(),
+          approvedAt: null,
+          approvedById: null,
+          declinedAt: null,
+          declineReason: null,
+        },
+        include: deliveryInclude,
+      });
+
+      await createNotification({
+        userId: order.customerId,
+        type: NotificationType.ORDER,
+        title: 'Delivery request submitted',
+        message: `Your delivery request for order ${order.orderNumber} has been submitted and is awaiting approval.`,
+        metadata: { deliveryId: updated.id, orderId: order.id, event: 'DELIVERY_REQUESTED' },
+      });
+
+      return updated;
+    }
+
+    const delivery = await prisma.delivery.create({
+      data: {
+        orderId: order.id,
+        address: order.shippingAddress,
+        approvalStatus: DeliveryApprovalStatus.PENDING_APPROVAL,
+        requestedAt: new Date(),
+        deliveryStatus: 'NOT_SCHEDULED',
+        deliveryProvider: 'LALAMOVE',
+      },
+      include: deliveryInclude,
+    });
+
+    await createNotification({
+      userId: order.customerId,
+      type: NotificationType.ORDER,
+      title: 'Delivery request submitted',
+      message: `Your delivery request for order ${order.orderNumber} has been submitted and is awaiting approval.`,
+      metadata: { deliveryId: delivery.id, orderId: order.id, event: 'DELIVERY_REQUESTED' },
+    });
+
+    return delivery;
+  }
+
+  /**
+   * MODERATOR / OWNER action: Approves a customer's delivery request.
+   * Enforces:
+   * 1. Order exists and is not cancelled.
+   * 2. Delivery record exists and is in PENDING_APPROVAL status.
+   * 3. Records approved timestamp and approver ID.
+   * 4. DOES NOT automatically create a Lalamove booking.
+   */
+  async approveDeliveryRequest(orderId: string, actorId: string): Promise<DeliveryWithOrder> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: true },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('Cannot approve delivery for a cancelled order.', 400);
+    }
+
+    if (!order.delivery) {
+      throw new AppError('No delivery request exists for this order.', 404);
+    }
+
+    if (order.delivery.approvalStatus === DeliveryApprovalStatus.APPROVED) {
+      throw new AppError('Delivery request has already been approved.', 400);
+    }
+
+    if (order.delivery.approvalStatus !== DeliveryApprovalStatus.PENDING_APPROVAL) {
+      throw new AppError('Delivery request must be in pending approval state.', 400);
+    }
+
+    const updated = await prisma.delivery.update({
+      where: { id: order.delivery.id },
+      data: {
+        approvalStatus: DeliveryApprovalStatus.APPROVED,
+        approvedAt: new Date(),
+        approvedById: actorId,
+        declinedAt: null,
+        declineReason: null,
+      },
+      include: deliveryInclude,
+    });
+
+    await createNotification({
+      userId: order.customerId,
+      type: NotificationType.ORDER,
+      title: 'Delivery request approved',
+      message: `Your delivery request for order ${order.orderNumber} has been approved by PanelScan. You may now proceed with delivery.`,
+      metadata: { deliveryId: updated.id, orderId: order.id, event: 'DELIVERY_REQUEST_APPROVED' },
+    });
+
+    return updated;
+  }
+
+  /**
+   * MODERATOR / OWNER action: Declines a customer's delivery request with optional reason.
+   */
+  async declineDeliveryRequest(orderId: string, actorId: string, reason?: string): Promise<DeliveryWithOrder> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: true },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('Cannot decline delivery for a cancelled order.', 400);
+    }
+
+    if (!order.delivery) {
+      throw new AppError('No delivery request exists for this order.', 404);
+    }
+
+    if (order.delivery.approvalStatus === DeliveryApprovalStatus.DECLINED) {
+      throw new AppError('Delivery request has already been declined.', 400);
+    }
+
+    if (order.delivery.approvalStatus !== DeliveryApprovalStatus.PENDING_APPROVAL) {
+      throw new AppError('Delivery request must be in pending approval state to decline.', 400);
+    }
+
+    const trimmedReason = reason?.trim() || null;
+
+    const updated = await prisma.delivery.update({
+      where: { id: order.delivery.id },
+      data: {
+        approvalStatus: DeliveryApprovalStatus.DECLINED,
+        declinedAt: new Date(),
+        declineReason: trimmedReason,
+      },
+      include: deliveryInclude,
+    });
+
+    await createNotification({
+      userId: order.customerId,
+      type: NotificationType.ORDER,
+      title: 'Delivery request declined',
+      message: `Your delivery request for order ${order.orderNumber} was not approved.${trimmedReason ? ` Reason: ${trimmedReason}` : ''}`,
+      metadata: { deliveryId: updated.id, orderId: order.id, declinedById: actorId, event: 'DELIVERY_REQUEST_DECLINED' },
+    });
+
+    return updated;
+  }
+
+  /**
+   * CUSTOMER action: Proceed with delivery after approval.
+   * STRICT BACKEND RULE: Blocked if approvalStatus !== APPROVED.
+   * Prepares context for future Lalamove quotation and booking.
+   */
+  async proceedWithDelivery(
+    orderId: string,
+    customerId: string,
+  ): Promise<{ success: boolean; message: string; orderId: string; delivery: DeliveryWithOrder }> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: { include: deliveryInclude }, customer: true },
+    });
+
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+
+    if (order.customerId !== customerId) {
+      throw new AppError('You do not have permission to proceed with delivery for this order.', 403);
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('This order has been cancelled and cannot proceed with delivery.', 400);
+    }
+
+    if (!order.delivery || order.delivery.approvalStatus !== DeliveryApprovalStatus.APPROVED) {
+      throw new AppError('Delivery request must be approved by PanelScan staff before proceeding.', 400);
+    }
+
+    return {
+      success: true,
+      message: 'Delivery proceeding authorized. Ready for Lalamove integration.',
+      orderId: order.id,
+      delivery: order.delivery,
+    };
   }
 }
 

@@ -34,6 +34,7 @@ const sanitizeUser = (user: User): SanitizedUser => ({
   googleId: user.googleId,
   role: user.role,
   isActive: user.isActive,
+  termsAcceptedAt: user.termsAcceptedAt,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
 });
@@ -55,6 +56,7 @@ export class AuthService {
         password: hashedPassword,
         phone: input.phone,
         role: UserRole.CUSTOMER,
+        termsAcceptedAt: new Date(),
       },
     });
 
@@ -85,7 +87,7 @@ export class AuthService {
     return { user: sanitizeUser(user), token, refreshToken };
   }
 
-  async loginWithGoogle(profile: VerifiedGoogleProfile): Promise<LoginResult> {
+  async loginWithGoogle(profile: VerifiedGoogleProfile, acceptedTerms?: boolean): Promise<LoginResult> {
     if (!profile.emailVerified) {
       throw new AppError('Google account email is not verified.', 400);
     }
@@ -122,6 +124,7 @@ export class AuthService {
 
     // CASE B: New Google customer
     // A brand-new account created via Google customer login receives CUSTOMER role only.
+    // Do NOT automatically mark a Google customer as having accepted Terms/Privacy without explicit user action.
     user = await prisma.user.create({
       data: {
         firstName: profile.firstName || 'Customer',
@@ -131,6 +134,7 @@ export class AuthService {
         password: null,
         role: UserRole.CUSTOMER,
         isActive: true,
+        termsAcceptedAt: acceptedTerms ? new Date() : null,
       },
     });
 

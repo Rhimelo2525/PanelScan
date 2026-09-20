@@ -10,6 +10,7 @@ export const createBookingSchema = z.object({
       .refine((date) => date.getTime() > Date.now(), { message: 'scheduledDate must be in the future.' }),
     address: z.string().trim().min(10, 'Address must be at least 10 characters.').max(500, 'Address is too long.'),
     notes: z.string().trim().max(1000, 'Notes are too long.').optional(),
+    orderId: z.string().uuid('Invalid order id.').optional(),
   }),
 });
 
@@ -21,6 +22,7 @@ export const updateBookingStatusSchema = z.object({
   params: z.object({ id: z.string().uuid('Invalid booking id.') }),
   body: z.object({
     status: z.nativeEnum(BookingStatus, { errorMap: () => ({ message: 'Invalid booking status.' }) }),
+    scheduledDate: z.coerce.date().optional(),
   }),
 });
 
@@ -36,6 +38,7 @@ export const listBookingsSchema = z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     status: z.nativeEnum(BookingStatus).optional(),
+    onlyOrders: z.enum(['true', 'false']).optional(),
   }),
 });
 
