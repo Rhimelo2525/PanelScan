@@ -6,13 +6,17 @@ declare global {
 }
 
 // The backup Prisma client (Supabase) is generated from a separate schema
-// (prisma/schema.backup.prisma) into its own output folder, so it never
-// collides with the primary @prisma/client used against CockroachDB. That
-// generated module only exists after `npm run prisma:backup:generate` has
-// been run at least once, so this import is done lazily/defensively -
-// nothing in the normal app boot path should fail just because the backup
-// client hasn't been generated yet on a given machine.
-type BackupPrismaClient = import('../generated/backup-client').PrismaClient;
+// (prisma/schema.backup.prisma) into its own gitignored output folder, so it
+// never collides with the primary @prisma/client used against CockroachDB.
+// That generated module only exists after `npm run prisma:backup:generate`
+// has been run, so this file must not depend on it at compile time either
+// (CI and Vercel only generate the primary client) - hence this minimal
+// structural type instead of importing the generated PrismaClient type.
+export interface BackupPrismaClient {
+  $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
+  $executeRawUnsafe(query: string, ...values: unknown[]): Promise<number>;
+  $disconnect(): Promise<void>;
+}
 
 let backupClientCtor: (new (...args: unknown[]) => BackupPrismaClient) | null = null;
 
