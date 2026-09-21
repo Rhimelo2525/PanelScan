@@ -256,7 +256,7 @@ describe('Order module', () => {
         .set('Authorization', `Bearer ${customer.token}`)
         .send({ shippingAddress: VALID_ADDRESS });
 
-      expectApiError(response, 400, /available/i);
+      expectApiError(response, 400, /availability/i);
 
       const inventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
       expect(inventory?.quantity).toBe(5);

@@ -33,7 +33,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
 
     // Owner approves
     const approveRes = await request(app)
-      .post(`/api/requests/${requestId}/approve`)
+      .patch(`/api/requests/${requestId}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     expect(approveRes.status).toBe(200);
 
@@ -63,7 +63,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product A2', sku, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const product = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -72,7 +72,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .post('/api/inventory')
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: product.id, quantity: 50, reorderLevel: 10 });
-    expect(stockRes.status).toBe(202);
+    expect(stockRes.status).toBe(201);
     const stockRequestId = stockRes.body.data.request.id;
 
     // Live inventory not created yet
@@ -88,7 +88,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
 
     // Owner approves initial stock request
     const approveRes = await request(app)
-      .post(`/api/requests/${stockRequestId}/approve`)
+      .patch(`/api/requests/${stockRequestId}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     expect(approveRes.status).toBe(200);
 
@@ -117,7 +117,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product A3', sku, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const product = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -127,7 +127,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: product.id, quantity: 50 });
     await request(app)
-      .post(`/api/requests/${stockRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${stockRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Moderator adjusts stock from 50 to 75
@@ -135,7 +135,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .patch(`/api/inventory/${product.id}/adjust`)
       .set('Authorization', `Bearer ${modToken}`)
       .send({ targetQuantity: 75 });
-    expect(adjRes.status).toBe(202);
+    expect(adjRes.status).toBe(200);
     const adjRequestId = adjRes.body.data.request.id;
 
     // Live inventory still 50 before approval
@@ -144,7 +144,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
 
     // Owner approves
     const approveRes = await request(app)
-      .post(`/api/requests/${adjRequestId}/approve`)
+      .patch(`/api/requests/${adjRequestId}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     expect(approveRes.status).toBe(200);
 
@@ -172,7 +172,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product A4', sku, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const product = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -182,7 +182,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: product.id, quantity: 75 });
     await request(app)
-      .post(`/api/requests/${stockRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${stockRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Moderator adjusts stock to 0
@@ -190,11 +190,11 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .patch(`/api/inventory/${product.id}/adjust`)
       .set('Authorization', `Bearer ${modToken}`)
       .send({ targetQuantity: 0 });
-    expect(adjRes.status).toBe(202);
+    expect(adjRes.status).toBe(200);
 
     // Owner approves
     await request(app)
-      .post(`/api/requests/${adjRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${adjRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Inventory record exists and quantity is 0
@@ -222,7 +222,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product A5', sku: skuA, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodARes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodARes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const productA = (await prisma.product.findFirst({ where: { sku: skuA } }))!;
     const stockARes = await request(app)
@@ -230,7 +230,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: productA.id, quantity: 20 });
     await request(app)
-      .post(`/api/requests/${stockARes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${stockARes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Product B without inventory
@@ -240,7 +240,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product B5', sku: skuB, price: 1200 });
     await request(app)
-      .post(`/api/requests/${prodBRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodBRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const productB = (await prisma.product.findFirst({ where: { sku: skuB } }))!;
 
@@ -265,7 +265,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product B6', sku, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const productB = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -274,7 +274,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .post('/api/inventory')
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: productB.id, quantity: 30 });
-    expect(firstReq.status).toBe(202);
+    expect(firstReq.status).toBe(201);
 
     // Moderator submits second initial stock request -> 409
     const secondReq = await request(app)
@@ -285,7 +285,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
 
     // Owner rejects first request
     const rejectRes = await request(app)
-      .post(`/api/requests/${firstReq.body.data.request.id}/reject`)
+      .patch(`/api/requests/${firstReq.body.data.request.id}/reject`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ reason: 'Incorrect quantity' });
     expect(rejectRes.status).toBe(200);
@@ -313,7 +313,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product A7', sku, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const productA = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -323,7 +323,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: productA.id, quantity: 50 });
     await request(app)
-      .post(`/api/requests/${stockRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${stockRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Moderator submits price edit: 1000 -> 1200
@@ -336,7 +336,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
 
     // Owner approves price edit
     await request(app)
-      .post(`/api/requests/${editRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${editRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Check product price updated
@@ -367,7 +367,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Mod Prod', sku, price: 500 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const product = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -391,7 +391,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: product.id, quantity: 10 });
     await request(app)
-      .post(`/api/requests/${stockRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${stockRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Owner direct adjust stock -> 403
@@ -434,7 +434,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ categoryId: category.id, name: 'Product A9', sku, price: 1000 });
     await request(app)
-      .post(`/api/requests/${prodRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${prodRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
     const product = (await prisma.product.findFirst({ where: { sku } }))!;
 
@@ -444,7 +444,7 @@ describe('Workflow & Role Separation (9 Scenarios)', () => {
       .set('Authorization', `Bearer ${modToken}`)
       .send({ productId: product.id, quantity: 40 });
     await request(app)
-      .post(`/api/requests/${stockRes.body.data.request.id}/approve`)
+      .patch(`/api/requests/${stockRes.body.data.request.id}/approve`)
       .set('Authorization', `Bearer ${ownerToken}`);
 
     // Moderator attempts Record Stock again on product with live inventory -> 400

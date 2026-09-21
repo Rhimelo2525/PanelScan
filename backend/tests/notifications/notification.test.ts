@@ -450,6 +450,10 @@ describe('Notification module', () => {
   describe('Automatic notifications - Booking', () => {
     it('creates a BOOKING notification when a customer creates a booking', async () => {
       const customer = await createCustomer();
+      // createBooking() requires the customer to have at least one
+      // non-cancelled order on file (see booking.service.ts) before they
+      // can request installation.
+      await createTestOrder({ customerId: customer.user.id });
 
       const response = await request(app)
         .post('/api/bookings')

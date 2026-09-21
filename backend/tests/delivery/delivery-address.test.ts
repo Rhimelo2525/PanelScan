@@ -2,13 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getPsgcRegions,
-  getPsgcProvinces,
   getPsgcCities,
   getPsgcBarangays,
   validatePsgcHierarchy,
 } from '../../src/modules/delivery/data/psgc-luzon.data.js';
 import {
-  deliveryCoverage,
   isLocationInPanelScanCoverage,
 } from '../../src/modules/delivery/delivery-coverage.config.js';
 import { formatPhilippineDeliveryAddress } from '../../src/modules/delivery/utils/address-formatter.js';

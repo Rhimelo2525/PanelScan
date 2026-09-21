@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { OrderStatus } from '@prisma/client';
 
 import { prisma } from '../../src/config/database';
 import {
@@ -34,7 +34,7 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const order = await createTestOrder({
       customerId: customer.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.PROCESSING,
     });
 
@@ -51,9 +51,11 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const order = await createTestOrder({
       customerId: customer.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.DELIVERED,
-      paymentStatus: PaymentStatus.PENDING, // Awaiting payment!
+      // No Payment row created here - feedback eligibility only checks
+      // order.status (see feedback.service.ts), so an order with no
+      // payment yet is exactly "payment still PENDING" for this test.
     });
 
     const response = await request(app)
@@ -71,7 +73,7 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const order = await createTestOrder({
       customerId: customer.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.DELIVERED,
     });
 
@@ -104,7 +106,7 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const order = await createTestOrder({
       customerId: customer.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.DELIVERED,
     });
 
@@ -134,7 +136,7 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const orderB = await createTestOrder({
       customerId: customerB.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.DELIVERED,
     });
 
@@ -151,7 +153,7 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const order = await createTestOrder({
       customerId: customer.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.DELIVERED,
     });
 
@@ -177,7 +179,7 @@ describe('Customer Feedback End-to-End Flow & Business Rules', () => {
     const product = await createTestProduct({ price: 100 });
     const order = await createTestOrder({
       customerId: customer.user.id,
-      productId: product.id,
+      items: [{ productId: product.id, quantity: 1 }],
       status: OrderStatus.DELIVERED,
     });
 

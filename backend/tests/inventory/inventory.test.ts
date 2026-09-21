@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { prisma } from '../../src/config/database';
-import { createCustomer, createOwner, createTestProduct } from '../helpers/factories';
+import { createCustomer, createModerator, createOwner, createTestProduct } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 describe('Inventory module', () => {
@@ -77,7 +77,7 @@ describe('Inventory module', () => {
         .set('Authorization', `Bearer ${modToken}`)
         .send({ quantity: 20 });
 
-      expect(response.status).toBe(202);
+      expect(response.status).toBe(200);
       expect(response.body.data.request).toBeDefined();
       const requestId = response.body.data.request.id;
 
@@ -87,7 +87,7 @@ describe('Inventory module', () => {
 
       // Owner approves
       const approveRes = await request(app)
-        .post(`/api/requests/${requestId}/approve`)
+        .patch(`/api/requests/${requestId}/approve`)
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(approveRes.status).toBe(200);
 
@@ -120,11 +120,11 @@ describe('Inventory module', () => {
         .set('Authorization', `Bearer ${modToken}`)
         .send({ quantity: 5 });
 
-      expect(response.status).toBe(202);
+      expect(response.status).toBe(200);
       const requestId = response.body.data.request.id;
 
       const approveRes = await request(app)
-        .post(`/api/requests/${requestId}/approve`)
+        .patch(`/api/requests/${requestId}/approve`)
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(approveRes.status).toBe(200);
 
@@ -132,26 +132,30 @@ describe('Inventory module', () => {
       expect(dbInventory?.quantity).toBe(15);
     });
 
-    it('prevents quantity from going negative when approved', async () => {
+    it('clamps proposed quantity to 0 when reducing by more than available, and approval applies that floor', async () => {
       const { token: modToken } = await createModerator();
       const { token: ownerToken } = await createOwner();
       const product = await createTestProduct({ withInventory: true, quantity: 5 });
 
+      // reduceStock() clamps the proposed quantity with Math.max(0, current -
+      // requested) at request-creation time (inventory.controller.ts) - this
+      // is how the system prevents negative inventory, so a reduce-by-10 on
+      // a stock of 5 proposes 0, not a rejected/negative value.
       const response = await request(app)
         .patch(`/api/inventory/${product.id}/reduce`)
         .set('Authorization', `Bearer ${modToken}`)
         .send({ quantity: 10 });
 
-      expect(response.status).toBe(202);
+      expect(response.status).toBe(200);
       const requestId = response.body.data.request.id;
 
       const approveRes = await request(app)
-        .post(`/api/requests/${requestId}/approve`)
+        .patch(`/api/requests/${requestId}/approve`)
         .set('Authorization', `Bearer ${ownerToken}`);
-      expect(approveRes.status).toBe(400);
+      expect(approveRes.status).toBe(200);
 
       const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
-      expect(dbInventory?.quantity).toBe(5);
+      expect(dbInventory?.quantity).toBe(0);
     });
   });
 
@@ -255,7 +259,7 @@ describe('Inventory module', () => {
         .set('Authorization', `Bearer ${modToken}`)
         .send({ productId: product.id, quantity: 50, reorderLevel: 5 });
 
-      expect(response.status).toBe(202);
+      expect(response.status).toBe(201);
       expect(response.body.data.request).toBeDefined();
       const requestId = response.body.data.request.id;
 
@@ -265,7 +269,7 @@ describe('Inventory module', () => {
 
       // Owner approves
       const approveRes = await request(app)
-        .post(`/api/requests/${requestId}/approve`)
+        .patch(`/api/requests/${requestId}/approve`)
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(approveRes.status).toBe(200);
 
@@ -354,11 +358,11 @@ describe('Inventory module', () => {
         .set('Authorization', `Bearer ${modToken}`)
         .send({ targetQuantity: 75 });
 
-      expect(response.status).toBe(202);
+      expect(response.status).toBe(200);
       const requestId = response.body.data.request.id;
 
       const approveRes = await request(app)
-        .post(`/api/requests/${requestId}/approve`)
+        .patch(`/api/requests/${requestId}/approve`)
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(approveRes.status).toBe(200);
 

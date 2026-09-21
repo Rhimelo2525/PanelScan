@@ -1,9 +1,9 @@
-import { DeliveryApprovalStatus, NotificationType, OrderStatus, PaymentStatus } from '@prisma/client';
+import { DeliveryApprovalStatus, OrderStatus, PaymentStatus } from '@prisma/client';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { prisma } from '../../src/config/database';
-import { createCustomer, createModerator, createOwner, createTestOrder } from '../helpers/factories';
+import { createCustomer, createModerator, createTestOrder } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 const expectApiSuccess = (response: request.Response, status: number, message?: string): void => {

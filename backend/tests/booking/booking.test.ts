@@ -3,7 +3,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { prisma } from '../../src/config/database';
-import { createCustomer, createModerator, createOwner, createTestBooking, createTestInstaller } from '../helpers/factories';
+import { createCustomer, createModerator, createOwner, createTestBooking, createTestInstaller, createTestOrder } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 const VALID_ADDRESS = '123 Rizal Street, Quezon City, Metro Manila, 1100';
@@ -54,6 +54,10 @@ describe('Booking module', () => {
   describe('Customer booking creation', () => {
     it('creates an installation booking with full response and database verification', async () => {
       const { token, user } = await createCustomer();
+      // createBooking() requires the customer to have at least one
+      // non-cancelled order on file (see booking.service.ts) before they
+      // can request installation.
+      await createTestOrder({ customerId: user.id });
       const scheduledDateIso = futureDateIso(7);
 
       const response = await request(app)

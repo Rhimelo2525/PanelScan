@@ -50,7 +50,7 @@ describe('Order item selection during checkout', () => {
       where: { cartId: cart.id },
     });
     expect(remainingCartItems).toHaveLength(1);
-    expect(remainingCartItems[0].productId).toBe(productB.id);
+    expect(remainingCartItems[0]!.productId).toBe(productB.id);
 
     // Verify inventory: A decremented from 10 to 9, C decremented from 10 to 9, B still 10
     const invA = await prisma.inventory.findUnique({ where: { productId: productA.id } });
@@ -116,8 +116,8 @@ describe('Order item selection during checkout', () => {
       where: { cartId: cart.id },
     });
     expect(remainingCartItems).toHaveLength(1);
-    expect(remainingCartItems[0].productId).toBe(productB.id);
-    expect(remainingCartItems[0].quantity).toBe(2);
+    expect(remainingCartItems[0]!.productId).toBe(productB.id);
+    expect(remainingCartItems[0]!.quantity).toBe(2);
 
     // Inventory check: Product A decreased from 5 to 2; Product B remains 10
     const invA = await prisma.inventory.findUnique({ where: { productId: productA.id } });

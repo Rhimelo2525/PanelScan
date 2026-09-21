@@ -10,7 +10,7 @@ describe('Password Policy & Security Module', () => {
       const result = passwordSchema.safeParse('Aa1!bcd');
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error.issues[0].message).toMatch(/at least 8 characters/i);
+        expect(result.error.issues[0]!.message).toMatch(/at least 8 characters/i);
       }
     });
 
@@ -28,7 +28,7 @@ describe('Password Policy & Security Module', () => {
       const result = passwordSchema.safeParse('Aa1!bcdefghijklmn');
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error.issues[0].message).toMatch(/not exceed 16 characters/i);
+        expect(result.error.issues[0]!.message).toMatch(/not exceed 16 characters/i);
       }
     });
 
