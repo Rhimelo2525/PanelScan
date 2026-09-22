@@ -11,10 +11,20 @@ import {
   idParamsSchema,
   listDeliveriesSchema,
   orderIdParamsSchema,
+  requestQuotationSchema,
+  setDeliveryCoordinatesSchema,
   updateDeliverySchema,
 } from './delivery.validation';
 
 const router = Router();
+
+// POST /api/delivery/webhook/:token - Lalamove calls this directly (no JWT;
+// see delivery.controller.ts#webhook for how the :token path segment stands
+// in for the signature verification Lalamove doesn't publicly document).
+// Must be registered before `router.use(authenticate)` below, and its raw
+// body is parsed in app.ts before the global JSON parser (same pattern as
+// POST /api/payments/webhook).
+router.post('/webhook/:token', deliveryController.webhook);
 
 // Public delivery coverage & PSGC address selector endpoints (accessible at checkout)
 router.get('/coverage', deliveryController.getCoverage);
@@ -25,6 +35,12 @@ router.get('/barangays', deliveryController.getBarangays);
 router.post('/validate-address', deliveryController.validateAddress);
 
 router.use(authenticate);
+
+// GET /api/delivery/vehicle-types - live Lalamove vehicle lineup for the quotation UI
+router.get('/vehicle-types', deliveryController.getVehicleTypes);
+
+// GET /api/delivery/failed-requests - MODERATOR/OWNER: "Failed API requests" admin view
+router.get('/failed-requests', restrictTo(UserRole.MODERATOR, UserRole.OWNER), deliveryController.getFailedRequests);
 
 // POST /api/delivery/orders/:orderId/request - Authenticated CUSTOMER requests delivery
 router.post(
@@ -64,6 +80,28 @@ router.post(
   deliveryController.arrangeForOrder,
 );
 
+// POST /api/delivery/orders/:orderId/quotation - CUSTOMER (own order) or staff. Requires approvalStatus === APPROVED.
+router.post(
+  '/orders/:orderId/quotation',
+  validate(requestQuotationSchema),
+  deliveryController.requestQuotation,
+);
+
+// POST /api/delivery/orders/:orderId/book - redeems the stored quotation into a real Lalamove order
+router.post(
+  '/orders/:orderId/book',
+  validate(orderIdParamsSchema),
+  deliveryController.confirmBooking,
+);
+
+// PATCH /api/delivery/orders/:orderId/coordinates - MODERATOR/OWNER manual dropoff-coordinates bridge
+router.patch(
+  '/orders/:orderId/coordinates',
+  restrictTo(UserRole.MODERATOR, UserRole.OWNER),
+  validate(setDeliveryCoordinatesSchema),
+  deliveryController.setCoordinates,
+);
+
 // POST /api/delivery - MODERATOR only ("Full Delivery management"; OWNER is explicitly read-only, CUSTOMER cannot create).
 router.post('/', restrictTo(UserRole.MODERATOR), validate(createDeliverySchema), deliveryController.create);
 
@@ -78,6 +116,12 @@ router.patch('/:id', restrictTo(UserRole.MODERATOR), validate(updateDeliverySche
 
 // PATCH /api/delivery/:id/delivered - MODERATOR only.
 router.patch('/:id/delivered', restrictTo(UserRole.MODERATOR), validate(idParamsSchema), deliveryController.markDelivered);
+
+// POST /api/delivery/:id/refresh - any (ownership-checked for CUSTOMER). Read-only against Lalamove.
+router.post('/:id/refresh', validate(idParamsSchema), deliveryController.refreshStatus);
+
+// POST /api/delivery/:id/cancel-booking - MODERATOR only (matches every other mutating action in this module).
+router.post('/:id/cancel-booking', restrictTo(UserRole.MODERATOR), validate(idParamsSchema), deliveryController.cancelBooking);
 
 // DELETE /api/delivery/:id - MODERATOR only. Neither role's "Can" list in
 // this module's spec explicitly names "Delete," but OWNER and CUSTOMER

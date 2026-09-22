@@ -1,11 +1,13 @@
 import { UserRole } from '@prisma/client';
 import type { Request, Response } from 'express';
 
+import { getRequestAuditContext } from '../../utils/activityLog.js';
 import { AppError } from '../../utils/AppError.js';
 import { catchAsync } from '../../utils/catchAsync.js';
 import { sendSuccess } from '../../utils/response.js';
 import { DeliveryService, deliveryService } from './delivery.service.js';
 import type { DeliveryFilters } from './delivery.types.js';
+import { lalamoveConfig } from './providers/lalamove.config.js';
 import { deliveryCoverage, isLocationInPanelScanCoverage } from './delivery-coverage.config.js';
 import {
   getPsgcRegions,
@@ -38,6 +40,7 @@ const parseDeliveryFilters = (query: Request['query']): DeliveryFilters => ({
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   search: typeof query.search === 'string' ? query.search : undefined,
   status: query.status === 'scheduled' || query.status === 'delivered' ? query.status : undefined,
+  deliveryState: query.deliveryState === 'active' || query.deliveryState === 'completed' || query.deliveryState === 'cancelled' ? query.deliveryState : undefined,
   sortBy: query.sortBy === 'scheduledDate' || query.sortBy === 'createdAt' ? query.sortBy : undefined,
   sortOrder: query.sortOrder === 'asc' || query.sortOrder === 'desc' ? query.sortOrder : undefined,
 });
@@ -154,6 +157,91 @@ export class DeliveryController {
     }
     const barangays = getPsgcBarangays(cityCode);
     sendSuccess(res, 200, 'Barangays retrieved successfully.', { barangays });
+  });
+
+  /** Live Lalamove vehicle lineup for the quotation UI's dropdown. */
+  getVehicleTypes = catchAsync(async (_req: Request, res: Response): Promise<void> => {
+    const services = await this.deliveryService.getAvailableVehicleTypes();
+    sendSuccess(res, 200, 'Vehicle types retrieved successfully.', { services });
+  });
+
+  /** Free, non-committal - requests a live fee quote from Lalamove without booking anything. */
+  requestQuotation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const orderId = req.params.orderId as string;
+    const quotation = await this.deliveryService.requestQuotation(orderId, requester.id, requester.role, req.body.serviceType, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Quotation retrieved successfully.', { quotation });
+  });
+
+  /** Redeems the stored quotation into a real, billable Lalamove booking. */
+  confirmBooking = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const orderId = req.params.orderId as string;
+    const delivery = await this.deliveryService.confirmBooking(orderId, requester.id, requester.role, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Delivery booked successfully.', { delivery });
+  });
+
+  /** Pulls live status + driver info from Lalamove and syncs it onto the record. */
+  refreshStatus = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const delivery = await this.deliveryService.refreshDeliveryStatus(req.params.id as string, requester.id, requester.role, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Delivery status refreshed successfully.', { delivery });
+  });
+
+  /** MODERATOR-only: cancels the real Lalamove booking (not the local record - see DELETE /:id for that). */
+  cancelBooking = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const delivery = await this.deliveryService.cancelLalamoveBooking(req.params.id as string, requester.id, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Delivery booking cancelled successfully.', { delivery });
+  });
+
+  /** MODERATOR/OWNER interim bridge until a real geocoder is configured (see geocoding.service.ts). */
+  setCoordinates = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const orderId = req.params.orderId as string;
+    await this.deliveryService.setDeliveryCoordinates(orderId, requester.id, req.body.latitude, req.body.longitude, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Delivery coordinates saved successfully.');
+  });
+
+  /** MODERATOR/OWNER: "Failed API requests" admin view. */
+  getFailedRequests = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const page = typeof req.query.page === 'string' ? Number(req.query.page) : undefined;
+    const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+    const result = await this.deliveryService.getFailedProviderRequests({ page, limit });
+    sendSuccess(res, 200, 'Failed provider requests retrieved successfully.', result);
+  });
+
+  /**
+   * Lalamove pushes order events here. No JWT - Lalamove is not a logged-in
+   * PanelScan user - so authenticity instead rests on the secret token in
+   * the URL itself matching LALAMOVE_WEBHOOK_TOKEN (see delivery.routes.ts
+   * for why: Lalamove's webhook signature scheme isn't publicly documented).
+   * Always acknowledges 200 once the token checks out, even for an event
+   * this system doesn't recognize, so Lalamove doesn't retry indefinitely.
+   */
+  webhook = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const providedToken = req.params.token;
+    if (!lalamoveConfig.webhookToken || providedToken !== lalamoveConfig.webhookToken) {
+      throw new AppError('Invalid webhook token.', 404);
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse((req.body as Buffer).toString('utf8'));
+    } catch {
+      throw new AppError('Invalid webhook payload.', 400);
+    }
+
+    const eventType = typeof payload.eventType === 'string' ? payload.eventType : 'UNKNOWN';
+    // `data` is passed through WHOLE (order + any sibling keys like `driver`)
+    // - the service itself narrows to `data.order` for status and reads
+    // `data.driver` separately, so neither is lost.
+    const data = (payload.data as Record<string, unknown> | undefined) ?? {};
+    const orderData = (data.order as Record<string, unknown> | undefined) ?? data;
+    const lalamoveOrderId = typeof orderData.orderId === 'string' ? orderData.orderId : typeof orderData.id === 'string' ? orderData.id : undefined;
+
+    await this.deliveryService.handleLalamoveWebhook(eventType, lalamoveOrderId, data);
+    sendSuccess(res, 200, 'Webhook received.');
   });
 
   validateAddress = catchAsync(async (req: Request, res: Response): Promise<void> => {

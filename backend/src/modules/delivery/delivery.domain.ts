@@ -88,16 +88,56 @@ export interface DeliveryQuoteRequest {
   specialRequests: string[];
 }
 
+/** One stop as Lalamove's quotation response assigns it - the stopId here MUST be reused verbatim when placing the order. */
+export interface LalamoveQuotedStop {
+  stopId: string;
+  coordinates: { lat: string; lng: string };
+  address: string;
+}
+
 /**
- * Future Quotation Snapshot data model.
+ * Quotation Snapshot data model. Carries everything `placeDeliveryOrder`
+ * needs (the raw stopIds Lalamove assigned), so a quotation obtained once
+ * can be booked later without re-deriving stop data. Non-committal and free
+ * to request - Lalamove does not charge or dispatch anything for a quotation.
  */
 export interface DeliveryQuotationSnapshot {
-  quotationId: string | null;
-  quotedAt: string | null;
-  expiresAt: string | null;
-  amount: number | null;
+  quotationId: string;
+  quotedAt: string;
+  expiresAt: string;
+  amount: number;
   currency: string;
-  serviceType: string | null;
+  serviceType: string;
+  distanceMeters: number | null;
+  stops: LalamoveQuotedStop[];
+}
+
+/** A Lalamove service type (vehicle) as returned by GET /v3/cities, e.g. MOTORCYCLE, SEDAN, VAN. */
+export interface LalamoveServiceType {
+  key: string;
+  description: string | null;
+  maxWeightKg: number | null;
+  dimensionsMeters: { length: number; width: number; height: number } | null;
+}
+
+/** The real Lalamove v3 order statuses (see providers/lalamove.provider.ts). Stored verbatim in Delivery.deliveryStatus. */
+export const LALAMOVE_ORDER_STATUSES = ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP', 'COMPLETED', 'CANCELED', 'REJECTED', 'EXPIRED'] as const;
+export type LalamoveOrderStatus = (typeof LALAMOVE_ORDER_STATUSES)[number];
+
+export interface LalamoveOrderResult {
+  orderId: string;
+  status: string;
+  shareLink: string | null;
+  priceBreakdown: { total: number; currency: string } | null;
+  driverId: string | null;
+}
+
+export interface LalamoveDriverDetails {
+  driverId: string;
+  name: string | null;
+  phone: string | null;
+  plateNumber: string | null;
+  photoUrl: string | null;
 }
 
 /**
@@ -112,6 +152,7 @@ export const DELIVERY_ERRORS = {
   DELIVERY_PROVIDER_UNAVAILABLE: 'DELIVERY_PROVIDER_UNAVAILABLE',
   DELIVERY_QUOTATION_EXPIRED: 'DELIVERY_QUOTATION_EXPIRED',
   DELIVERY_OUT_OF_SERVICE_AREA: 'DELIVERY_OUT_OF_SERVICE_AREA',
+  DELIVERY_PROVIDER_NOT_CONFIGURED: 'DELIVERY_PROVIDER_NOT_CONFIGURED',
 } as const;
 
 export type DeliveryErrorCode = (typeof DELIVERY_ERRORS)[keyof typeof DELIVERY_ERRORS];

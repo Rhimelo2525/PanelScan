@@ -45,6 +45,7 @@ export const listDeliveriesSchema = z.object({
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     search: z.string().trim().min(1, 'Search query cannot be empty.').max(150, 'Search query is too long.').optional(),
     status: z.enum(['scheduled', 'delivered'], { errorMap: () => ({ message: 'status must be "scheduled" or "delivered".' }) }).optional(),
+    deliveryState: z.enum(['active', 'completed', 'cancelled'], { errorMap: () => ({ message: 'deliveryState must be "active", "completed", or "cancelled".' }) }).optional(),
     sortBy: z.enum(['scheduledDate', 'createdAt']).optional(),
     sortOrder: z.enum(['asc', 'desc']).optional(),
   }),
@@ -63,4 +64,26 @@ export const declineDeliverySchema = z.object({
 });
 
 export type DeclineDeliveryInput = z.infer<typeof declineDeliverySchema>['body'];
+
+export const requestQuotationSchema = z.object({
+  params: z.object({ orderId: z.string().uuid('Invalid order id.') }),
+  body: z.object({
+    serviceType: z.string().trim().min(1, 'A vehicle type is required.').max(50),
+  }),
+});
+
+export type RequestQuotationInput = z.infer<typeof requestQuotationSchema>['body'];
+
+// Loose Philippines bounding box (roughly 4.5-21.5 N, 116-127 E) - not a
+// precise border, just a sanity check against an obviously wrong value
+// (e.g. lat/lng swapped, or a coordinate from a different country).
+export const setDeliveryCoordinatesSchema = z.object({
+  params: z.object({ orderId: z.string().uuid('Invalid order id.') }),
+  body: z.object({
+    latitude: z.coerce.number().min(4.5, 'Latitude is outside the Philippines.').max(21.5, 'Latitude is outside the Philippines.'),
+    longitude: z.coerce.number().min(116, 'Longitude is outside the Philippines.').max(127, 'Longitude is outside the Philippines.'),
+  }),
+});
+
+export type SetDeliveryCoordinatesInput = z.infer<typeof setDeliveryCoordinatesSchema>['body'];
 

@@ -3,7 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    setupFiles: ['./tests/setup.ts'],
+    // setupEnv must stay first: it sets env vars that setup.ts's imports read at load time.
+    setupFiles: ['./tests/setupEnv.ts', './tests/setup.ts'],
     testTimeout: 20000,
     hookTimeout: 20000,
     // Every test file shares one CockroachDB test database plus a global

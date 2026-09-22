@@ -43,6 +43,7 @@ const SYNC_ORDER = [
   'project',
   'request',
   'refreshToken',
+  'activityLog',
 ] as const;
 
 const MAX_RETRIES = 3;

@@ -5,6 +5,7 @@ import { getCurrentUser, loginCustomer, logoutCustomer, registerCustomer } from 
 import { refreshAccessToken } from "@/api/client"
 import { AuthContext } from "@/auth/auth-context"
 import { clearSessionTokens, getSessionTokens, updateSessionTokens } from "@/auth/token-storage"
+import { clearProfilePictureCache } from "@/hooks/use-profile-picture"
 import type { AuthUser, LoginInput, LoginResponse, RegisterInput } from "@/types/auth"
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -32,7 +33,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void restoreSession()
-    const handleSessionEnd = () => setUser(null)
+    const handleSessionEnd = () => {
+      clearProfilePictureCache()
+      setUser(null)
+    }
     window.addEventListener("panelscan:session-ended", handleSessionEnd)
     return () => window.removeEventListener("panelscan:session-ended", handleSessionEnd)
   }, [restoreSession])
@@ -64,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (refreshToken) await logoutCustomer(refreshToken)
     } finally {
       clearSessionTokens()
+      clearProfilePictureCache()
       setUser(null)
     }
   }, [])
@@ -82,7 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ user, isAuthenticated: Boolean(user), isLoading, login, applySession, register, logout, refreshSession }), [applySession, isLoading, login, logout, refreshSession, register, user])
+  const updateUser = useCallback((nextUser: AuthUser) => setUser(nextUser), [])
+
+  const value = useMemo(() => ({ user, isAuthenticated: Boolean(user), isLoading, login, applySession, register, logout, refreshSession, updateUser }), [applySession, isLoading, login, logout, refreshSession, register, updateUser, user])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

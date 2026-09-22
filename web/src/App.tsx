@@ -15,6 +15,8 @@ const HomePage = lazy(() => import("@/pages/home-page").then((module) => ({ defa
 const ProductsPage = lazy(() => import("@/pages/products-page").then((module) => ({ default: module.ProductsPage })))
 const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })))
 const RegisterPage = lazy(() => import("@/pages/register-page").then((module) => ({ default: module.RegisterPage })))
+const ForgotPasswordPage = lazy(() => import("@/pages/forgot-password-page").then((module) => ({ default: module.ForgotPasswordPage })))
+const ProfilePage = lazy(() => import("@/pages/profile-page").then((module) => ({ default: module.ProfilePage })))
 const AboutPage = lazy(() => import("@/pages/about-page").then((module) => ({ default: module.AboutPage })))
 const PlaceholderPage = lazy(() => import("@/pages/placeholder-page").then((module) => ({ default: module.PlaceholderPage })))
 
@@ -40,6 +42,7 @@ const AdminProjectsPage = lazy(() => import("@/pages/admin/admin-projects-page")
 const AdminInventoryPage = lazy(() => import("@/pages/admin/admin-inventory-page").then((module) => ({ default: module.AdminInventoryPage })))
 const AdminSalesPage = lazy(() => import("@/pages/admin/admin-sales-page").then((module) => ({ default: module.AdminSalesPage })))
 const AdminInstallationRequestsPage = lazy(() => import("@/pages/admin/admin-installation-requests-page").then((module) => ({ default: module.AdminInstallationRequestsPage })))
+const AdminDeliveriesPage = lazy(() => import("@/pages/admin/admin-deliveries-page").then((module) => ({ default: module.AdminDeliveriesPage })))
 const AdminRequestsPage = lazy(() => import("@/pages/admin/admin-requests-page").then((module) => ({ default: module.AdminRequestsPage })))
 const AdminTeamPage = lazy(() => import("@/pages/admin/admin-team-page").then((module) => ({ default: module.AdminTeamPage })))
 const AdminInstallersPage = lazy(() => import("@/pages/admin/admin-installers-page").then((module) => ({ default: module.AdminInstallersPage })))
@@ -68,6 +71,7 @@ function App() {
                 <Route path="inventory" element={<Suspense fallback={<AdminPageFallback />}><AdminInventoryPage /></Suspense>} />
                 <Route path="sales" element={<Suspense fallback={<AdminPageFallback />}><AdminSalesPage /></Suspense>} />
                 <Route path="installation-requests" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallationRequestsPage /></Suspense>} />
+                <Route path="deliveries" element={<Suspense fallback={<AdminPageFallback />}><AdminDeliveriesPage /></Suspense>} />
                 <Route path="installers" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallersPage /></Suspense>} />
                 <Route path="chat" element={<Suspense fallback={<AdminPageFallback />}><AdminChatPage /></Suspense>} />
                 <Route path="feedback" element={<Suspense fallback={<AdminPageFallback />}><AdminFeedbackPage /></Suspense>} />
@@ -86,6 +90,7 @@ function App() {
               <Route path="visualizer" element={<Navigate to="/products" replace />} />
               <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
               <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
+              <Route path="forgot-password" element={<Suspense fallback={<RoutePageFallback />}><ForgotPasswordPage /></Suspense>} />
               <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
               <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
               <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />
@@ -97,7 +102,8 @@ function App() {
               </Route>
 
               <Route element={<CustomerRoute />}>
-                <Route path="cart" element={<Suspense fallback={<RoutePageFallback />}><CartPage /></Suspense>} />
+                <Route path="profile" element={<Suspense fallback={<RoutePageFallback />}><ProfilePage /></Suspense>} />
+                <Route path="cart"element={<Suspense fallback={<RoutePageFallback />}><CartPage /></Suspense>} />
                 <Route path="checkout" element={<Suspense fallback={<RoutePageFallback />}><CheckoutPage /></Suspense>} />
                 <Route path="orders" element={<Suspense fallback={<RoutePageFallback />}><OrdersPage /></Suspense>} />
                 <Route path="orders/:id" element={<Suspense fallback={<RoutePageFallback />}><OrderDetailPage /></Suspense>} />

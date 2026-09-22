@@ -2,11 +2,16 @@ import { DeliveryApprovalStatus, NotificationType, OrderStatus, Prisma, UserRole
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { ActivityAction, buildActivityLogData, type RequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
+import type { DeliveryLocation, DeliveryQuoteRequest, LalamoveServiceType } from './delivery.domain';
 import { deliveryInclude } from './delivery.types';
 import type { DeliveryFilters, DeliveryWithOrder, PaginatedDeliveries } from './delivery.types';
 import type { CreateDeliveryInput, UpdateDeliveryInput } from './delivery.validation';
+import { isWarehouseConfigured, lalamoveConfig } from './providers/lalamove.config';
 import { lalamoveProvider } from './providers/lalamove.provider';
+import { deliveryStatusesForGroup, getDeliveryStatusLabel } from './utils/lalamove-status';
+import { normalizePhilippinePhone } from './utils/phone-normalizer';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -80,6 +85,7 @@ export class DeliveryService {
       ...(filters.customerId ? { order: { customerId: filters.customerId } } : {}),
       ...(filters.status === 'delivered' ? { deliveredAt: { not: null } } : {}),
       ...(filters.status === 'scheduled' ? { deliveredAt: null } : {}),
+      ...(filters.deliveryState ? { deliveryStatus: { in: deliveryStatusesForGroup(filters.deliveryState) } } : {}),
       ...(filters.search
         ? {
             OR: [
@@ -538,6 +544,451 @@ export class DeliveryService {
       orderId: order.id,
       delivery: order.delivery,
     };
+  }
+
+  // ================================================================
+  // LIVE LALAMOVE INTEGRATION
+  //
+  // All of this still sits behind the same approval gate as before:
+  // requestDelivery -> approveDeliveryRequest are unchanged prerequisites.
+  // Only once approvalStatus === APPROVED can a quotation be requested, and
+  // only a still-valid quotation can be turned into a real booking.
+  // ================================================================
+
+  /** The warehouse as a DeliveryLocation, for building a Lalamove pickup stop. Throws if it isn't fully configured yet - never a fabricated pickup point. */
+  private warehouseAsDeliveryLocation(): DeliveryLocation {
+    if (!isWarehouseConfigured()) {
+      throw new AppError(
+        'The delivery pickup location has not been configured yet. Set the PANELSCAN_WAREHOUSE_* environment variables before requesting a quotation.',
+        503,
+      );
+    }
+    const w = lalamoveConfig.pickupLocation;
+    return {
+      addressLine1: w.addressLine1!,
+      regionCode: '',
+      regionName: '',
+      provinceCode: null,
+      provinceName: w.province,
+      cityMunicipalityCode: '',
+      cityMunicipalityName: w.city!,
+      barangayCode: '',
+      barangayName: w.barangay ?? '',
+      postalCode: w.postalCode ?? '',
+      formattedAddress: [w.addressLine1, w.barangay, w.city, w.province, w.postalCode, 'Philippines'].filter(Boolean).join(', '),
+      recipientName: w.contactName,
+      recipientPhone: normalizePhilippinePhone(w.contactPhone),
+      latitude: w.latitude,
+      longitude: w.longitude,
+      geocodingStatus: 'not_required',
+    };
+  }
+
+  /** Live vehicle lineup for the quotation UI. Falls back to a small static PH list if the provider call fails, so the dropdown is never empty - the fallback is clearly marked as such in the log, never silently passed off as live data. */
+  async getAvailableVehicleTypes(): Promise<LalamoveServiceType[]> {
+    try {
+      const services = await lalamoveProvider.getAvailableServices();
+      if (services.length > 0) return services;
+    } catch (error) {
+      console.error('[delivery] Could not fetch live Lalamove vehicle types, using fallback list:', error);
+    }
+    return [
+      { key: 'MOTORCYCLE', description: 'Motorcycle', maxWeightKg: 20, dimensionsMeters: null },
+      { key: 'SEDAN', description: 'Sedan', maxWeightKg: 200, dimensionsMeters: null },
+      { key: 'MPV', description: 'MPV', maxWeightKg: 300, dimensionsMeters: null },
+      { key: 'VAN', description: 'Van', maxWeightKg: 700, dimensionsMeters: null },
+      { key: 'TRUCK550', description: 'Truck (small)', maxWeightKg: 1000, dimensionsMeters: null },
+    ];
+  }
+
+  private ownsOrderOrIsStaff(order: { customerId: string }, requesterId: string, requesterRole: UserRole): void {
+    if (requesterRole === UserRole.CUSTOMER && order.customerId !== requesterId) {
+      throw new AppError('You do not have permission to manage delivery for this order.', 403);
+    }
+  }
+
+  /**
+   * Requests a live, free, non-committal quotation from Lalamove and stores
+   * it (with the provider's stop ids) on the delivery record so a later
+   * confirmBooking() call can redeem it without trusting anything the client
+   * sends back. Returns only the safe summary a customer should see.
+   */
+  async requestQuotation(
+    orderId: string,
+    requesterId: string,
+    requesterRole: UserRole,
+    serviceType: string,
+    context: RequestAuditContext,
+  ): Promise<{ amount: number; currency: string; serviceType: string; expiresAt: string; quotationId: string }> {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { delivery: true, customer: true } });
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+    this.ownsOrderOrIsStaff(order, requesterId, requesterRole);
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('Cannot request a quotation for a cancelled order.', 400);
+    }
+    if (!order.delivery || order.delivery.approvalStatus !== DeliveryApprovalStatus.APPROVED) {
+      throw new AppError('Delivery request must be approved by PanelScan staff before requesting a quotation.', 400);
+    }
+
+    const dropoffLocation = order.deliveryLocation as unknown as DeliveryLocation | null;
+    if (!dropoffLocation?.latitude || !dropoffLocation?.longitude) {
+      throw new AppError(
+        'Delivery coordinates for this order have not been set yet. A PanelScan staff member needs to set them before a quotation can be requested.',
+        400,
+      );
+    }
+
+    const quoteRequest: DeliveryQuoteRequest = {
+      pickup: this.warehouseAsDeliveryLocation(),
+      dropoff: {
+        ...dropoffLocation,
+        recipientName: dropoffLocation.recipientName || `${order.customer.firstName} ${order.customer.lastName}`,
+        recipientPhone: normalizePhilippinePhone(dropoffLocation.recipientPhone || order.customer.phone || ''),
+      },
+      serviceType,
+      scheduleAt: null,
+      specialRequests: [],
+    };
+
+    try {
+      const quotation = await lalamoveProvider.getQuotation(quoteRequest);
+
+      await prisma.delivery.update({
+        where: { id: order.delivery.id },
+        data: {
+          providerMetadata: {
+            ...(order.delivery.providerMetadata as Prisma.JsonObject | null),
+            pendingQuotation: quotation as unknown as Prisma.JsonObject,
+          },
+        },
+      });
+
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_QUOTATION_REQUESTED, context, {
+          orderId: order.id,
+          deliveryId: order.delivery.id,
+          serviceType,
+          amount: quotation.amount,
+        }),
+      });
+
+      return { amount: quotation.amount, currency: quotation.currency, serviceType: quotation.serviceType, expiresAt: quotation.expiresAt, quotationId: quotation.quotationId };
+    } catch (error) {
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_QUOTATION_FAILED, context, {
+          orderId: order.id,
+          deliveryId: order.delivery.id,
+          serviceType,
+          error: error instanceof AppError ? error.message : 'Unknown error',
+        }),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Redeems a still-valid stored quotation into a real Lalamove booking.
+   * Nothing about the stops or fee is taken from the request body - both
+   * come from the quotation this service itself stored moments earlier.
+   */
+  async confirmBooking(orderId: string, requesterId: string, requesterRole: UserRole, context: RequestAuditContext): Promise<DeliveryWithOrder> {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { delivery: true, customer: true } });
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+    this.ownsOrderOrIsStaff(order, requesterId, requesterRole);
+
+    if (!order.delivery || order.delivery.approvalStatus !== DeliveryApprovalStatus.APPROVED) {
+      throw new AppError('Delivery request must be approved by PanelScan staff before booking.', 400);
+    }
+    if (order.delivery.lalamoveOrderId) {
+      throw new AppError('This order has already been booked with the delivery provider.', 409);
+    }
+
+    const metadata = (order.delivery.providerMetadata as Prisma.JsonObject | null) ?? {};
+    const pendingQuotation = metadata.pendingQuotation as
+      | { quotationId: string; expiresAt: string; stops: { stopId: string }[]; serviceType: string; amount: number; currency: string }
+      | undefined;
+
+    if (!pendingQuotation) {
+      throw new AppError('No quotation is on file for this order. Please request a quotation first.', 400);
+    }
+    if (new Date(pendingQuotation.expiresAt).getTime() <= Date.now()) {
+      throw new AppError('This quotation has expired. Please request a new one.', 400);
+    }
+
+    const dropoffLocation = order.deliveryLocation as unknown as DeliveryLocation | null;
+    const recipientName = dropoffLocation?.recipientName || `${order.customer.firstName} ${order.customer.lastName}`;
+    const recipientPhone = normalizePhilippinePhone(dropoffLocation?.recipientPhone || order.customer.phone || '');
+    const [pickupStop, dropoffStop] = pendingQuotation.stops;
+    if (!pickupStop || !dropoffStop) {
+      throw new AppError('The stored quotation is missing stop information. Please request a new quotation.', 400);
+    }
+
+    try {
+      const result = await lalamoveProvider.placeDeliveryOrder(pendingQuotation.quotationId, pickupStop.stopId, { stopId: dropoffStop.stopId, name: recipientName, phone: recipientPhone }, order.id);
+
+      const updated = await prisma.delivery.update({
+        where: { id: order.delivery.id },
+        data: {
+          lalamoveOrderId: result.orderId,
+          deliveryStatus: result.status,
+          courierName: 'Lalamove',
+          providerMetadata: {
+            ...metadata,
+            pendingQuotation: undefined,
+            bookingId: result.orderId,
+            vehicleType: pendingQuotation.serviceType,
+            trackingUrl: result.shareLink ?? undefined,
+            bookedAt: new Date().toISOString(),
+            bookedBy: requesterId,
+            lastSyncedAt: new Date().toISOString(),
+          } as unknown as Prisma.JsonObject,
+        },
+        include: deliveryInclude,
+      });
+
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_ORDER_PLACED, context, { orderId: order.id, deliveryId: order.delivery.id, lalamoveOrderId: result.orderId }),
+      });
+
+      await createNotification({
+        userId: order.customerId,
+        type: NotificationType.ORDER,
+        title: 'Delivery booked',
+        message: `Your delivery for order ${order.orderNumber} has been booked with Lalamove. You can now track it live.`,
+        metadata: { deliveryId: updated.id, orderId: order.id, lalamoveOrderId: result.orderId, event: 'DELIVERY_BOOKED' },
+      });
+
+      return updated;
+    } catch (error) {
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_ORDER_PLACE_FAILED, context, {
+          orderId: order.id,
+          deliveryId: order.delivery.id,
+          error: error instanceof AppError ? error.message : 'Unknown error',
+        }),
+      });
+      throw error;
+    }
+  }
+
+  /** Pulls live status (and, once assigned, driver details) from Lalamove and syncs them onto the delivery record. Read-only against Lalamove - safe to call as often as needed. */
+  async refreshDeliveryStatus(deliveryId: string, requesterId: string, requesterRole: UserRole, context: RequestAuditContext): Promise<DeliveryWithOrder> {
+    const delivery = await prisma.delivery.findUnique({ where: { id: deliveryId }, include: deliveryInclude });
+    if (!delivery) {
+      throw new AppError('Delivery not found.', 404);
+    }
+    if (requesterRole === UserRole.CUSTOMER && delivery.order.customerId !== requesterId) {
+      throw new AppError('Delivery not found.', 404);
+    }
+    if (!delivery.lalamoveOrderId) {
+      throw new AppError('This delivery has not been booked with the delivery provider yet.', 400);
+    }
+
+    try {
+      const result = await lalamoveProvider.getOrder(delivery.lalamoveOrderId);
+      const metadata = (delivery.providerMetadata as Prisma.JsonObject | null) ?? {};
+      const previousStatus = delivery.deliveryStatus;
+
+      let driverPatch: Record<string, unknown> = {};
+      if (result.driverId) {
+        try {
+          const driver = await lalamoveProvider.getDriverDetails(delivery.lalamoveOrderId, result.driverId);
+          driverPatch = { driverId: driver.driverId, driverName: driver.name, driverPhone: driver.phone, driverPlateNumber: driver.plateNumber, driverPhotoUrl: driver.photoUrl };
+        } catch (driverError) {
+          console.error('[delivery] Booked driver assigned, but driver details could not be fetched:', driverError);
+        }
+      }
+
+      const updated = await prisma.delivery.update({
+        where: { id: deliveryId },
+        data: {
+          deliveryStatus: result.status,
+          deliveredAt: result.status === 'COMPLETED' && !delivery.deliveredAt ? new Date() : delivery.deliveredAt,
+          providerMetadata: { ...metadata, ...driverPatch, trackingUrl: result.shareLink ?? metadata.trackingUrl, lastSyncedAt: new Date().toISOString() } as unknown as Prisma.JsonObject,
+        },
+        include: deliveryInclude,
+      });
+
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_STATUS_REFRESHED, context, { deliveryId, lalamoveOrderId: delivery.lalamoveOrderId, status: result.status }),
+      });
+
+      if (previousStatus !== result.status) {
+        await createNotification({
+          userId: delivery.order.customerId,
+          type: NotificationType.ORDER,
+          title: 'Delivery status updated',
+          message: `Your delivery for order ${delivery.order.orderNumber} is now: ${getDeliveryStatusLabel(result.status)}.`,
+          metadata: { deliveryId, orderId: delivery.orderId, status: result.status, event: 'DELIVERY_STATUS_CHANGED' },
+        });
+      }
+
+      return updated;
+    } catch (error) {
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_STATUS_REFRESH_FAILED, context, {
+          deliveryId,
+          lalamoveOrderId: delivery.lalamoveOrderId,
+          error: error instanceof AppError ? error.message : 'Unknown error',
+        }),
+      });
+      throw error;
+    }
+  }
+
+  /** MODERATOR-only (matching every other mutating action in this module - OWNER stays read-only). Cancels the real Lalamove order; Lalamove itself rejects this once a driver has picked up, and that rejection surfaces to the caller unchanged. */
+  async cancelLalamoveBooking(deliveryId: string, requesterId: string, context: RequestAuditContext): Promise<DeliveryWithOrder> {
+    const delivery = await prisma.delivery.findUnique({ where: { id: deliveryId }, include: deliveryInclude });
+    if (!delivery) {
+      throw new AppError('Delivery not found.', 404);
+    }
+    if (!delivery.lalamoveOrderId) {
+      throw new AppError('This delivery has not been booked with the delivery provider yet.', 400);
+    }
+    if (delivery.deliveryStatus === 'COMPLETED') {
+      throw new AppError('This delivery has already been completed and cannot be cancelled.', 409);
+    }
+
+    try {
+      await lalamoveProvider.cancelOrder(delivery.lalamoveOrderId);
+
+      const updated = await prisma.delivery.update({ where: { id: deliveryId }, data: { deliveryStatus: 'CANCELED' }, include: deliveryInclude });
+
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_ORDER_CANCELLED, context, { deliveryId, lalamoveOrderId: delivery.lalamoveOrderId }),
+      });
+
+      await createNotification({
+        userId: delivery.order.customerId,
+        type: NotificationType.ORDER,
+        title: 'Delivery cancelled',
+        message: `The delivery for order ${delivery.order.orderNumber} has been cancelled.`,
+        metadata: { deliveryId, orderId: delivery.orderId, event: 'DELIVERY_CANCELLED' },
+      });
+
+      return updated;
+    } catch (error) {
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.LALAMOVE_ORDER_CANCEL_FAILED, context, {
+          deliveryId,
+          lalamoveOrderId: delivery.lalamoveOrderId,
+          error: error instanceof AppError ? error.message : 'Unknown error',
+        }),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * MODERATOR/OWNER-only interim bridge: manually sets an order's dropoff
+   * coordinates until a real geocoding provider is wired into
+   * geocoding.service.ts. Written into Order.deliveryLocation (the single
+   * place this system already keeps a customer's structured delivery
+   * address), not a separate field, so every other read path picks it up
+   * automatically.
+   */
+  async setDeliveryCoordinates(orderId: string, requesterId: string, latitude: number, longitude: number, context: RequestAuditContext): Promise<void> {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, deliveryLocation: true } });
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+    if (!order.deliveryLocation || typeof order.deliveryLocation !== 'object') {
+      throw new AppError('This order has no structured delivery address to attach coordinates to.', 400);
+    }
+
+    const nextLocation = {
+      ...(order.deliveryLocation as Prisma.JsonObject),
+      latitude,
+      longitude,
+      geocodingStatus: 'completed',
+      geocodingProvider: 'manual',
+    } as unknown as Prisma.JsonObject;
+
+    await prisma.order.update({ where: { id: orderId }, data: { deliveryLocation: nextLocation } });
+
+    await prisma.activityLog.create({
+      data: buildActivityLogData(requesterId, ActivityAction.DELIVERY_COORDINATES_SET, context, { orderId, latitude, longitude }),
+    });
+  }
+
+  /** Admin visibility into failed provider calls (create/quotation/booking/refresh/cancel) - what the spec calls "Failed API requests." */
+  async getFailedProviderRequests(filters: { page?: number; limit?: number }) {
+    const page = filters.page ?? DEFAULT_PAGE;
+    const limit = filters.limit ?? DEFAULT_LIMIT;
+    const where: Prisma.ActivityLogWhereInput = { action: { startsWith: 'LALAMOVE_', endsWith: '_FAILED' } };
+
+    const [logs, total] = await Promise.all([
+      prisma.activityLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      prisma.activityLog.count({ where }),
+    ]);
+
+    return { logs, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  }
+
+  /**
+   * Applies one Lalamove webhook event. Idempotent by design: re-delivering
+   * the same event just re-applies the same status/driver fields. An event
+   * for an order this system doesn't recognize is acknowledged (not
+   * errored), matching the webhook module's own guidance to avoid endless
+   * retries for something this system can't act on.
+   */
+  async handleLalamoveWebhook(eventType: string, lalamoveOrderId: string | undefined, data: Record<string, unknown>): Promise<void> {
+    if (!lalamoveOrderId) {
+      await prisma.activityLog.create({ data: buildActivityLogData(null, ActivityAction.LALAMOVE_WEBHOOK_RECEIVED, { ipAddress: null, userAgent: null }, { eventType, unrecognized: true }) });
+      return;
+    }
+
+    const delivery = await prisma.delivery.findUnique({ where: { lalamoveOrderId }, include: deliveryInclude });
+    if (!delivery) {
+      return; // Not one of ours (or already deleted) - ack without error, per PayMongo's established pattern.
+    }
+
+    const previousStatus = delivery.deliveryStatus;
+    const metadata = (delivery.providerMetadata as Prisma.JsonObject | null) ?? {};
+    // `data` is the webhook's whole `data` object - order fields (including
+    // `status`) may be nested under `data.order` or, for some event types,
+    // sit at the top level; `driver` is always a sibling of `order`, not
+    // nested inside it (see delivery.controller.ts#webhook).
+    const orderInfo = (data.order as Record<string, unknown> | undefined) ?? data;
+    const nextStatus = typeof orderInfo.status === 'string' ? orderInfo.status : previousStatus;
+
+    const driverData = data.driver as Record<string, unknown> | undefined;
+    const driverPatch = driverData
+      ? {
+          driverId: typeof driverData.driverId === 'string' ? driverData.driverId : metadata.driverId,
+          driverName: typeof driverData.name === 'string' ? driverData.name : metadata.driverName,
+          driverPhone: typeof driverData.phone === 'string' ? driverData.phone : metadata.driverPhone,
+          driverPlateNumber: typeof driverData.plateNumber === 'string' ? driverData.plateNumber : metadata.driverPlateNumber,
+        }
+      : {};
+
+    await prisma.delivery.update({
+      where: { id: delivery.id },
+      data: {
+        deliveryStatus: nextStatus,
+        deliveredAt: nextStatus === 'COMPLETED' && !delivery.deliveredAt ? new Date() : delivery.deliveredAt,
+        providerMetadata: { ...metadata, ...driverPatch, lastWebhookEvent: eventType, lastSyncedAt: new Date().toISOString() } as unknown as Prisma.JsonObject,
+      },
+    });
+
+    await prisma.activityLog.create({
+      data: buildActivityLogData(null, ActivityAction.LALAMOVE_WEBHOOK_RECEIVED, { ipAddress: null, userAgent: null }, { eventType, lalamoveOrderId, deliveryId: delivery.id }),
+    });
+
+    if (nextStatus && nextStatus !== previousStatus) {
+      await createNotification({
+        userId: delivery.order.customerId,
+        type: NotificationType.ORDER,
+        title: 'Delivery status updated',
+        message: `Your delivery for order ${delivery.order.orderNumber} is now: ${getDeliveryStatusLabel(nextStatus)}.`,
+        metadata: { deliveryId: delivery.id, orderId: delivery.orderId, status: nextStatus, event: 'DELIVERY_STATUS_CHANGED' },
+      });
+    }
   }
 }
 

@@ -62,13 +62,40 @@ export interface DeliveryProviderMetadata {
   bookingId?: string
   driverName?: string
   driverPhone?: string
+  driverPlateNumber?: string
+  driverPhotoUrl?: string
   vehicleType?: string
   trackingUrl?: string
   estimatedDelivery?: string
   arrangedBy?: string
   arrangedAt?: string
+  bookedAt?: string
+  lastSyncedAt?: string
+  lastWebhookEvent?: string
   destinationStop?: unknown
+  pendingQuotation?: {
+    quotationId: string
+    expiresAt: string
+    amount: number
+    currency: string
+    serviceType: string
+  }
   [key: string]: unknown
+}
+
+export interface LalamoveServiceType {
+  key: string
+  description: string | null
+  maxWeightKg: number | null
+  dimensionsMeters: { length: number; width: number; height: number } | null
+}
+
+export interface DeliveryQuotation {
+  quotationId: string
+  amount: number
+  currency: string
+  serviceType: string
+  expiresAt: string
 }
 
 export type DeliveryApprovalStatus = 'NOT_REQUESTED' | 'PENDING_APPROVAL' | 'APPROVED' | 'DECLINED'
@@ -87,10 +114,22 @@ export interface DeliveryRecord {
   address: string
   deliveryProvider: string | null
   deliveryStatus: string | null
+  lalamoveOrderId: string | null
   providerMetadata: DeliveryProviderMetadata | null
   scheduledDate: string | null
   deliveredAt: string | null
   createdAt: string
   updatedAt: string
+  order?: { id: string; orderNumber: string; customerId: string; status: string; deliveryLocation?: DeliveryLocation | null }
+}
+
+export interface DeliveryActivityLog {
+  id: string
+  userId: string | null
+  action: string
+  metadata: Record<string, unknown> | null
+  ipAddress: string | null
+  userAgent: string | null
+  createdAt: string
 }
 

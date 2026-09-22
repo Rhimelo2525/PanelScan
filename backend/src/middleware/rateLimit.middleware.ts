@@ -63,6 +63,31 @@ export const authRateLimiter = createRateLimiter({
   skip: skipInAutomatedTests,
 });
 
+/**
+ * Shared by every account-security route (change password, send/verify
+ * email code, forgot/verify/reset password) - see auth.routes.ts. One
+ * counter per IP across all of them, so alternating between endpoints
+ * doesn't multiply an attacker's budget. Deliberately separate from
+ * `authRateLimiter`: password recovery takes three requests even when
+ * nothing goes wrong, so it can't share login's 5-attempts bucket. The
+ * per-code attempt cap and resend cooldown (verification.service.ts) are
+ * what bound guessing against a single account.
+ */
+export const accountSecurityRateLimiter = createRateLimiter({
+  windowMs: env.RATE_LIMIT_ACCOUNT_SECURITY_WINDOW_MS,
+  max: env.RATE_LIMIT_ACCOUNT_SECURITY_MAX,
+  message: 'Too many attempts. Please try again later.',
+  skip: skipInAutomatedTests,
+});
+
+/** Profile picture upload/remove (see modules/profilePicture). Decoding and re-encoding an image is the costliest thing a customer can trigger, so it is bounded separately from the general API limit. */
+export const profilePictureRateLimiter = createRateLimiter({
+  windowMs: env.RATE_LIMIT_UPLOAD_WINDOW_MS,
+  max: env.RATE_LIMIT_UPLOAD_MAX,
+  message: 'Too many photo updates. Please try again later.',
+  skip: skipInAutomatedTests,
+});
+
 /** Mounted on `/api` in app.ts, so every route under it is covered - `/health` is registered separately and is never touched by this limiter. */
 export const apiRateLimiter = createRateLimiter({
   windowMs: env.RATE_LIMIT_API_WINDOW_MS,

@@ -1,4 +1,4 @@
-import { ChevronDown, HardHat, LayoutDashboard, LogOut, Menu, MessageSquare, PackageCheck, PanelsTopLeft, ScanLine, ShoppingCart, Star } from "lucide-react"
+import { ChevronDown, HardHat, LayoutDashboard, LogOut, Menu, MessageSquare, PackageCheck, PanelsTopLeft, ScanLine, ShoppingCart, Star, UserRound } from "lucide-react"
 import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 
@@ -7,7 +7,7 @@ import { useAuth } from "@/auth/use-auth"
 import { useCart } from "@/cart/use-cart"
 import { Brand } from "@/components/layout/brand"
 import { Container } from "@/components/layout/container"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { CustomerAvatar } from "@/components/profile/customer-avatar"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
@@ -59,8 +59,6 @@ export function SiteHeader() {
     }
   }
 
-  const initials = user ? `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase() : ""
-
   return (
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/92 backdrop-blur-md">
       <Container className="flex h-[4.75rem] items-center justify-between gap-6">
@@ -85,7 +83,7 @@ export function SiteHeader() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="lg" className="gap-2" aria-label={`Open account menu for ${user.firstName}`}>
-                  <Avatar size="sm"><AvatarFallback className="bg-primary text-primary-foreground">{initials}</AvatarFallback></Avatar>
+                  <CustomerAvatar user={user} className="size-6" />
                   <span className="max-w-28 truncate">{user.firstName}</span><ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
@@ -94,6 +92,7 @@ export function SiteHeader() {
                 <DropdownMenuSeparator />
                 {isAdminRole(user.role) && <DropdownMenuItem asChild><Link to="/admin"><PanelsTopLeft aria-hidden="true" />PanelScan Admin</Link></DropdownMenuItem>}
                 <DropdownMenuItem asChild><Link to="/dashboard"><LayoutDashboard aria-hidden="true" />My dashboard</Link></DropdownMenuItem>
+                {user.role === "CUSTOMER" && <DropdownMenuItem asChild><Link to="/profile"><UserRound aria-hidden="true" />Profile</Link></DropdownMenuItem>}
                 {user.role === "CUSTOMER" && <DropdownMenuItem asChild><Link to="/orders"><PackageCheck aria-hidden="true" />Orders</Link></DropdownMenuItem>}
                 {user.role === "CUSTOMER" && <>
                   <DropdownMenuItem asChild><Link to="/projects"><ScanLine aria-hidden="true" />AR &amp; 3D projects</Link></DropdownMenuItem>
@@ -140,7 +139,7 @@ export function SiteHeader() {
             <div className="mt-auto grid gap-2 border-t border-border p-6">
               {isLoading && <div className="space-y-2" aria-label="Checking account session"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>}
               {!isLoading && !isAuthenticated && <><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/login">Log in</Link></Button></SheetClose><SheetClose asChild><Button size="lg" asChild><Link to="/register">Create account</Link></Button></SheetClose></>}
-              {!isLoading && user && <><div className="mb-3 flex items-center gap-3"><Avatar><AvatarFallback className="bg-primary text-primary-foreground">{initials}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate text-sm font-semibold">{user.firstName} {user.lastName}</p><p className="truncate text-xs text-muted-foreground">{user.email}</p></div></div>{user.role === "CUSTOMER" && <><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/cart"><ShoppingCart data-icon="inline-start" aria-hidden="true" />Cart{isCartLoading ? <Skeleton className="ml-auto size-4 rounded-full" /> : !cartError && <span className="ml-auto tabular-nums">{itemCount > 99 ? "99+" : itemCount}</span>}</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/orders"><PackageCheck data-icon="inline-start" aria-hidden="true" />Orders</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/projects"><ScanLine data-icon="inline-start" aria-hidden="true" />AR &amp; 3D projects</Link></Button></SheetClose></>}{isAdminRole(user.role) && <SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/admin"><PanelsTopLeft data-icon="inline-start" aria-hidden="true" />PanelScan Admin</Link></Button></SheetClose>}<SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/dashboard">My dashboard</Link></Button></SheetClose>{user.role === "CUSTOMER" && <><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/messages"><MessageSquare data-icon="inline-start" aria-hidden="true" />Messages</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/installation"><HardHat data-icon="inline-start" aria-hidden="true" />Installation</Link></Button></SheetClose></>}<SheetClose asChild><Button variant="ghost" size="lg" onClick={() => void handleLogout()} disabled={isLoggingOut}><LogOut data-icon="inline-start" aria-hidden="true" />{isLoggingOut ? "Logging out…" : "Log out"}</Button></SheetClose></>}
+              {!isLoading && user && <><div className="mb-3 flex items-center gap-3"><CustomerAvatar user={user} /><div className="min-w-0"><p className="truncate text-sm font-semibold">{user.firstName} {user.lastName}</p><p className="truncate text-xs text-muted-foreground">{user.email}</p></div></div>{user.role === "CUSTOMER" && <><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/cart"><ShoppingCart data-icon="inline-start" aria-hidden="true" />Cart{isCartLoading ? <Skeleton className="ml-auto size-4 rounded-full" /> : !cartError && <span className="ml-auto tabular-nums">{itemCount > 99 ? "99+" : itemCount}</span>}</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/orders"><PackageCheck data-icon="inline-start" aria-hidden="true" />Orders</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/projects"><ScanLine data-icon="inline-start" aria-hidden="true" />AR &amp; 3D projects</Link></Button></SheetClose></>}{isAdminRole(user.role) && <SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/admin"><PanelsTopLeft data-icon="inline-start" aria-hidden="true" />PanelScan Admin</Link></Button></SheetClose>}<SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/dashboard">My dashboard</Link></Button></SheetClose>{user.role === "CUSTOMER" && <><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/profile"><UserRound data-icon="inline-start" aria-hidden="true" />Profile</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/messages"><MessageSquare data-icon="inline-start" aria-hidden="true" />Messages</Link></Button></SheetClose><SheetClose asChild><Button variant="outline" size="lg" asChild><Link to="/installation"><HardHat data-icon="inline-start" aria-hidden="true" />Installation</Link></Button></SheetClose></>}<SheetClose asChild><Button variant="ghost" size="lg" onClick={() => void handleLogout()} disabled={isLoggingOut}><LogOut data-icon="inline-start" aria-hidden="true" />{isLoggingOut ? "Logging out…" : "Log out"}</Button></SheetClose></>}
             </div>
           </SheetContent>
         </Sheet>

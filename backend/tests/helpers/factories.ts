@@ -46,6 +46,9 @@ interface CreateTestUserOptions {
   firstName?: string;
   lastName?: string;
   isActive?: boolean;
+  emailVerified?: boolean;
+  /** Pass null to create a Google-style account that has no password. */
+  password?: string | null;
 }
 
 /**
@@ -59,7 +62,7 @@ export const createTestUser = async (options: CreateTestUserOptions = {}): Promi
   userCounter += 1;
   const email = options.email ?? `test-user-${userCounter}-${Date.now()}@panelscan.test`;
   const password = TEST_PASSWORD;
-  const hashedPassword = await hashPassword(password);
+  const hashedPassword = options.password === null ? null : await hashPassword(options.password ?? password);
 
   const user = await prisma.user.create({
     data: {
@@ -69,6 +72,7 @@ export const createTestUser = async (options: CreateTestUserOptions = {}): Promi
       password: hashedPassword,
       role: options.role ?? UserRole.CUSTOMER,
       isActive: options.isActive ?? true,
+      emailVerified: options.emailVerified ?? false,
     },
   });
 

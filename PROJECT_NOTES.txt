@@ -396,8 +396,71 @@ the README/Postman changes.
   task's hard rule to keep existing access-token behavior exactly as-is;
   left as a deliberate follow-up rather than a default flip. Doing so is
   just an env var change (JWT_EXPIRES_IN=15m), no code changes needed.
-- No email verification flow on registration.
-- No forgot-password / reset-password flow.
+- Email verification and forgot-password / reset-password now exist (added
+  2026-09-21; see backend/README.md "Auth"): users.email_verified, one-time
+  6-digit codes in email_verification_codes / password_reset_codes, emailed
+  over SMTP (SMTP_* env vars). Recovery is offered only to active CUSTOMER
+  accounts whose email is verified. Existing accounts start unverified
+  (Google-linked ones are backfilled as verified), so a customer who has
+  never verified and forgets their password cannot self-recover.
+- Customer profile picture added (2026-09-21; backend/README.md "Profile
+  picture"): users.profile_picture_path / profile_picture_updated_at, a new
+  generic activity_logs audit table, and the `sharp` dependency (real decode,
+  square crop to 512x512 WebP, EXIF stripped). Files are private under
+  uploads/profiles/<id>/ and only served by an authenticated endpoint - the
+  public /uploads mount deliberately blocks that folder. Local disk is
+  ephemeral on Vercel/serverless, as it already is for product images.
+- Live Lalamove delivery integration wired in (2026-09-22; backend/README.md
+  "Live Lalamove integration"): the delivery module's provider layer
+  (src/modules/delivery/providers/lalamove.provider.ts) was scaffolded back
+  on 2026-08-02 with every method deliberately stubbed ("next integration
+  phase") - this connects it for real: HMAC-SHA256 request signing, live
+  quotation/booking/status/driver/cancel calls, and a webhook endpoint. The
+  existing staff-approval gate (request -> approve/decline) is UNCHANGED and
+  still required before any of this is reachable; a customer only sees a
+  live fee and confirms a real booking after staff approval. Schema: one new
+  column (deliveries.lalamove_order_id, unique) - driver/vehicle/tracking
+  snapshots reuse the existing providerMetadata JSON column rather than
+  adding more, matching how the frontend's DeliveryProviderMetadata type
+  already expected them. Two things intentionally NOT wired up at first
+  because they needed real-world facts this project couldn't invent - see
+  the two follow-up notes below for how each was completed
+  (PANELSCAN_WAREHOUSE_* and real geocoding). Lalamove's webhook
+  *signature* scheme is not in their public docs (partner-only PDF); a
+  secret-URL-token (LALAMOVE_WEBHOOK_TOKEN) is used instead, disclosed as a
+  known tradeoff rather than a guessed-and-unverifiable HMAC check.
+  GET /v3/cities and the HMAC signing were verified live against the real
+  production account (read-only, non-committal); POST /v3/orders and
+  DELETE /v3/orders were deliberately never called live (would dispatch a
+  real driver / incur a real charge) - covered by mocked-provider tests
+  instead. GET /v3/cities also revealed that Lalamove's PH catalog includes
+  Cebu (Visayas), which this project's own delivery-coverage.config.ts
+  explicitly excludes - getAvailableServices() whitelists only the two city
+  groups (PH MNL, PH PAM) that cover the existing Luzon-only coverage.
+- Warehouse pickup location filled in (2026-09-22): address "1 M. Villarica
+  Rd", City of San Jose del Monte, Bulacan, postal 3023 (SJDM's real PSGC
+  postal code - public fact, not invented), and real GPS coordinates
+  (14.8080032, 121.0421246) are now set in backend/.env. STILL MISSING:
+  PANELSCAN_WAREHOUSE_PHONE (a real dispatch contact number) - until it's
+  set, isWarehouseConfigured() returns false and requestQuotation keeps
+  refusing (503) exactly as designed, so no live booking can happen yet.
+- Real dropoff geocoding wired in (2026-09-22; backend/README.md "Dropoff
+  geocoding"): geocoding.service.ts now calls the Google Maps Geocoding API
+  (GOOGLE_MAPS_API_KEY, not yet set in .env - user chose Google over Mapbox
+  but hasn't created a key yet) instead of always returning null. Called
+  from order.service.ts at checkout, deliberately hoisted OUT of
+  createOrderFromCart's database transaction into a new private
+  resolveDeliveryLocation() method that runs first - an external HTTP call
+  has no business holding a CockroachDB SERIALIZABLE transaction open, and
+  a slow/failed geocode must never stall or abort checkout. The core safety
+  rule carries over unchanged: Google's own location_type can itself be a
+  street/area midpoint (GEOMETRIC_CENTER/APPROXIMATE) when it can't find the
+  exact address - only ROOFTOP/RANGE_INTERPOLATED matches are accepted as
+  "completed"; anything else is treated as a failure (coordinates stay
+  null), same as no geocoder being configured at all. Covered by
+  tests/delivery/geocoding.test.ts (13 tests, mocked fetch + mocked env) and
+  tests/order/order-geocoding.test.ts (4 tests, real checkout endpoint,
+  mocked fetch) - both new, neither calls Google for real.
 - No account lockout after repeated failed login attempts.
 - CORS_ORIGIN is currently a single placeholder value
   (http://localhost:3000) - update per environment (web dashboard origin,

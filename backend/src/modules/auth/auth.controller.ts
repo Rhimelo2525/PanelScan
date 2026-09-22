@@ -6,11 +6,17 @@ import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/AppError';
 import { AuthService, authService } from './auth.service';
 import { GoogleAuthService, googleAuthService, type VerifiedGoogleProfile } from './googleAuth.service';
+import { VerificationService, verificationService } from './verification.service';
+
+// Identical for every address, real or not - see VerificationService.requestPasswordReset.
+const PASSWORD_RECOVERY_REQUESTED_MESSAGE =
+  'If a verified account exists for that email address, a 6-digit code has been sent to it.';
 
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly googleAuth: GoogleAuthService = googleAuthService,
+    private readonly verification: VerificationService = verificationService,
   ) {}
 
   register = catchAsync(async (req: Request, res: Response): Promise<void> => {
@@ -29,6 +35,59 @@ export class AuthController {
     }
     const user = await this.authService.getCurrentUser(req.user.id);
     sendSuccess(res, 200, 'Current user retrieved successfully.', { user });
+  });
+
+  updateProfile = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    const user = await this.authService.updateProfile(req.user.id, req.body);
+    sendSuccess(res, 200, 'Profile updated successfully.', { user });
+  });
+
+  changePassword = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    await this.authService.changePassword(req.user.id, req.body);
+    sendSuccess(res, 200, 'Password changed successfully.');
+  });
+
+  sendVerificationEmail = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    const { alreadyVerified } = await this.verification.sendEmailVerification(req.user.id);
+    sendSuccess(
+      res,
+      200,
+      alreadyVerified ? 'Your email address is already verified.' : 'A verification code has been sent to your email address.',
+      { alreadyVerified },
+    );
+  });
+
+  verifyEmail = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    await this.verification.verifyEmail(req.user.id, req.body.code);
+    const user = await this.authService.getCurrentUser(req.user.id);
+    sendSuccess(res, 200, 'Email address verified successfully.', { user });
+  });
+
+  forgotPassword = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await this.verification.requestPasswordReset(req.body.email);
+    sendSuccess(res, 200, PASSWORD_RECOVERY_REQUESTED_MESSAGE);
+  });
+
+  verifyResetCode = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await this.verification.verifyPasswordResetCode(req.body.email, req.body.code);
+    sendSuccess(res, 200, 'Code verified.');
+  });
+
+  resetPassword = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await this.verification.resetPassword(req.body.email, req.body.code, req.body.newPassword);
+    sendSuccess(res, 200, 'Your password has been reset. You can now log in with your new password.');
   });
 
   refresh = catchAsync(async (req: Request, res: Response): Promise<void> => {
@@ -168,4 +227,4 @@ export class AuthController {
   });
 }
 
-export const authController = new AuthController(authService, googleAuthService);
+export const authController = new AuthController(authService, googleAuthService, verificationService);

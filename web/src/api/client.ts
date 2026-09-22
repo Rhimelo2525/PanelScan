@@ -28,11 +28,13 @@ export class ApiRequestError extends Error {
 }
 
 interface ApiRequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE"
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   body?: unknown
   signal?: AbortSignal
   authenticated?: boolean
   retryAfterRefresh?: boolean
+  /** "blob" returns the raw body of a successful response (e.g. an image) instead of parsing the JSON envelope. Errors are always JSON. */
+  responseType?: "json" | "blob"
 }
 
 interface RefreshPayload {
@@ -96,6 +98,10 @@ async function request<T>(path: string, options: ApiRequestOptions, accessToken?
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error
     throw new ApiRequestError("We couldn't connect to PanelScan right now. Please try again.", 0)
+  }
+
+  if (options.responseType === "blob" && response.ok) {
+    return (await response.blob()) as T
   }
 
   let responseBody: ApiSuccessResponse<T> | ApiErrorResponse

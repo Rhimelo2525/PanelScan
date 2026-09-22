@@ -107,6 +107,7 @@ export function RegisterPage() {
         email: values.email.trim().toLowerCase(),
         password: values.password,
         ...(values.phone.trim() ? { phone: values.phone.trim() } : {}),
+        birthdate: values.birthdate,
         acceptedTerms: values.acceptedTerms,
       })
       navigate(destination, { replace: true })

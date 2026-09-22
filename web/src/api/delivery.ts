@@ -1,12 +1,22 @@
 import { apiRequest } from '@/api/client'
 import type {
+  DeliveryActivityLog,
   DeliveryCoverage,
+  DeliveryQuotation,
   DeliveryRecord,
+  LalamoveServiceType,
   PsgcBarangay,
   PsgcCity,
   PsgcProvince,
   PsgcRegion,
 } from '@/types/delivery'
+
+interface PaginationMeta {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
 
 interface CoverageResponse {
   coverage: DeliveryCoverage
@@ -114,5 +124,74 @@ export function declineDeliveryRequest(orderId: string, reason?: string) {
     authenticated: true,
     body: reason ? { reason } : {},
   })
+}
+
+// ---------------------------------------------------------------- live Lalamove integration
+
+/** Live Lalamove vehicle lineup for the quotation UI. Always succeeds - the backend falls back to a static list if the provider call fails. */
+export async function getVehicleTypes(signal?: AbortSignal): Promise<LalamoveServiceType[]> {
+  const response = await apiRequest<{ services: LalamoveServiceType[] }>("/delivery/vehicle-types", { authenticated: true, signal })
+  return response.services
+}
+
+/** Free, non-committal: requests a live fee quote from Lalamove without booking anything. Requires the delivery request to already be APPROVED. */
+export function requestQuotation(orderId: string, serviceType: string, signal?: AbortSignal) {
+  return apiRequest<{ quotation: DeliveryQuotation }>(`/delivery/orders/${orderId}/quotation`, {
+    method: "POST",
+    authenticated: true,
+    body: { serviceType },
+    signal,
+  })
+}
+
+/** Redeems the quotation from requestQuotation() into a real, billable Lalamove booking. */
+export function confirmDeliveryBooking(orderId: string, signal?: AbortSignal) {
+  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/book`, { method: "POST", authenticated: true, signal })
+}
+
+/** Pulls live status + driver info from Lalamove and syncs it onto the record. Safe to call repeatedly - read-only against the provider. */
+export function refreshDeliveryStatus(deliveryId: string, signal?: AbortSignal) {
+  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/${deliveryId}/refresh`, { method: "POST", authenticated: true, signal })
+}
+
+/** MODERATOR-only: cancels the real Lalamove booking (not the local record). */
+export function cancelDeliveryBooking(deliveryId: string, signal?: AbortSignal) {
+  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/${deliveryId}/cancel-booking`, { method: "POST", authenticated: true, signal })
+}
+
+/** MODERATOR/OWNER interim bridge until a real geocoder is wired in: manually sets an order's dropoff coordinates. */
+export function setDeliveryCoordinates(orderId: string, latitude: number, longitude: number, signal?: AbortSignal) {
+  return apiRequest<void>(`/delivery/orders/${orderId}/coordinates`, { method: "PATCH", authenticated: true, body: { latitude, longitude }, signal })
+}
+
+export interface DeliveryListFilters {
+  page?: number
+  limit?: number
+  search?: string
+  deliveryState?: "active" | "completed" | "cancelled"
+  sortBy?: "scheduledDate" | "createdAt"
+  sortOrder?: "asc" | "desc"
+}
+
+/** Admin deliveries list: MODERATOR/OWNER see every delivery; a CUSTOMER sees only their own orders' deliveries. */
+export function getDeliveries(filters: DeliveryListFilters = {}, signal?: AbortSignal) {
+  const params = new URLSearchParams()
+  if (filters.page) params.set("page", String(filters.page))
+  if (filters.limit) params.set("limit", String(filters.limit))
+  if (filters.search) params.set("search", filters.search)
+  if (filters.deliveryState) params.set("deliveryState", filters.deliveryState)
+  if (filters.sortBy) params.set("sortBy", filters.sortBy)
+  if (filters.sortOrder) params.set("sortOrder", filters.sortOrder)
+  const query = params.toString()
+  return apiRequest<{ deliveries: DeliveryRecord[]; pagination: PaginationMeta }>(`/delivery${query ? `?${query}` : ""}`, { authenticated: true, signal })
+}
+
+export function getDeliveryById(deliveryId: string, signal?: AbortSignal) {
+  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/${deliveryId}`, { authenticated: true, signal })
+}
+
+/** MODERATOR/OWNER: "Failed API requests" admin view - failed Lalamove calls (quotation, booking, refresh, cancel). */
+export function getFailedDeliveryRequests(page = 1, limit = 20, signal?: AbortSignal) {
+  return apiRequest<{ logs: DeliveryActivityLog[]; pagination: PaginationMeta }>(`/delivery/failed-requests?page=${page}&limit=${limit}`, { authenticated: true, signal })
 }
 

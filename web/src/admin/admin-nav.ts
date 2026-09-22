@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Users, Wrench } from "lucide-react"
+import { BarChart3, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Truck, Users, Wrench } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import type { UserRole } from "@/types/auth"
@@ -39,6 +39,7 @@ export const adminNavGroups: AdminNavGroup[] = [
       { to: "/admin/inventory", label: "Inventory", icon: Boxes, roles: ["OWNER", "MODERATOR"], description: "Stock levels, reorder thresholds, adjustments" },
       { to: "/admin/sales", label: "Sales", icon: BarChart3, roles: ["OWNER", "MODERATOR"], description: "Orders, revenue, and fulfilment status" },
       { to: "/admin/installation-requests", label: "Installation Requests", icon: Wrench, roles: ["OWNER", "MODERATOR"], description: "Operational queue for customer installation requests" },
+      { to: "/admin/deliveries", label: "Deliveries", icon: Truck, roles: ["OWNER", "MODERATOR"], description: "Live Lalamove delivery tracking and management" },
       { to: "/admin/installers", label: "Installers", icon: HardHat, roles: ["MODERATOR"], description: "Installer directory and availability" },
     ],
   },

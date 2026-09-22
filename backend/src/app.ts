@@ -1,7 +1,7 @@
 import path from 'path';
 import compression from 'compression';
 import cors from 'cors';
-import express, { type Application, type Request, type Response } from 'express';
+import express, { type Application, type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
@@ -12,6 +12,7 @@ import { globalErrorHandler } from './middleware/error.middleware';
 import { notFound } from './middleware/notFound.middleware';
 import { apiRateLimiter } from './middleware/rateLimit.middleware';
 import routes from './routes';
+import { AppError } from './utils/AppError';
 
 const app: Application = express();
 
@@ -42,6 +43,30 @@ const uploadsDirectory = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FU
   ? path.join('/tmp', 'uploads')
   : path.resolve(process.cwd(), env.UPLOAD_DIR);
 
+// Customer profile pictures live under uploads/profiles/ but are private: they
+// may only be served by the authenticated GET /api/users/:id/profile-picture
+// endpoint, never by the public static mount below (which has no login check
+// at all). This runs first and works on the DECODED, normalised path, because
+// the static handler decodes %-escapes and resolves "." / ".." itself - a
+// naive check on the raw URL could be slipped past with "/%70rofiles/..",
+// "/PROFILES/..", "/x/../profiles/.." or backslashes.
+app.use('/uploads', (req: Request, _res: Response, next: NextFunction) => {
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(req.path);
+  } catch {
+    next(new AppError('The requested file was not found.', 404));
+    return;
+  }
+
+  const normalisedPath = path.posix.normalize(decodedPath.replace(/\\/g, '/')).toLowerCase();
+  if (/^\/*profiles(\/|$)/.test(normalisedPath)) {
+    next(new AppError('The requested file was not found.', 404));
+    return;
+  }
+  next();
+});
+
 app.use(
   '/uploads',
   express.static(uploadsDirectory, {
@@ -55,6 +80,11 @@ app.use(
 // parser below (Express applies app.use() middleware in registration order,
 // scoped to matching paths) - every other route is unaffected.
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
+
+// POST /api/delivery/webhook/:token - Lalamove's webhook push (delivery.controller.ts#webhook)
+// needs the same treatment: the exact raw bytes, parsed before the global
+// JSON parser below.
+app.use('/api/delivery/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));

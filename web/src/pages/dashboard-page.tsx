@@ -10,7 +10,7 @@ import { useCart } from "@/cart/use-cart"
 import { Container } from "@/components/layout/container"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { StatusBadge } from "@/components/admin/status-badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { CustomerAvatar } from "@/components/profile/customer-avatar"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
@@ -62,7 +62,6 @@ export function DashboardPage() {
 
   if (!user) return null
 
-  const initials = `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase()
   const activeOrders = orders.filter((order) => order.status !== "DELIVERED" && order.status !== "CANCELLED").length
   const openBookings = bookings.filter((booking) => booking.status !== "COMPLETED" && booking.status !== "CANCELLED")
 
@@ -72,7 +71,7 @@ export function DashboardPage() {
         <Container>
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-5">
-              <Avatar className="size-14"><AvatarFallback className="bg-primary text-lg font-semibold text-primary-foreground">{initials}</AvatarFallback></Avatar>
+              <CustomerAvatar user={user} className="size-14" fallbackClassName="text-lg" />
               <div>
                 <p className="section-eyebrow">Your PanelScan</p>
                 <h1 className="type-h2 mt-2">{user.firstName} {user.lastName}</h1>
@@ -175,9 +174,10 @@ export function DashboardPage() {
                 <section className="surface-card p-6" aria-labelledby="account-title">
                   <div className="flex items-center gap-2"><LayoutGrid className="size-4 text-primary" aria-hidden="true" /><h2 id="account-title" className="font-semibold">Account</h2></div>
                   <dl className="mt-4 space-y-3 text-sm">
-                    <div><dt className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="size-3.5" aria-hidden="true" />Email</dt><dd className="mt-1 break-all">{user.email}</dd></div>
+                    <div><dt className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="size-3.5" aria-hidden="true" />Email</dt><dd className="mt-1 break-all">{user.email}{user.emailVerified === false && <> <Link to="/profile" className="whitespace-nowrap text-xs font-medium text-primary underline-offset-4 hover:underline">Verify email</Link></>}</dd></div>
                     {user.phone && <div><dt className="flex items-center gap-2 text-xs text-muted-foreground"><Phone className="size-3.5" aria-hidden="true" />Phone</dt><dd className="mt-1">{user.phone}</dd></div>}
                   </dl>
+                  <Button variant="outline" size="sm" className="mt-4 w-full" asChild><Link to="/profile">Manage profile</Link></Button>
                 </section>
               </aside>
             </div>

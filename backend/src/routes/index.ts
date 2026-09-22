@@ -15,6 +15,7 @@ import notificationRoutes from '../modules/notifications/notification.routes';
 import orderRoutes from '../modules/order/order.routes';
 import paymentRoutes from '../modules/payment/payment.routes';
 import productRoutes from '../modules/product/product.routes';
+import profilePictureRoutes from '../modules/profilePicture/profilePicture.routes';
 import projectRoutes from '../modules/project/project.routes';
 import reportsRoutes from '../modules/reports/reports.routes';
 import requestRoutes from '../modules/request/request.routes';
@@ -23,6 +24,9 @@ import usersRoutes from '../modules/users/users.routes';
 
 const router = Router();
 
+// Registered first: its paths (/auth/me/profile-picture, /users/:id/profile-picture)
+// are more specific than the /auth and /users routers mounted below.
+router.use(profilePictureRoutes);
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
 router.use('/admin/moderators', usersRoutes);

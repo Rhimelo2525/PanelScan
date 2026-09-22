@@ -1,7 +1,17 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+// During tests, `dotenv -e .env.test -- vitest run` (see package.json) has
+// already fully populated process.env from .env.test before this file ever
+// runs. Loading the real .env here too would silently fill in any var that
+// happens to be ABSENT from .env.test with its real production value
+// (dotenv.config() never overrides an already-set var, only fills gaps) -
+// exactly what happened when a real MAPBOX_ACCESS_TOKEN leaked into a test
+// run this way and made a live, unmocked API call. Skipping it under test
+// means .env.test is the complete, sole source of truth there, by design.
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config();
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -64,6 +74,23 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
 
+  // Transactional email (backend/src/utils/mailer.ts) - the one-time codes
+  // sent for email verification and password recovery. Entirely optional at
+  // startup so the backend boots without SMTP credentials: outside
+  // production the code is printed to the server console instead, and in
+  // production the send fails with a 503 until SMTP_HOST is configured.
+  // Works with any SMTP account (Gmail app password, Brevo, SES, Mailtrap...).
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  // "true" = implicit TLS (normally port 465). Leave "false" for STARTTLS on 587.
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  MAIL_FROM: z.string().min(1).default('PanelScan <no-reply@panelscan.local>'),
+
   // Rate limiting (backend/src/middleware/rateLimit.middleware.ts). Two
   // buckets: a strict one for POST /api/auth/register + POST
   // /api/auth/login (brute-force protection), and a looser one for every
@@ -73,6 +100,59 @@ const envSchema = z.object({
   RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_API_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(100),
+  // Account-security bucket: change password, email verification and the
+  // three password-recovery endpoints. Kept apart from the 5-attempt login
+  // bucket above because recovery is a multi-request flow (request a code,
+  // check it, reset) that a single typo would otherwise lock out.
+  RATE_LIMIT_ACCOUNT_SECURITY_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_ACCOUNT_SECURITY_MAX: z.coerce.number().int().positive().default(10),
+  // Profile picture upload/remove. Each upload costs real CPU (a full image
+  // decode and re-encode), so it gets its own modest bucket.
+  RATE_LIMIT_UPLOAD_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_UPLOAD_MAX: z.coerce.number().int().positive().default(20),
+
+  // Lalamove (Delivery module, src/modules/delivery). Optional at the process
+  // level, like PAYMONGO_* above - the server boots without them, but every
+  // delivery.service.ts method that calls the provider checks for them itself
+  // and fails only that one request (503) until they're configured.
+  LALAMOVE_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+  LALAMOVE_API_KEY: z.string().optional(),
+  LALAMOVE_API_SECRET: z.string().optional(),
+  // A long random token embedded in the webhook URL itself
+  // (POST /api/delivery/webhook/:token) - see lalamove.provider.ts for why:
+  // Lalamove's webhook *signature* scheme isn't in their public API docs, so
+  // this is the disclosed, standard fallback (a GitHub-style secret-URL
+  // webhook) rather than a guessed-and-possibly-wrong HMAC check.
+  LALAMOVE_WEBHOOK_TOKEN: z.string().optional(),
+
+  // PanelScan warehouse / pickup point (src/modules/delivery/providers/lalamove.config.ts).
+  // Deliberately has NO fallback defaults, unlike most config above: a wrong
+  // or placeholder pickup address/coordinates would send a real Lalamove
+  // driver to a real wrong location. Every field must be explicitly set
+  // before a quotation/booking is attempted; delivery.service.ts checks for
+  // all of them together and refuses with a clear error otherwise.
+  PANELSCAN_WAREHOUSE_NAME: z.string().optional(),
+  PANELSCAN_WAREHOUSE_PHONE: z.string().optional(),
+  PANELSCAN_WAREHOUSE_ADDRESS: z.string().optional(),
+  PANELSCAN_WAREHOUSE_BARANGAY: z.string().optional(),
+  PANELSCAN_WAREHOUSE_CITY: z.string().optional(),
+  PANELSCAN_WAREHOUSE_PROVINCE: z.string().optional(),
+  PANELSCAN_WAREHOUSE_POSTAL: z.string().optional(),
+  // Real GPS coordinates of the warehouse - never a city/barangay centroid.
+  PANELSCAN_WAREHOUSE_LAT: z.coerce.number().min(-90).max(90).optional(),
+  PANELSCAN_WAREHOUSE_LNG: z.coerce.number().min(-180).max(180).optional(),
+
+  // Google Maps Geocoding API - kept defined but currently unused (see
+  // MAPBOX_ACCESS_TOKEN below); left here in case of a future switch back,
+  // never read by geocoding.service.ts while that's the case.
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
+
+  // Mapbox Geocoding API v6 (src/modules/delivery/services/geocoding.service.ts) -
+  // turns a customer's typed delivery address into real coordinates for
+  // Lalamove. Optional: unset behaves exactly as before (coordinates stay
+  // null, geocodingStatus "pending"), so checkout and existing tests are
+  // unaffected until a token is configured.
+  MAPBOX_ACCESS_TOKEN: z.string().optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

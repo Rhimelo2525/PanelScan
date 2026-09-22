@@ -141,6 +141,17 @@ All responses follow a standard envelope:
 | GET    | `/me`       | Yes | Returns the authenticated user's profile             |
 | POST   | `/refresh`  | No  | Exchanges a valid refresh token for a new access token + a new (rotated) refresh token |
 | POST   | `/logout`   | Yes | Revokes the one refresh token supplied in the body    |
+| PATCH  | `/me`       | Yes (customer) | Edits the customer's own name, phone, birthdate and address |
+| POST   | `/change-password` | Yes (customer) | Changes the password after re-checking the current one |
+| POST   | `/send-verification-email` | Yes (customer) | Emails a one-time code to the account's address |
+| POST   | `/verify-email` | Yes (customer) | Redeems that code and marks the email verified |
+| POST   | `/forgot-password` | No | Emails a password-reset code (only to verified customer emails) |
+| POST   | `/verify-reset-code` | No | Checks a reset code without using it up |
+| POST   | `/reset-password` | No | Redeems the code (single use) and sets a new password |
+| PUT    | `/me/profile-picture` | Yes (customer) | Uploads/replaces the customer's own profile picture (multipart, field `image`) |
+| DELETE | `/me/profile-picture` | Yes (customer) | Removes the customer's own profile picture |
+
+Profile pictures are also read at `GET /api/users/:id/profile-picture` (owner or staff) — see **Profile picture** below.
 
 **POST `/api/auth/register`**
 Body:
@@ -157,9 +168,11 @@ Body:
 - `email`: valid email, lower-cased automatically
 - `password`: 8–72 chars, must contain an uppercase letter, a lowercase letter, and a number
 - `phone`: optional
+- `birthdate`: optional `YYYY-MM-DD` (a real date, 1900 or later, not in the future)
 - Role is **always** forced to `CUSTOMER` server-side — it cannot be set by the client.
 - `409` if the email is already registered.
 - Only issues an access token (`data.token`), not a refresh token — log in separately to start a refreshable session.
+- The account starts with `emailVerified: false` and a 6-digit verification code is emailed (best effort — a mail failure never blocks registration; the customer can request another from their profile).
 
 **POST `/api/auth/login`**
 Body: `{ "email": "juan@example.com", "password": "Passw0rd123" }`
@@ -169,6 +182,50 @@ Body: `{ "email": "juan@example.com", "password": "Passw0rd123" }`
 **GET `/api/auth/me`**
 Header: `Authorization: Bearer <token>`
 - Returns the current authenticated user (password never included in any response).
+- Besides the account basics, the user object carries `birthdate` (`YYYY-MM-DD` or `null`), `address`, `emailVerified`, and `hasPassword` (`false` for Google-only accounts) — a flag only, never the hash.
+
+**PATCH `/api/auth/me`** *(customers only)*
+Header: `Authorization: Bearer <token>`
+Body: any of `firstName`, `lastName` (2–50 chars), `phone`, `birthdate` (`YYYY-MM-DD` or `null` to clear), `address` (max 255; `""`/`null` clears) — at least one field.
+- `email`, `role`, `isActive` and `emailVerified` are **not** editable here: unknown keys are stripped, so sending them changes nothing. (The email is the login identity and the target of verification/recovery codes.)
+- `403` for staff accounts.
+
+**POST `/api/auth/change-password`** *(customers only)*
+Header: `Authorization: Bearer <token>`
+Body: `{ "currentPassword", "newPassword", "confirmPassword", "refreshToken"? }`
+- `newPassword` must satisfy the standard password policy, differ from `currentPassword`, and match `confirmPassword`.
+- A wrong current password is `400`, **not** `401` — the web client treats any `401` on an authenticated call as an expired session and would log the customer out over a typo.
+- Revokes the customer's other refresh tokens (their sessions on other devices). Pass this device's `refreshToken` to keep its own session alive.
+- `400` for a Google-only account, which has no password to change (they can create one via the recovery flow below).
+
+**POST `/api/auth/send-verification-email`** / **POST `/api/auth/verify-email`** *(customers only)*
+- `send-verification-email` (no body) emails a 6-digit code to the account's own address. `429` during the 60-second resend cooldown; `503` if the email could not be sent. If already verified it does nothing and returns `data.alreadyVerified: true`.
+- `verify-email` — body `{ "code": "123456" }` — marks the email verified and returns the updated `user`. `400` `"The code is invalid or has expired."` for any wrong/expired/used-up code.
+
+**Password recovery — `POST /api/auth/forgot-password`, `/verify-reset-code`, `/reset-password`** *(public)*
+1. `forgot-password` — `{ "email" }`. **Always** answers `200` with the same message whether or not the address has an account, so it can't be used to discover who is registered. A code is only actually emailed for an **active `CUSTOMER` account whose email is verified** (Google-linked accounts count as verified; staff accounts are never offered recovery).
+2. `verify-reset-code` — `{ "email", "code" }` — confirms the code is right without using it up, so the UI can tell the customer before they pick a password.
+3. `reset-password` — `{ "email", "code", "newPassword", "confirmPassword" }` — re-checks the code, sets the password, and **deletes the code (single use)**. Every refresh token for the account is revoked, so all existing sessions must log in again.
+
+Code rules (`src/utils/verificationCode.ts`, `src/modules/auth/verification.service.ts`):
+- 6 digits from the CSPRNG; **10-minute** expiry; at most **5 wrong guesses** per code (claimed atomically in the database, so parallel requests can't each get a free guess); a new code can only be requested after a **60-second** cooldown; only one live code per account (a new request replaces the old one).
+- Only a keyed **HMAC-SHA256** of the code is stored (keyed with `JWT_SECRET`, bound to the purpose and user id) — never the plaintext, and not a bare hash a database leak could reverse instantly.
+- Every failure (unknown email, no code pending, wrong, expired, used up) returns the identical `400` `"The code is invalid or has expired."`.
+- Codes are emailed via SMTP (`src/utils/mailer.ts`, see Environment Variables). Without `SMTP_HOST`, the code is printed to the server console in development, nothing happens under test, and production refuses to send (`503`) rather than silently pretend.
+- Password-reset codes live in `password_reset_codes`, verification codes in `email_verification_codes` — separate tables, so one can never be redeemed as the other.
+
+**Profile picture** *(customers)* — `src/modules/profilePicture`
+- **`PUT /api/auth/me/profile-picture`** — `multipart/form-data`, one file in the field `image`. Header: `Authorization: Bearer <token>`. Returns `{ user }` with the new `profilePictureUrl`. The target is **always the authenticated caller** — there is no id parameter, and any `userId`/`customerId` in the body or query is ignored. `403` for staff, `401` without a login, `413` over 5MB, `400` for a bad file, `429` when rate limited, `503` if storage fails.
+- **`DELETE /api/auth/me/profile-picture`** — removes it. Idempotent (`200` even if there was none).
+- **`GET /api/users/:id/profile-picture`** — streams the image (`image/webp`). Allowed for the owner and for staff (`OWNER`/`MODERATOR`, the same rule as `GET /api/users/:id`); **everyone else gets `404`, not `403`**, so the response never confirms that another customer has a picture. It needs the login token, so a browser can't use it as a plain `<img src>` — the web app fetches it with the token and shows it from an object URL.
+- **What the server checks** (`profilePicture.service.ts`) — all must pass: the filename extension is `.jpg`/`.jpeg`/`.png`/`.webp`; the file's **actual leading bytes** are a JPEG, PNG or WebP (the client's `Content-Type` is never trusted); and [`sharp`](https://sharp.pixelplumbing.com/) can fully **decode** it, which is what rejects truncated/corrupted files and anything merely dressed up as an image. A pixel cap (40 MP) stops decompression bombs. Max size 5MB.
+- **What gets stored** is a brand-new image, not the upload: auto-rotated from EXIF, centre-cropped to a square, resized to **512×512** and re-encoded as **WebP** (typically 20–60 KB). All metadata is dropped, including EXIF GPS location.
+- **Where** — local disk, following the existing uploads layout (`UPLOAD_DIR`, or `/tmp/uploads` on serverless hosts): `uploads/profiles/<customer id>/<random uuid>.webp`. The folder comes from the authenticated user id, the file name is a server-generated UUID, and no part of a path comes from the client, so there is no traversal and no way to overwrite another customer's file. Only the *relative path* and upload time are stored in the database (`users.profile_picture_path`, `users.profile_picture_updated_at`) — never image bytes. The API exposes a derived `profilePictureUrl` (relative to the API base, with `?v=<upload time>`); the storage path itself is never returned.
+- **Replace / remove** delete the customer's old file(s) only after the database points at the new state, so a failure can't leave them without a picture. Removing sweeps the customer's whole folder.
+- **The public `/uploads` mount never serves `profiles/`** (see `app.ts`): it checks the *decoded, normalised* path, so `%70rofiles`, `PROFILES`, `profiles%5C` and `./` variants are all blocked. `GET /api/users/:id/profile-picture` is the only way to read one.
+- **Caching** — responses are `Cache-Control: private` (never stored by a shared cache/CDN). When the `?v=` in the URL matches the current upload it is `max-age=31536000, immutable` (a new upload is a new URL); otherwise it revalidates via `ETag`/`304`.
+- **Audit** — every upload/replace (`PROFILE_PICTURE_UPDATED`, with `replaced`, `originalBytes`, `storedBytes`) and removal (`PROFILE_PICTURE_REMOVED`) writes a row to `activity_logs` in the **same transaction** as the change: user id, action, time, IP address (`req.ip`, correct behind a proxy thanks to `TRUST_PROXY`) and user agent. Failed/rejected uploads write nothing. The table is generic — `src/utils/activityLog.ts` holds the action codes so other features can log to it.
+- **Durability** — files live on the server's disk. On serverless hosts (Vercel/Lambda) that disk is temporary and is wiped on restart, exactly as for product images today; use a persistent volume or move `src/utils/profilePictureStorage.ts` to cloud storage (it is the only file that touches the filesystem) before relying on this in production there.
 
 **POST `/api/auth/refresh`**
 Body: `{ "refreshToken": "<opaque refresh token>" }` — no `Authorization` header needed (that's the point: it works even after the access token has expired).
@@ -817,14 +874,14 @@ Shipment tracking for an order once it's on its way. 1:1 with `Order` (`Delivery
 
 | Role | Can | Cannot |
 |------|-----|--------|
-| `CUSTOMER` | View deliveries for their own orders (status, tracking info) | Create, update, delete, mark delivered |
-| `MODERATOR` | Full delivery management — create, update courier/tracking/address/schedule, mark delivered, view every delivery, delete (only while not yet delivered) | — |
-| `OWNER` | View every delivery (read-only — same philosophy as Booking/Chat) | Create, update, delete, mark delivered |
+| `CUSTOMER` | View deliveries for their own orders (status, tracking info); request delivery; once approved, get a Lalamove quote and confirm a booking; refresh live status | Create, update, delete, mark delivered, cancel a booking, approve/decline |
+| `MODERATOR` | Full delivery management — create, update courier/tracking/address/schedule, mark delivered, view every delivery, delete (only while not yet delivered), approve/decline requests, set manual coordinates, cancel a live Lalamove booking | — |
+| `OWNER` | View every delivery (read-only — same philosophy as Booking/Chat); approve/decline requests; refresh live status (read-only against the provider) | Create, update, delete, mark delivered, cancel a booking |
 
 | Method | Endpoint | Role | Description |
 |--------|----------|------|-------------|
 | POST   | `/`      | `MODERATOR` | Create a delivery for an order. `scheduledDate` required and must be in the future. |
-| GET    | `/`      | any  | `CUSTOMER`: deliveries for their own orders only. `MODERATOR`/`OWNER`: every delivery. Supports `?status=scheduled\|delivered`, `?search=` (tracking number / courier / address), `?sortBy=scheduledDate\|createdAt` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`/`?limit=`. |
+| GET    | `/`      | any  | `CUSTOMER`: deliveries for their own orders only. `MODERATOR`/`OWNER`: every delivery. Supports `?status=scheduled\|delivered`, `?deliveryState=active\|completed\|cancelled` (grouped from the live Lalamove status, independent of `?status`), `?search=` (tracking number / courier / address), `?sortBy=scheduledDate\|createdAt` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`/`?limit=`. |
 | GET    | `/:id`   | any  | Single delivery. `CUSTOMER`: own order only (`404` otherwise). `MODERATOR`/`OWNER`: any. |
 | PATCH  | `/:id`   | `MODERATOR` | Update `courierName`/`trackingNumber`/`address`/`scheduledDate`. `orderId` can never be changed (not accepted by this endpoint at all). |
 | PATCH  | `/:id/delivered` | `MODERATOR` | Sets `deliveredAt` to now. `409` if already delivered. |
@@ -844,13 +901,54 @@ Body:
 **PATCH `/api/delivery/:id/delivered`**
 No body required. Response has `deliveredAt` set to the current timestamp.
 
+#### Live Lalamove integration (`src/modules/delivery/providers/lalamove.provider.ts`)
+
+The approval flow above (`request` → staff `approve`/`decline`) is unchanged and is still the gate: none of what follows is reachable until a delivery's `approvalStatus` is `APPROVED`. What used to be a stub (`arrangeDeliveryForOrder` did local bookkeeping only) now really calls Lalamove's REST API v3.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET    | `/vehicle-types` | any | Live vehicle lineup (`GET /v3/cities`, filtered to the two Lalamove city groups that cover PanelScan's Luzon-only coverage — see below). Falls back to a small static list if the provider call fails; never errors the request. |
+| POST   | `/orders/:orderId/quotation` | `CUSTOMER` (own order) or staff | Body `{ "serviceType": "VAN" }`. Free and non-committal — no booking, no charge. Requires `approvalStatus === APPROVED` and the order's delivery location to already have coordinates (`400` otherwise, naming the reason). Stores the quotation (with Lalamove's own stop ids) on the delivery record so `book` doesn't need to trust anything from the client. |
+| POST   | `/orders/:orderId/book` | `CUSTOMER` (own order) or staff | Redeems the stored quotation into a real, billable Lalamove order. `400` if no quotation is on file or it has expired; `409` if this order is already booked. |
+| POST   | `/:id/refresh` | any (ownership-checked for `CUSTOMER`) | Pulls live status + driver details from Lalamove (`GET /v3/orders/{id}`, then `GET /v3/orders/{id}/drivers/{driverId}` once a driver is assigned) and syncs them onto the record. Read-only against the provider — safe to call as often as needed. Notifies the customer only when the status actually changed; sets `deliveredAt` automatically when it becomes `COMPLETED`. |
+| POST   | `/:id/cancel-booking` | `MODERATOR` | Cancels the real Lalamove order (`DELETE /v3/orders/{id}`). Lalamove itself refuses this once a driver has picked up, and that rejection is surfaced unchanged, not swallowed. `400` if not booked yet, `409` if already `COMPLETED`. |
+| PATCH  | `/orders/:orderId/coordinates` | `MODERATOR`/`OWNER` | Manual override bridge — manually sets the order's dropoff `latitude`/`longitude`, merged into the existing `Order.deliveryLocation` JSON. Used when checkout's automatic geocoding (below) left the order without coordinates (no key configured, address not found, or only an imprecise match). Rejects coordinates outside a loose Philippines bounding box. |
+| GET    | `/failed-requests` | `MODERATOR`/`OWNER` | "Failed API requests" admin view — paginated `activity_logs` rows for every failed Lalamove call (`action` matching `LALAMOVE_%_FAILED`). |
+| POST   | `/webhook/:token` | none (see below) | Lalamove pushes order-status/driver events here. |
+
+**Real Lalamove statuses**, stored verbatim in `Delivery.deliveryStatus` (confirmed against the live API, not guessed): `ASSIGNING_DRIVER`, `ON_GOING`, `PICKED_UP`, `COMPLETED`, `CANCELED`, `REJECTED`, `EXPIRED` — plus this project's own pre-booking values `NOT_REQUESTED`/`NOT_SCHEDULED`/`PREPARING`. `src/modules/delivery/utils/lalamove-status.ts` maps these to a customer-facing label and to an admin-dashboard group (`active`/`completed`/`cancelled`/`not_started`) — an unrecognized value still shows something honest (`Provider status: X`) rather than a blank badge.
+
+**Authentication (`lalamove.signing.ts`)** — Lalamove's own documented scheme, verified live against the real production account: `Authorization: hmac <apiKey>:<timestamp>:<signature>` where `signature = HMAC-SHA256(apiSecret, "${timestamp}\r\n${method}\r\n${path}\r\n\r\n${body}")` (hex), plus `Market: PH` and a `Request-ID` header on every call.
+
+**Coverage filtering** — `GET /v3/cities` returns Lalamove's whole Philippines catalog, including Cebu (Visayas), which this project explicitly does not serve (see `delivery-coverage.config.ts`). `getAvailableServices()` whitelists only the two city groups that cover PanelScan's Luzon coverage (`PH MNL` — Manila NCR & South Luzon, `PH PAM` — Central & North Luzon) rather than blacklisting Cebu by name, so a future non-Luzon city Lalamove adds is excluded by default instead of silently offered.
+
+**One thing a real booking still needs:**
+- **Warehouse pickup location** (`PANELSCAN_WAREHOUSE_*` env vars, all required together, including `PANELSCAN_WAREHOUSE_PHONE`) — no fallback defaults; `requestQuotation` refuses clearly (`503`) until every field, including real GPS coordinates, is set. Never a fabricated address or centroid.
+
+#### Dropoff geocoding (`geocoding.service.ts`, called from `order.service.ts` at checkout)
+
+Turns a customer's typed checkout address into the coordinates `requestQuotation` needs, via the Mapbox Geocoding API v6. Called **before** `createOrderFromCart`'s database transaction starts, not inside it — an external HTTP call has no business holding a CockroachDB `SERIALIZABLE` transaction open, and a slow/failed geocode must never stall or abort checkout.
+
+- **No `MAPBOX_ACCESS_TOKEN` configured** → behaves exactly as before a geocoder existed: coordinates stay `null`, `geocodingStatus: "pending"`. Checkout is completely unaffected.
+- **A precise match** (Mapbox's `coordinates.accuracy` is `rooftop` or `interpolated`) → `geocodingStatus: "completed"`, real coordinates and `geocodingPlaceId` (Mapbox's `mapbox_id`) stored on `Order.deliveryLocation`.
+- **An imprecise match** (`parcel`, `point`, or `approximate` — Mapbox's own way of saying "I couldn't pin the exact address, here's a property-boundary/zipcode-centroid guess instead") → treated the same as a failure: `geocodingStatus: "failed"`, coordinates stay `null`. This is the same "never substitute a barangay/city centroid" rule this project enforces everywhere else, now also applied to Mapbox's own imprecise matches, not just to a missing geocoder.
+- **Zero features returned, any non-2xx response, a network error, or an unparseable response** → `geocodingStatus: "failed"`, logged server-side (except zero results, a normal "not found" outcome), never thrown — checkout always succeeds regardless of what the geocoder did.
+- Every request is sent with `permanent=true`: PanelScan stores the returned coordinates on the order, which Mapbox's terms classify as "permanent" geocoding (as opposed to a one-off, unstored lookup) — this requires a billing-enabled Mapbox account with a card on file regardless of volume, and has no free tier (unlike Mapbox's much larger free allowance for *temporary*, unstored geocoding).
+- Either way, staff can always fall back to `PATCH /orders/:orderId/coordinates` (above) to set coordinates manually.
+
+**Webhook (`POST /api/delivery/webhook/:token`)** — Lalamove's webhook *signature* scheme is not in their public API reference (it's in a partner-only PDF); rather than guess and risk either rejecting real webhooks or accepting unverified ones, this project uses a disclosed, standard fallback instead: a long random token (`LALAMOVE_WEBHOOK_TOKEN`) embedded as a URL path segment, matched with a plain equality check. Register the exact deployed URL (`https://<your-domain>/api/delivery/webhook/<token>`) with Lalamove via `PATCH /v3/webhook` — a one-time account-configuration call, exposed on the provider (`registerWebhookUrl`) but never invoked automatically, since it needs a real public HTTPS URL. The raw request body is parsed before the global JSON parser (`app.ts`, same pattern as the PayMongo webhook). Handles `eventType: "ORDER_STATUS_CHANGED"` (and reads a sibling `driver` object when present) by syncing status/driver fields and notifying the customer only on an actual change; acknowledges (`200`) an event for an order it doesn't recognize without erroring, so Lalamove doesn't retry indefinitely — the same pattern the PayMongo webhook already established.
+
+**Audit** — every quotation/booking/refresh/cancel, success or failure, writes an `activity_logs` row (`LALAMOVE_QUOTATION_REQUESTED`, `_FAILED`, `LALAMOVE_ORDER_PLACED`, `_PLACE_FAILED`, `LALAMOVE_STATUS_REFRESHED`, `_REFRESH_FAILED`, `LALAMOVE_ORDER_CANCELLED`, `_CANCEL_FAILED`, `LALAMOVE_WEBHOOK_RECEIVED`) — the same generic table the profile-picture feature uses, not a separate log system.
+
 ### Rate Limiting
 
 Applies across the whole API, not to one module — brute-force and general abuse protection via [`express-rate-limit`](https://www.npmjs.com/package/express-rate-limit), implemented in `src/middleware/rateLimit.middleware.ts`.
 
 | Scope | Window | Limit | Applies to |
 |-------|--------|-------|------------|
-| Authentication | 15 minutes | 5 requests per IP | `POST /api/auth/register` + `POST /api/auth/login` + `POST /api/auth/refresh` **combined** (one shared counter). Reuse `authRateLimiter` on Forgot Password routes too, when that's built. |
+| Authentication | 15 minutes | 5 requests per IP | `POST /api/auth/register` + `POST /api/auth/login` + `POST /api/auth/refresh` **combined** (one shared counter). |
+| Profile picture | 15 minutes | 20 requests per IP | `PUT` + `DELETE /api/auth/me/profile-picture` **combined**. Each upload is a full image decode and re-encode - the costliest thing a customer can trigger. |
+| Account security | 15 minutes | 10 requests per IP | `POST /api/auth/change-password`, `/send-verification-email`, `/verify-email`, `/forgot-password`, `/verify-reset-code`, `/reset-password` **combined** (one shared counter). Deliberately separate from the 5-attempt login bucket: recovery is a three-request flow even when nothing goes wrong, so one typo would otherwise lock a customer out. Per-account guessing is bounded by the per-code attempt cap and resend cooldown, not by this limiter. |
 | General API | 15 minutes | 100 requests per IP | Every route under `/api/*`. |
 | `/health` | — | Unlimited | Not under `/api`, so it's never touched by either limiter. |
 
@@ -892,6 +990,16 @@ cp .env.example .env
 | `RATE_LIMIT_AUTH_MAX`       | Max register+login requests per IP per window     | `5`            |
 | `RATE_LIMIT_API_WINDOW_MS`  | General API rate-limit window (ms)                | `900000` (15 min) |
 | `RATE_LIMIT_API_MAX`        | Max `/api/*` requests per IP per window            | `100`          |
+| `RATE_LIMIT_ACCOUNT_SECURITY_WINDOW_MS` | Account-security rate-limit window (ms) | `900000` (15 min) |
+| `RATE_LIMIT_ACCOUNT_SECURITY_MAX` | Max change-password / verification / recovery requests per IP per window | `10` |
+| `RATE_LIMIT_UPLOAD_WINDOW_MS` | Profile picture upload/remove rate-limit window (ms) | `900000` (15 min) |
+| `RATE_LIMIT_UPLOAD_MAX` | Max profile picture uploads/removals per IP per window | `20` |
+| `UPLOAD_DIR`     | Local folder for uploaded files (product images and `profiles/`); relative to the working directory or absolute | `uploads` |
+| `SMTP_HOST`      | SMTP server used to email verification and reset codes. Unset = codes print to the console in development (production returns `503`) | —  |
+| `SMTP_PORT`      | SMTP port                                                   | `587`          |
+| `SMTP_SECURE`    | `true` for implicit TLS (usually port 465); `false` for STARTTLS | `false`   |
+| `SMTP_USER` / `SMTP_PASS` | SMTP credentials (omit both for an unauthenticated relay) | —        |
+| `MAIL_FROM`      | From address on outgoing mail, e.g. `PanelScan <no-reply@yourdomain.com>` | `PanelScan <no-reply@panelscan.local>` |
 
 `src/config/env.ts` validates all of these at startup with Zod — the process exits immediately
 with a clear error message if anything required is missing or malformed.
@@ -1486,7 +1594,7 @@ cleanup (see `DEVELOPMENT_ROADMAP.md` at the repo root for the full breakdown, w
 discovered documentation gaps).
 
 **COMPLETED** — built, tested (530/530 passing), and documented in this README:
-- Auth (register/login/me, Refresh Tokens, Logout)
+- Auth (register/login/me, Refresh Tokens, Logout, customer profile, change password, email verification, forgot/reset password)
 - Users
 - Category
 - Product
@@ -1514,8 +1622,6 @@ discovered documentation gaps).
   See `FRONTEND_HANDOFF.md` at the repo root for the API contract and per-role task trees.
 
 **LATER**
-- Email verification on registration
-- Forgot password / reset password flow
 - Account lockout after repeated failed login attempts
 - Other optional security hardening (e.g. shortening `JWT_EXPIRES_IN` now that refresh tokens exist to
   renew access silently, or configuring `app.set('trust proxy', ...)` once a real deployment topology

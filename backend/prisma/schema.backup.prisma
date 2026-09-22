@@ -118,8 +118,13 @@ model User {
   password  String?
   googleId  String?  @unique @map("google_id")
   phone     String?
+  birthdate DateTime? @db.Date
+  address   String?
+  profilePicturePath      String?   @map("profile_picture_path")
+  profilePictureUpdatedAt DateTime? @map("profile_picture_updated_at")
   role      UserRole @default(CUSTOMER)
   isActive  Boolean  @default(true) @map("is_active")
+  emailVerified Boolean @default(false) @map("email_verified")
   termsAcceptedAt DateTime? @map("terms_accepted_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -143,6 +148,7 @@ model User {
   messages           Message[]
   notifications      Notification[]
   refreshTokens      RefreshToken[]
+  activityLogs       ActivityLog[]
 
   @@index([role])
   @@map("users")
@@ -344,6 +350,7 @@ model Delivery {
   address          String
   deliveryProvider String?                @default("LALAMOVE") @map("delivery_provider")
   deliveryStatus   String?                @default("NOT_REQUESTED") @map("delivery_status")
+  lalamoveOrderId  String?                @unique @map("lalamove_order_id")
   providerMetadata Json?                  @map("provider_metadata")
   scheduledDate    DateTime?              @map("scheduled_date")
   deliveredAt      DateTime?              @map("delivered_at")
@@ -586,4 +593,20 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+model ActivityLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  metadata  Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("activity_logs")
 }

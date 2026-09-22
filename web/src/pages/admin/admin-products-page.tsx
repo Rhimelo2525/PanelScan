@@ -78,7 +78,7 @@ export function AdminProductsPage() {
       .catch(() => { })
   }, [])
 
-  const products = productResource.data ?? []
+  const products = useMemo(() => productResource.data ?? [], [productResource.data])
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()

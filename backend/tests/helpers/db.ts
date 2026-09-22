@@ -20,6 +20,8 @@ export const cleanDatabase = async (): Promise<void> => {
   }
 
   await prisma.$transaction([
+    // Audit rows are SetNull (not Cascade) on user delete, so they must be cleared explicitly.
+    prisma.activityLog.deleteMany(),
     prisma.refreshToken.deleteMany(),
     prisma.chatParticipant.deleteMany(),
     prisma.message.deleteMany(),

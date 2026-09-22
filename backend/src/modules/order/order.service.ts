@@ -8,6 +8,7 @@ import { orderInclude } from './order.types';
 import type { OrderFilters, OrderWithItems, PaginatedOrders } from './order.types';
 import { validatePsgcHierarchy } from '../delivery/data/psgc-luzon.data.js';
 import { isLocationInPanelScanCoverage } from '../delivery/delivery-coverage.config.js';
+import { geocodingService } from '../delivery/services/geocoding.service.js';
 import { formatPhilippineDeliveryAddress } from '../delivery/utils/address-formatter.js';
 import { normalizePhilippinePhone } from '../delivery/utils/phone-normalizer.js';
 
@@ -57,6 +58,16 @@ export class OrderService {
    * inventory adjustment for the same product.
    */
   async createOrderFromCart(customerId: string, input: CreateOrderInput): Promise<OrderWithItems> {
+    // Resolved BEFORE the transaction starts, not inside it: this validates
+    // static PSGC/coverage data (no DB row involved either way) and, when
+    // GOOGLE_MAPS_API_KEY is configured, calls out to the Google Maps
+    // Geocoding API. An external HTTP call has no business holding open a
+    // CockroachDB SERIALIZABLE transaction - a slow or failed geocode would
+    // otherwise stall or abort checkout, when a geocoding failure should
+    // never do either (coordinates just stay null/"pending", exactly as
+    // before a geocoder existed at all - see geocoding.service.ts).
+    const { finalShippingAddress, deliveryLocationSnapshot } = await this.resolveDeliveryLocation(input);
+
     return prisma.$transaction(async (tx) => {
       let subtotal = new Prisma.Decimal(0);
       const orderItemsData: OrderItemDraft[] = [];
@@ -151,49 +162,6 @@ export class OrderService {
       const shippingFee = new Prisma.Decimal(0);
       const totalAmount = subtotal.add(shippingFee);
 
-      let finalShippingAddress = input.shippingAddress || '';
-      let deliveryLocationSnapshot: Prisma.InputJsonValue | undefined = undefined;
-
-      if (input.deliveryLocation) {
-        const { regionCode, provinceCode, cityMunicipalityCode, barangayCode } = input.deliveryLocation;
-
-        // 1. Validate PSGC Hierarchy
-        const hierarchyCheck = validatePsgcHierarchy({
-          regionCode,
-          provinceCode: provinceCode ?? null,
-          cityMunicipalityCode,
-          barangayCode,
-        });
-
-        if (!hierarchyCheck.isValid) {
-          throw new AppError(hierarchyCheck.error || 'Invalid delivery location hierarchy.', 400);
-        }
-
-        // 2. Validate preliminary coverage
-        if (!isLocationInPanelScanCoverage(regionCode, provinceCode)) {
-          throw new AppError('The selected location is outside PanelScan preliminary delivery coverage.', 400);
-        }
-
-        // 3. Format address via canonical single formatter
-        const formatted = formatPhilippineDeliveryAddress(input.deliveryLocation);
-        finalShippingAddress = formatted;
-
-        // 4. Normalize phone if present
-        const normalizedPhone = input.deliveryLocation.recipientPhone
-          ? normalizePhilippinePhone(input.deliveryLocation.recipientPhone)
-          : undefined;
-
-        // 5. Build snapshot (coordinates strictly null until authorized geocoder runs in Lalamove phase)
-        deliveryLocationSnapshot = {
-          ...input.deliveryLocation,
-          formattedAddress: formatted,
-          recipientPhone: normalizedPhone || input.deliveryLocation.recipientPhone,
-          latitude: null,
-          longitude: null,
-          geocodingStatus: 'pending',
-        } as unknown as Prisma.InputJsonValue;
-      }
-
       const order = await tx.order.create({
         data: {
           orderNumber: generateOrderNumber(),
@@ -262,6 +230,66 @@ export class OrderService {
 
       return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
     });
+  }
+
+  /**
+   * Validates and formats a customer's checkout delivery location, then
+   * attempts to geocode it (see geocoding.service.ts - never throws, never
+   * invents coordinates, and returns "pending" untouched when no geocoder is
+   * configured). Deliberately outside the checkout transaction - see the
+   * comment at its call site in createOrderFromCart.
+   */
+  private async resolveDeliveryLocation(
+    input: CreateOrderInput,
+  ): Promise<{ finalShippingAddress: string; deliveryLocationSnapshot: Prisma.InputJsonValue | undefined }> {
+    if (!input.deliveryLocation) {
+      return { finalShippingAddress: input.shippingAddress || '', deliveryLocationSnapshot: undefined };
+    }
+
+    const { regionCode, provinceCode, cityMunicipalityCode, barangayCode } = input.deliveryLocation;
+
+    // 1. Validate PSGC Hierarchy
+    const hierarchyCheck = validatePsgcHierarchy({ regionCode, provinceCode: provinceCode ?? null, cityMunicipalityCode, barangayCode });
+    if (!hierarchyCheck.isValid) {
+      throw new AppError(hierarchyCheck.error || 'Invalid delivery location hierarchy.', 400);
+    }
+
+    // 2. Validate preliminary coverage
+    if (!isLocationInPanelScanCoverage(regionCode, provinceCode)) {
+      throw new AppError('The selected location is outside PanelScan preliminary delivery coverage.', 400);
+    }
+
+    // 3. Format address via canonical single formatter
+    const formattedAddress = formatPhilippineDeliveryAddress(input.deliveryLocation);
+
+    // 4. Normalize phone if present
+    const normalizedPhone = input.deliveryLocation.recipientPhone ? normalizePhilippinePhone(input.deliveryLocation.recipientPhone) : undefined;
+    const recipientPhone = normalizedPhone || input.deliveryLocation.recipientPhone;
+
+    // 5. Geocode the formatted address. Failure/no-key leaves coordinates
+    // null with geocodingStatus "pending"/"failed" - PanelScan staff can
+    // still set them manually later; checkout is never blocked on this.
+    const geocoded = await geocodingService.resolveDeliveryCoordinates({
+      ...input.deliveryLocation,
+      provinceCode: input.deliveryLocation.provinceCode ?? null,
+      provinceName: input.deliveryLocation.provinceName ?? null,
+      formattedAddress,
+      recipientPhone,
+    });
+
+    return {
+      finalShippingAddress: formattedAddress,
+      deliveryLocationSnapshot: {
+        ...input.deliveryLocation,
+        formattedAddress,
+        recipientPhone,
+        latitude: geocoded.latitude,
+        longitude: geocoded.longitude,
+        geocodingStatus: geocoded.geocodingStatus,
+        geocodingProvider: geocoded.geocodingProvider,
+        geocodingPlaceId: geocoded.geocodingPlaceId,
+      } as unknown as Prisma.InputJsonValue,
+    };
   }
 
   /** CUSTOMER's own orders. */

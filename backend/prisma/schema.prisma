@@ -121,8 +121,24 @@ model User {
   password  String?
   googleId  String?  @unique @map("google_id")
   phone     String?
+  // Customer profile details. Both are optional: staff accounts and
+  // accounts created before the profile page existed simply leave them null.
+  birthdate DateTime? @db.Date
+  address   String?
+  // Customer profile picture. Only a storage path relative to the uploads
+  // root (e.g. "profiles/<userId>/<random>.webp") is kept - never the image
+  // bytes, and never a full URL, so moving storage later needs no data
+  // migration. The API turns it into an authenticated URL (see
+  // modules/profilePicture). The upload timestamp doubles as the cache-buster
+  // in that URL; `updatedAt` below remains the general row-changed timestamp.
+  profilePicturePath      String?   @map("profile_picture_path")
+  profilePictureUpdatedAt DateTime? @map("profile_picture_updated_at")
   role      UserRole @default(CUSTOMER)
   isActive  Boolean  @default(true) @map("is_active")
+  // True once the account holder has proven control of `email` (via a
+  // one-time emailed code, or because Google verified it). Password
+  // recovery is only ever offered to verified emails.
+  emailVerified Boolean @default(false) @map("email_verified")
   termsAcceptedAt DateTime? @map("terms_accepted_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -146,6 +162,13 @@ model User {
   messages           Message[]
   notifications      Notification[]
   refreshTokens      RefreshToken[]
+
+  // Authentication one-time codes
+  passwordResetCodes     PasswordResetCode[]
+  emailVerificationCodes EmailVerificationCode[]
+
+  // Audit trail of security/profile-relevant actions this user performed
+  activityLogs ActivityLog[]
 
   @@index([role])
   @@map("users")
@@ -356,6 +379,12 @@ model Delivery {
   address          String
   deliveryProvider String?                @default("LALAMOVE") @map("delivery_provider")
   deliveryStatus   String?                @default("NOT_REQUESTED") @map("delivery_status")
+  // The real Lalamove order id once booked (POST /v3/orders response) - the
+  // permanent cross-system lookup key, so it gets its own indexed column
+  // rather than living only inside providerMetadata. Driver/vehicle/tracking
+  // snapshots (which change repeatedly over one order's life) stay in
+  // providerMetadata instead, matching how this table already handles them.
+  lalamoveOrderId  String?                @unique @map("lalamove_order_id")
   providerMetadata Json?                  @map("provider_metadata")
   scheduledDate    DateTime?              @map("scheduled_date")
   deliveredAt      DateTime?              @map("delivered_at")
@@ -625,4 +654,65 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+// One-time 6-digit codes emailed to a customer to recover a forgotten
+// password. Only a keyed HMAC of the code is stored (never the plaintext -
+// see utils/verificationCode.ts). At most one row per user is live at a
+// time (a new request replaces the old one), a row is deleted the moment it
+// is redeemed (single use), and `attempts` counts wrong guesses so a code
+// can be burned after too many tries.
+model PasswordResetCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  codeHash  String   @map("code_hash")
+  expiresAt DateTime @map("expires_at")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_codes")
+}
+
+// Append-only record of who did what and from where, written in the same
+// transaction as the change it describes (so the two can never disagree).
+// Deliberately generic - `action` is a stable code such as
+// "PROFILE_PICTURE_UPDATED" and `metadata` carries action-specific details -
+// so later features can log here instead of inventing their own table.
+// `userId` is SetNull rather than Cascade: the trail must outlive the
+// account it describes.
+model ActivityLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  metadata  Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("activity_logs")
+}
+
+// Same lifecycle as PasswordResetCode, but proves ownership of the
+// account's email address (sets User.emailVerified) instead of resetting
+// a password. Kept as its own table so the two code types can never be
+// redeemed for one another.
+model EmailVerificationCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  codeHash  String   @map("code_hash")
+  expiresAt DateTime @map("expires_at")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_codes")
 }

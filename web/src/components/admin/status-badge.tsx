@@ -38,6 +38,16 @@ const statusTones: Record<string, StatusTone> = {
   OUT_OF_STOCK: "critical",
   ACTIVE: "positive",
   INACTIVE: "neutral",
+  // Live Lalamove delivery statuses (Delivery.deliveryStatus) - see
+  // backend/src/modules/delivery/utils/lalamove-status.ts, the source of truth
+  // this mirrors.
+  NOT_SCHEDULED: "neutral",
+  PREPARING: "warning",
+  ASSIGNING_DRIVER: "warning",
+  ON_GOING: "info",
+  PICKED_UP: "info",
+  CANCELED: "critical",
+  EXPIRED: "critical",
 }
 
 export function StatusBadge({ status, label, className }: { status: string; label?: string; className?: string }) {

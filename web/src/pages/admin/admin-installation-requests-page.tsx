@@ -1,5 +1,5 @@
 import { Calendar, HardHat, Loader2, PackageSearch, UserCheck, Wrench } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { assignBookingInstaller, getBookings, getInstallers, updateBookingStatus } from "@/api/admin"
@@ -70,7 +70,7 @@ export function AdminInstallationRequestsPage() {
     [page, status],
   )
 
-  const rows = requestsResource.data?.bookings ?? []
+  const rows = useMemo(() => requestsResource.data?.bookings ?? [], [requestsResource.data])
 
   // Keep selectedBooking in sync when resource reloads
   useEffect(() => {

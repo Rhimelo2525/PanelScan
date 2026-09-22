@@ -73,7 +73,7 @@ export function ProductsPage() {
         const panelProducts = inScopeProducts(nextResult.products)
         setCategories(panelCategories)
         setResult({ ...nextResult, products: panelProducts, pagination: { ...nextResult.pagination, total: panelProducts.length } })
-      } catch (caughtError) {
+      } catch {
         if (controller.signal.aborted) return
         setError(true)
       } finally {

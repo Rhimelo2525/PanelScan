@@ -110,7 +110,7 @@ export function AdminRequestsPage() {
     (signal) => getRequests({ page, limit: 50, status: status || undefined, type: type || undefined }, signal),
     [page, status, type]
   )
-  const rows = requests.data?.requests ?? []
+  const rows = useMemo(() => requests.data?.requests ?? [], [requests.data])
 
   // Compute live real metrics from database requests
   const { pendingCount, approvedThisMonth, rejectedThisMonth } = useMemo(() => {

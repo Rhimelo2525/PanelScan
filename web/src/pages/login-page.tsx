@@ -189,7 +189,13 @@ export function LoginPage() {
           onChange={setPassword}
           autoComplete="current-password"
           error={errors.password}
-        />
+        >
+          <div className="mt-2 text-right">
+            <Link to="/forgot-password" state={{ email: email.trim() }} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+              Forgot password?
+            </Link>
+          </div>
+        </PasswordInput>
         <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting || isGoogleSubmitting}>
           {isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}
           {isSubmitting ? "Signing in…" : "Log in"}
