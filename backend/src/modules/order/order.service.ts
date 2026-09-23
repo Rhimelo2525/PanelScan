@@ -2,7 +2,9 @@ import { BookingStatus, NotificationType, OrderStatus, Prisma, UserRole } from '
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { ActivityAction, buildActivityLogData } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
+import { syncRecordToBackup } from '../../utils/backupSync';
 import type { CreateOrderInput } from './order.validation';
 import { orderInclude } from './order.types';
 import type { OrderFilters, OrderWithItems, PaginatedOrders } from './order.types';
@@ -68,7 +70,7 @@ export class OrderService {
     // before a geocoder existed at all - see geocoding.service.ts).
     const { finalShippingAddress, deliveryLocationSnapshot } = await this.resolveDeliveryLocation(input);
 
-    return prisma.$transaction(async (tx) => {
+    const order = await prisma.$transaction(async (tx) => {
       let subtotal = new Prisma.Decimal(0);
       const orderItemsData: OrderItemDraft[] = [];
       const inventoryDecrements: { productId: string; quantity: number }[] = [];
@@ -230,6 +232,30 @@ export class OrderService {
 
       return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
     });
+
+    // Real-time backup sync - only after the main database transaction
+    // above has fully committed (see backupSync.ts's own doc comment for
+    // the failure-handling contract). Only bothers for orders that actually
+    // carry a delivery location; an order created with just a legacy free-text
+    // shippingAddress has nothing new here the next periodic batch sync won't
+    // already catch.
+    if (deliveryLocationSnapshot) {
+      const flatOrderRow = await prisma.order.findUnique({ where: { id: order.id } });
+      if (flatOrderRow) {
+        const synced = await syncRecordToBackup('order', flatOrderRow as unknown as Record<string, unknown>);
+        if (!synced) {
+          await prisma.activityLog.create({
+            data: buildActivityLogData(customerId, ActivityAction.BACKUP_SYNC_FAILED, { ipAddress: null, userAgent: null }, {
+              model: 'order',
+              id: order.id,
+              reason: 'order creation with a confirmed delivery location',
+            }),
+          });
+        }
+      }
+    }
+
+    return order;
   }
 
   /**
@@ -266,16 +292,31 @@ export class OrderService {
     const normalizedPhone = input.deliveryLocation.recipientPhone ? normalizePhilippinePhone(input.deliveryLocation.recipientPhone) : undefined;
     const recipientPhone = normalizedPhone || input.deliveryLocation.recipientPhone;
 
-    // 5. Geocode the formatted address. Failure/no-key leaves coordinates
-    // null with geocodingStatus "pending"/"failed" - PanelScan staff can
-    // still set them manually later; checkout is never blocked on this.
-    const geocoded = await geocodingService.resolveDeliveryCoordinates({
-      ...input.deliveryLocation,
-      provinceCode: input.deliveryLocation.provinceCode ?? null,
-      provinceName: input.deliveryLocation.provinceName ?? null,
-      formattedAddress,
-      recipientPhone,
-    });
+    // 5. Coordinates. If the customer already confirmed an exact map pin
+    // (checkout-page.tsx's delivery-map-picker.tsx), trust it directly -
+    // it's the customer's own dropped point, not a guess, so there is
+    // nothing for a geocoder to improve on. Only when no pin was provided
+    // does this fall back to the backend's own forward-geocoding attempt
+    // (unchanged from before - never invents coordinates, leaves them
+    // null/"pending"/"failed" on any failure; PanelScan staff can still set
+    // them manually later, and checkout is never blocked on this either way).
+    const hasConfirmedPin = input.deliveryLocation.latitude != null && input.deliveryLocation.longitude != null;
+
+    const resolvedCoordinates = hasConfirmedPin
+      ? {
+          latitude: input.deliveryLocation.latitude!,
+          longitude: input.deliveryLocation.longitude!,
+          geocodingStatus: 'completed' as const,
+          geocodingProvider: 'customer-pin',
+          geocodingPlaceId: null,
+        }
+      : await geocodingService.resolveDeliveryCoordinates({
+          ...input.deliveryLocation,
+          provinceCode: input.deliveryLocation.provinceCode ?? null,
+          provinceName: input.deliveryLocation.provinceName ?? null,
+          formattedAddress,
+          recipientPhone,
+        });
 
     return {
       finalShippingAddress: formattedAddress,
@@ -283,11 +324,11 @@ export class OrderService {
         ...input.deliveryLocation,
         formattedAddress,
         recipientPhone,
-        latitude: geocoded.latitude,
-        longitude: geocoded.longitude,
-        geocodingStatus: geocoded.geocodingStatus,
-        geocodingProvider: geocoded.geocodingProvider,
-        geocodingPlaceId: geocoded.geocodingPlaceId,
+        latitude: resolvedCoordinates.latitude,
+        longitude: resolvedCoordinates.longitude,
+        geocodingStatus: resolvedCoordinates.geocodingStatus,
+        geocodingProvider: resolvedCoordinates.geocodingProvider,
+        geocodingPlaceId: resolvedCoordinates.geocodingPlaceId,
       } as unknown as Prisma.InputJsonValue,
     };
   }

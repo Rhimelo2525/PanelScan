@@ -28,6 +28,11 @@ export const ActivityAction = {
   DELIVERY_FEE_CASH_SELECTED: 'DELIVERY_FEE_CASH_SELECTED',
   DELIVERY_FEE_PAID: 'DELIVERY_FEE_PAID',
   DELIVERY_FEE_PAYMENT_FAILED: 'DELIVERY_FEE_PAYMENT_FAILED',
+
+  // Real-time backup-database sync (backupSync.ts) - logged only on
+  // failure; the main database write it followed already succeeded and is
+  // never rolled back for this.
+  BACKUP_SYNC_FAILED: 'BACKUP_SYNC_FAILED',
 } as const;
 
 export type ActivityActionCode = (typeof ActivityAction)[keyof typeof ActivityAction];

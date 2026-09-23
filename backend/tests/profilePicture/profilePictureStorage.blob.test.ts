@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Vercel Blob mode is only reachable when BLOB_READ_WRITE_TOKEN is set, which
 // isn't true in the normal test environment (see tests/setupEnv.ts) - so this
@@ -16,8 +16,22 @@ const del = vi.fn();
 const list = vi.fn();
 vi.mock('@vercel/blob', () => ({ put, del, list }));
 
-const { deleteProfilePictureFile, isProfilePictureUrl, isProfilePicturePathOwnedBy, purgeProfilePictures, saveProfilePicture } =
-  await import('../../src/utils/profilePictureStorage');
+// Imported inside beforeAll (not a top-level `await import`) purely to keep
+// this a CommonJS-compatible file under the project's NodeNext tsconfig -
+// backend/package.json has no "type": "module", so every .ts file here is
+// typechecked as CommonJS, which cannot use top-level await (TS1309). The
+// timing is otherwise identical: still after both vi.mock calls above, still
+// before any it() below runs.
+let deleteProfilePictureFile: typeof import('../../src/utils/profilePictureStorage.js').deleteProfilePictureFile;
+let isProfilePictureUrl: typeof import('../../src/utils/profilePictureStorage.js').isProfilePictureUrl;
+let isProfilePicturePathOwnedBy: typeof import('../../src/utils/profilePictureStorage.js').isProfilePicturePathOwnedBy;
+let purgeProfilePictures: typeof import('../../src/utils/profilePictureStorage.js').purgeProfilePictures;
+let saveProfilePicture: typeof import('../../src/utils/profilePictureStorage.js').saveProfilePicture;
+
+beforeAll(async () => {
+  ({ deleteProfilePictureFile, isProfilePictureUrl, isProfilePicturePathOwnedBy, purgeProfilePictures, saveProfilePicture } =
+    await import('../../src/utils/profilePictureStorage.js'));
+});
 
 const USER_ID = 'a1b2c3d4-e5f6-4789-a012-3456789abcde';
 const OTHER_USER_ID = 'ffffffff-ffff-4fff-afff-ffffffffffff';

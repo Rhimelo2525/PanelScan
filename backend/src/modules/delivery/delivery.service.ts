@@ -5,6 +5,7 @@ import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import { ActivityAction, buildActivityLogData, type RequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
+import { syncRecordToBackup } from '../../utils/backupSync';
 import { DELIVERY_FEE_REFERENCE_PREFIX, createPaymongoCheckoutSession } from '../payment/paymongo.client';
 import type { DeliveryLocation, DeliveryQuoteRequest, LalamoveServiceType } from './delivery.domain';
 import { deliveryInclude } from './delivery.types';
@@ -1104,11 +1105,25 @@ export class DeliveryService {
       geocodingProvider: 'manual',
     } as unknown as Prisma.JsonObject;
 
-    await prisma.order.update({ where: { id: orderId }, data: { deliveryLocation: nextLocation } });
+    const updatedOrder = await prisma.order.update({ where: { id: orderId }, data: { deliveryLocation: nextLocation } });
 
     await prisma.activityLog.create({
       data: buildActivityLogData(requesterId, ActivityAction.DELIVERY_COORDINATES_SET, context, { orderId, latitude, longitude }),
     });
+
+    // Real-time backup sync - only after the update above has committed
+    // (see backupSync.ts's own doc comment for the failure-handling
+    // contract). `updatedOrder` is already the full flat scalar row.
+    const synced = await syncRecordToBackup('order', updatedOrder as unknown as Record<string, unknown>);
+    if (!synced) {
+      await prisma.activityLog.create({
+        data: buildActivityLogData(requesterId, ActivityAction.BACKUP_SYNC_FAILED, context, {
+          model: 'order',
+          id: orderId,
+          reason: 'manual delivery-coordinates fix',
+        }),
+      });
+    }
   }
 
   /** Admin visibility into failed provider calls (create/quotation/booking/refresh/cancel) - what the spec calls "Failed API requests." */

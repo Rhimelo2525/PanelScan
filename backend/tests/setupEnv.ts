@@ -24,7 +24,17 @@ process.env.UPLOAD_DIR = path.join(os.tmpdir(), `panelscan-test-uploads-${proces
  * MAPBOX_ACCESS_TOKEN leaking into and being used by an unmocked test. `''`
  * is falsy, so env.ts's `if (!env.MAPBOX_ACCESS_TOKEN)` "not configured"
  * check still behaves exactly as if the var were unset.
+ *
+ * BACKUP_DATABASE_URL/BACKUP_DIRECT_URL hit the exact same class of bug a
+ * second time, one layer deeper: the generated BACKUP Prisma client
+ * (src/generated/backup-client, required lazily by getBackupPrisma() - see
+ * backupSync.ts) has its own independent internal dotenv loading too, same
+ * as the primary client. Without pinning these, the first real-time backup
+ * sync attempted by a test (order creation / delivery-coordinates tests)
+ * would silently pick up the REAL production Supabase connection string
+ * and attempt a real write against it, rather than exercising the "backup
+ * not configured" code path those tests actually mean to test.
  */
-for (const key of ['MAPBOX_ACCESS_TOKEN', 'GOOGLE_MAPS_API_KEY', 'BLOB_READ_WRITE_TOKEN', 'BLOB_STORE_ID']) {
+for (const key of ['MAPBOX_ACCESS_TOKEN', 'GOOGLE_MAPS_API_KEY', 'BLOB_READ_WRITE_TOKEN', 'BLOB_STORE_ID', 'BACKUP_DATABASE_URL', 'BACKUP_DIRECT_URL']) {
   if (!(key in process.env)) process.env[key] = '';
 }

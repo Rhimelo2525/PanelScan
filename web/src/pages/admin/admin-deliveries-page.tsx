@@ -264,19 +264,36 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onUpdated }: { de
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Address</h4>
             <p className="text-xs text-foreground">{delivery.address}</p>
 
-            <div className="flex items-center gap-1.5 pt-1">
-              <MapPin className="size-3.5 text-muted-foreground" aria-hidden="true" />
-              <span className="text-[11px] text-muted-foreground">
-                Map location:{" "}
-                {location?.geocodingStatus === "completed" ? (
-                  <span className="font-medium text-emerald-600">Confirmed{location.geocodingProvider ? ` (${location.geocodingProvider})` : ""}</span>
-                ) : location?.geocodingStatus === "failed" ? (
-                  <span className="font-medium text-destructive">Could not be auto-detected - needs manual coordinates</span>
-                ) : (
-                  <span className="font-medium text-amber-600">Not yet set</span>
-                )}
-              </span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
+              <div className="flex items-center gap-1.5">
+                <MapPin className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                <span className="text-[11px] text-muted-foreground">
+                  Map location:{" "}
+                  {location?.geocodingStatus === "completed" ? (
+                    <span className="font-medium text-emerald-600">Confirmed{location.geocodingProvider ? ` (${location.geocodingProvider})` : ""}</span>
+                  ) : location?.geocodingStatus === "failed" ? (
+                    <span className="font-medium text-destructive">Could not be auto-detected - needs manual coordinates</span>
+                  ) : (
+                    <span className="font-medium text-amber-600">Not yet set</span>
+                  )}
+                </span>
+              </div>
+              {location?.latitude != null && location?.longitude != null && (
+                <a
+                  href={`https://www.google.com/maps?q=${location.latitude},${location.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                >
+                  View on map <ExternalLink className="size-3" aria-hidden="true" />
+                </a>
+              )}
             </div>
+            {location?.latitude != null && location?.longitude != null && (
+              <p className="text-[11px] text-muted-foreground">
+                Coordinates: {location.latitude.toFixed(7)}, {location.longitude.toFixed(7)}
+              </p>
+            )}
 
             {isModerator && (
               <div className="space-y-2 rounded-md border border-border bg-card p-3">

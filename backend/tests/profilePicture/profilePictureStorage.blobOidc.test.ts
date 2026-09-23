@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 /**
  * Vercel's Blob store can be connected to a project in two different ways,
@@ -20,7 +20,14 @@ vi.mock('../../src/config/env', () => ({
 const put = vi.fn();
 vi.mock('@vercel/blob', () => ({ put, del: vi.fn(), list: vi.fn() }));
 
-const { saveProfilePicture } = await import('../../src/utils/profilePictureStorage');
+// Imported inside beforeAll (not a top-level `await import`) purely to keep
+// this a CommonJS-compatible file under the project's NodeNext tsconfig -
+// see profilePictureStorage.blob.test.ts's own comment on this same pattern.
+let saveProfilePicture: typeof import('../../src/utils/profilePictureStorage.js').saveProfilePicture;
+
+beforeAll(async () => {
+  ({ saveProfilePicture } = await import('../../src/utils/profilePictureStorage.js'));
+});
 
 const USER_ID = 'a1b2c3d4-e5f6-4789-a012-3456789abcde';
 

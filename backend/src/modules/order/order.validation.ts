@@ -16,8 +16,12 @@ export const deliveryLocationSchema = z.object({
   postalCode: z.string().trim().min(3, 'Postal code must be at least 3 digits.').max(10),
   recipientName: z.string().trim().optional(),
   recipientPhone: z.string().trim().optional(),
-  latitude: z.number().nullable().optional(),
-  longitude: z.number().nullable().optional(),
+  // Loose Philippines bounding box (same as delivery.validation.ts's
+  // setDeliveryCoordinatesSchema) - not a precise border, just a sanity
+  // check against an obviously wrong value from the customer's map pin
+  // (e.g. lat/lng swapped, or the map somehow left at its default center).
+  latitude: z.number().min(4.5, 'Latitude is outside the Philippines.').max(21.5, 'Latitude is outside the Philippines.').nullable().optional(),
+  longitude: z.number().min(116, 'Longitude is outside the Philippines.').max(127, 'Longitude is outside the Philippines.').nullable().optional(),
   geocodingStatus: z.enum(['pending', 'completed', 'failed', 'not_required']).optional(),
 });
 

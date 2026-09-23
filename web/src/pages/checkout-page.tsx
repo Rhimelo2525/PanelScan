@@ -1,5 +1,5 @@
-import { AlertTriangle, ArrowLeft, Hammer, MapPin } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, Hammer, Loader2, MapPin, MapPinned } from "lucide-react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import type { CartItem } from "@/types/cart"
 
@@ -15,8 +15,15 @@ import { getCartProductWarning } from "@/cart/cart-utils"
 import { useCart } from "@/cart/use-cart"
 import { CartEmptyState, CartErrorState, CartPageSkeleton } from "@/components/cart/cart-states"
 import { CheckoutOrderSummary } from "@/components/checkout/checkout-order-summary"
+import type { ConfirmedPin } from "@/components/checkout/delivery-map-picker"
 import { Container } from "@/components/layout/container"
 import { Button } from "@/components/ui/button"
+
+// mapbox-gl is a large library (~1MB) - loaded only when the customer
+// actually opens the picker, not bundled into every checkout page load.
+const DeliveryMapPicker = lazy(() =>
+  import("@/components/checkout/delivery-map-picker").then((module) => ({ default: module.DeliveryMapPicker })),
+)
 import { Combobox } from "@/components/ui/combobox"
 import { DatePickerInput } from "@/components/ui/date-picker-input"
 import { Input } from "@/components/ui/input"
@@ -29,6 +36,23 @@ import {
 } from "@/lib/delivery/address-formatter"
 import { getOrderErrorMessage } from "@/orders/order-errors"
 import type { DeliveryLocation, PsgcBarangay, PsgcCity, PsgcProvince, PsgcRegion } from "@/types/delivery"
+
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined
+
+/** Best-effort approximate center for the map picker, from whatever address text is typed so far - never the coordinates actually saved (see delivery-map-picker.tsx). A failure here just opens the map at its own generic default. */
+async function approximateCenter(query: string, signal: AbortSignal): Promise<{ latitude: number; longitude: number } | null> {
+  if (!MAPBOX_TOKEN || !query.trim()) return null
+  const params = new URLSearchParams({ q: query, access_token: MAPBOX_TOKEN, country: "ph", language: "en", limit: "1" })
+  try {
+    const response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params.toString()}`, { signal })
+    if (!response.ok) return null
+    const body = (await response.json()) as { features?: Array<{ properties?: { coordinates?: { latitude?: number; longitude?: number } } }> }
+    const coords = body.features?.[0]?.properties?.coordinates
+    return typeof coords?.latitude === "number" && typeof coords?.longitude === "number" ? { latitude: coords.latitude, longitude: coords.longitude } : null
+  } catch {
+    return null
+  }
+}
 
 interface CheckoutFields {
   recipientName: string
@@ -177,7 +201,37 @@ export function CheckoutPage() {
   const [showCartAction, setShowCartAction] = useState(false)
   const submissionLock = useRef(false)
 
+  // Exact delivery pin (see delivery-map-picker.tsx) - optional. When set,
+  // its coordinates are what actually get saved with the order; when not,
+  // checkout behaves exactly as before (server-side forward-geocoding,
+  // which can fail for ambiguous addresses - see geocoding.service.ts).
+  const [confirmedPin, setConfirmedPin] = useState<ConfirmedPin | null>(null)
+  const [isMapPickerOpen, setIsMapPickerOpen] = useState(false)
+  const [mapPickerCenter, setMapPickerCenter] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [isLocatingCenter, setIsLocatingCenter] = useState(false)
+
   const isNcr = fields.regionCode === "130000000"
+  const hasEnoughAddressForPin = Boolean(fields.addressLine1.trim() && fields.cityCode && fields.barangayCode)
+
+  async function handleOpenMapPicker() {
+    setIsLocatingCenter(true)
+    const query = formatPhilippineDeliveryAddress({
+      addressLine1: fields.addressLine1,
+      barangayName: fields.barangayName,
+      cityMunicipalityName: fields.cityName,
+      provinceName: isNcr ? null : (fields.provinceName || null),
+      regionName: fields.regionName,
+      postalCode: fields.postalCode,
+    })
+    const controller = new AbortController()
+    try {
+      const center = confirmedPin ? { latitude: confirmedPin.latitude, longitude: confirmedPin.longitude } : await approximateCenter(query, controller.signal)
+      setMapPickerCenter(center)
+    } finally {
+      setIsLocatingCenter(false)
+      setIsMapPickerOpen(true)
+    }
+  }
 
   // Load preliminary regions on mount
   useEffect(() => {
@@ -234,6 +288,7 @@ export function CheckoutPage() {
 
   // Cascading handler: Region change
   async function handleRegionChange(newRegionCode: string) {
+    setConfirmedPin(null) // The pin was for the old area - the customer needs to re-confirm it for the new one.
     const selectedRegion = regions.find((r) => r.code === newRegionCode)
     const isNowNcr = newRegionCode === "130000000"
 
@@ -291,6 +346,7 @@ export function CheckoutPage() {
 
   // Cascading handler: Province change
   async function handleProvinceChange(newProvinceCode: string) {
+    setConfirmedPin(null)
     const selectedProvince = provinces.find((p) => p.code === newProvinceCode)
 
     setFields((current) => ({
@@ -329,6 +385,7 @@ export function CheckoutPage() {
 
   // Cascading handler: City change
   async function handleCityChange(newCityCode: string) {
+    setConfirmedPin(null)
     const selectedCity = cities.find((c) => c.code === newCityCode)
 
     setFields((current) => ({
@@ -365,6 +422,7 @@ export function CheckoutPage() {
 
   // Cascading handler: Barangay change
   function handleBarangayChange(newBarangayCode: string) {
+    setConfirmedPin(null)
     const selectedBarangay = barangays.find((b) => b.code === newBarangayCode)
 
     setFields((current) => ({
@@ -423,10 +481,14 @@ export function CheckoutPage() {
       formattedAddress,
       recipientName: fields.recipientName.trim(),
       recipientPhone: normalizedPhone,
-      latitude: null, // Strictly null until authorized geocoder in Lalamove phase
-      longitude: null, // Strictly null until authorized geocoder in Lalamove phase
-      geocodingStatus: "pending",
-      geocodingProvider: null,
+      // Trust the customer's own confirmed map pin when they provided one -
+      // it's the exact spot they dropped, not a geocoded guess (see
+      // delivery-map-picker.tsx). Otherwise unchanged from before: left
+      // null/pending for the backend's own forward-geocoding attempt.
+      latitude: confirmedPin?.latitude ?? null,
+      longitude: confirmedPin?.longitude ?? null,
+      geocodingStatus: confirmedPin ? "completed" : "pending",
+      geocodingProvider: confirmedPin ? "customer-pin" : null,
       geocodingPlaceId: null,
     }
 
@@ -672,7 +734,10 @@ export function CheckoutPage() {
                 id="addressLine1"
                 name="addressLine1"
                 value={fields.addressLine1}
-                onChange={(e) => updateField("addressLine1", e.target.value)}
+                onChange={(e) => {
+                  updateField("addressLine1", e.target.value)
+                  setConfirmedPin(null)
+                }}
                 autoComplete="street-address"
                 placeholder="House / Unit / Block / Lot, Building name, Street"
                 aria-invalid={Boolean(errors.addressLine1)}
@@ -821,6 +886,40 @@ export function CheckoutPage() {
                 </p>
               )}
             </div>
+          </div>
+
+          {/* Exact delivery pin - optional but recommended; see delivery-map-picker.tsx */}
+          <div className="mt-6">
+            <Label>Exact delivery location (recommended)</Label>
+            {confirmedPin ? (
+              <div className="mt-2 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3.5">
+                <p className="flex items-start gap-2 text-sm">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+                  <span>
+                    <span className="block font-medium text-foreground">Location pinned</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {confirmedPin.reverseGeocodedAddress ?? `${confirmedPin.latitude.toFixed(7)}, ${confirmedPin.longitude.toFixed(7)}`}
+                    </span>
+                  </span>
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleOpenMapPicker()} disabled={isLocatingCenter}>
+                  {isLocatingCenter ? <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" aria-hidden="true" /> : <MapPinned className="size-3.5" data-icon="inline-start" aria-hidden="true" />}
+                  Change pin
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-2">
+                <Button type="button" variant="outline" onClick={() => void handleOpenMapPicker()} disabled={!hasEnoughAddressForPin || isLocatingCenter}>
+                  {isLocatingCenter ? <Loader2 className="size-4 animate-spin" data-icon="inline-start" aria-hidden="true" /> : <MapPinned className="size-4" data-icon="inline-start" aria-hidden="true" />}
+                  Pin exact location on map
+                </Button>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {hasEnoughAddressForPin
+                    ? "Drop a pin on your exact spot so your rider never has to guess. Optional - PanelScan staff will confirm your location manually if you skip this."
+                    : "Fill in your street, city, and barangay above first."}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ROW 6: Order notes — full width */}
@@ -1009,6 +1108,17 @@ export function CheckoutPage() {
           canSubmit={canSubmit}
         />
       </form>
+
+      {isMapPickerOpen && (
+        <Suspense fallback={null}>
+          <DeliveryMapPicker
+            open={isMapPickerOpen}
+            onOpenChange={setIsMapPickerOpen}
+            initialCenter={mapPickerCenter}
+            onConfirm={setConfirmedPin}
+          />
+        </Suspense>
+      )}
     </Container>
   )
 }

@@ -15,6 +15,7 @@
  */
 import { prisma } from '../src/config/database';
 import { getBackupPrisma } from '../src/config/backupDatabase';
+import { upsertBackupRow } from '../src/utils/backupSync';
 
 // Dependency order matters: a row can only be inserted into the backup
 // database after any row it has a foreign key to already exists there.
@@ -47,9 +48,6 @@ const SYNC_ORDER = [
   'activityLog',
 ] as const;
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 500;
-
 interface TableReport {
   table: string;
   recordsRead: number;
@@ -58,31 +56,6 @@ interface TableReport {
   status: 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED';
   error?: string;
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const upsertWithRetry = async (
-  backupDelegate: Record<string, (...args: unknown[]) => unknown>,
-  row: Record<string, unknown>,
-): Promise<boolean> => {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      await backupDelegate.upsert({
-        where: { id: row.id },
-        create: row,
-        update: row,
-      });
-      return true;
-    } catch (err) {
-      if (attempt === MAX_RETRIES) {
-        console.error(`  [FAILED] id=${row.id as string}: ${(err as Error).message}`);
-        return false;
-      }
-      await sleep(RETRY_DELAY_MS * attempt);
-    }
-  }
-  return false;
-};
 
 const syncTable = async (
   modelName: string,
@@ -98,7 +71,7 @@ const syncTable = async (
     let failed = 0;
 
     for (const row of rows) {
-      const ok = await upsertWithRetry(backupDelegate, row);
+      const ok = await upsertBackupRow(backupDelegate, row);
       if (ok) written++;
       else failed++;
     }

@@ -530,6 +530,26 @@ describe('Live Lalamove integration', () => {
       expect(location.addressLine1).toBe(DROPOFF_LOCATION.addressLine1); // rest of the address untouched
     });
 
+    it('logs BACKUP_SYNC_FAILED (main update still succeeds) when the backup database is not configured', async () => {
+      // BACKUP_DATABASE_URL is deliberately unset in .env.test - the natural,
+      // zero-mocking way this suite exercises the "backup sync failed" path.
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PROCESSING });
+      await prisma.order.update({ where: { id: order.id }, data: { deliveryLocation: { ...DROPOFF_LOCATION, latitude: null, longitude: null, geocodingStatus: 'pending' } } });
+
+      const response = await request(app).patch(`/api/delivery/orders/${order.id}/coordinates`).set(authHeader(moderator.token)).send({ latitude: 14.82, longitude: 121.05 });
+
+      expectApiSuccess(response, 200); // main database write is never rolled back for a backup failure
+      const stored = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+      expect((stored.deliveryLocation as any).latitude).toBe(14.82); // the fix itself still took effect
+
+      const logs = await prisma.activityLog.findMany({ where: { action: 'BACKUP_SYNC_FAILED' } });
+      const matching = logs.filter((log) => (log.metadata as { id?: string } | null)?.id === order.id);
+      expect(matching).toHaveLength(1);
+      expect((matching[0]?.metadata as { model?: string })?.model).toBe('order');
+    });
+
     it('rejects a CUSTOMER (staff-only)', async () => {
       const customer = await createCustomer();
       const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PROCESSING });
