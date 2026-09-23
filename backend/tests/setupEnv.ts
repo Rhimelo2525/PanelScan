@@ -25,6 +25,6 @@ process.env.UPLOAD_DIR = path.join(os.tmpdir(), `panelscan-test-uploads-${proces
  * is falsy, so env.ts's `if (!env.MAPBOX_ACCESS_TOKEN)` "not configured"
  * check still behaves exactly as if the var were unset.
  */
-for (const key of ['MAPBOX_ACCESS_TOKEN', 'GOOGLE_MAPS_API_KEY']) {
+for (const key of ['MAPBOX_ACCESS_TOKEN', 'GOOGLE_MAPS_API_KEY', 'BLOB_READ_WRITE_TOKEN']) {
   if (!(key in process.env)) process.env[key] = '';
 }

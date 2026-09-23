@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { put } from '@vercel/blob';
 import { UserRole } from '@prisma/client';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -14,12 +15,17 @@ import { sendSuccess } from '../../utils/response';
 
 const router = Router();
 
+// See src/utils/profilePictureStorage.ts for the full rationale - local disk
+// (including Vercel's own /tmp) does not persist between requests on a
+// serverless host, so product images use Vercel Blob there instead whenever
+// BLOB_READ_WRITE_TOKEN is configured.
+const isBlobMode = Boolean(env.BLOB_READ_WRITE_TOKEN);
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const uploadsDirectory = isServerless
   ? path.join('/tmp', 'uploads')
   : path.resolve(process.cwd(), env.UPLOAD_DIR);
 
-if (!fs.existsSync(uploadsDirectory)) {
+if (!isBlobMode && !fs.existsSync(uploadsDirectory)) {
   try {
     fs.mkdirSync(uploadsDirectory, { recursive: true });
   } catch (err) {
@@ -27,23 +33,25 @@ if (!fs.existsSync(uploadsDirectory)) {
   }
 }
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    if (!fs.existsSync(uploadsDirectory)) {
-      try {
-        fs.mkdirSync(uploadsDirectory, { recursive: true });
-      } catch (err) {
-        return cb(err as Error, uploadsDirectory);
-      }
-    }
-    cb(null, uploadsDirectory);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.png';
-    const uniqueSuffix = `${Date.now()}-${crypto.randomUUID()}${ext}`;
-    cb(null, uniqueSuffix);
-  },
-});
+const storage = isBlobMode
+  ? multer.memoryStorage()
+  : multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        if (!fs.existsSync(uploadsDirectory)) {
+          try {
+            fs.mkdirSync(uploadsDirectory, { recursive: true });
+          } catch (err) {
+            return cb(err as Error, uploadsDirectory);
+          }
+        }
+        cb(null, uploadsDirectory);
+      },
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase() || '.png';
+        const uniqueSuffix = `${Date.now()}-${crypto.randomUUID()}${ext}`;
+        cb(null, uniqueSuffix);
+      },
+    });
 
 const fileFilter = (
   _req: Request,
@@ -75,6 +83,25 @@ router.post(
   catchAsync(async (req: Request, res: Response): Promise<void> => {
     if (!req.file) {
       throw new AppError('Please provide an image file to upload.', 400);
+    }
+
+    if (isBlobMode) {
+      const ext = path.extname(req.file.originalname).toLowerCase() || '.png';
+      const filename = `${Date.now()}-${crypto.randomUUID()}${ext}`;
+      const blob = await put(`products/${filename}`, req.file.buffer, {
+        access: 'public',
+        contentType: req.file.mimetype,
+        addRandomSuffix: false,
+      });
+
+      sendSuccess(res, 201, 'Image uploaded successfully.', {
+        url: blob.url,
+        relativeUrl: blob.url,
+        filename,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+      });
+      return;
     }
 
     const host = req.get('host') ?? 'localhost:4000';

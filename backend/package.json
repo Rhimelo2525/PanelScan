@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.19.1",
+    "@vercel/blob": "^2.8.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",

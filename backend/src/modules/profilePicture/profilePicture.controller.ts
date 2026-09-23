@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { getRequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
-import { uploadsRoot } from '../../utils/profilePictureStorage';
+import { isProfilePictureUrl, uploadsRoot } from '../../utils/profilePictureStorage';
 import { sendSuccess } from '../../utils/response';
 import { AuthService, authService } from '../auth/auth.service';
 import { ProfilePictureService, profilePictureService } from './profilePicture.service';
@@ -49,6 +49,15 @@ export class ProfilePictureController {
     // matches the current version can never change and may be cached for good.
     // Anything else (no version, a stale one) is revalidated every time via ETag.
     const isCurrentVersion = req.query.v === String(updatedAt.getTime());
+
+    // Blob mode: the permission check above already ran, so it's safe to hand
+    // the client the (unguessable, UUID-named) Blob URL directly - the CDN
+    // serves the actual bytes, this server never proxies them.
+    if (isProfilePictureUrl(relativePath)) {
+      res.set('Cache-Control', isCurrentVersion ? 'private, max-age=31536000, immutable' : 'private, no-cache');
+      res.redirect(302, relativePath);
+      return;
+    }
 
     // `root` + a relative path makes express refuse any traversal on top of the
     // service's own path checks. `private` keeps shared caches/CDNs from storing it.

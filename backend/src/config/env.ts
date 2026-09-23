@@ -47,6 +47,15 @@ const envSchema = z.object({
   // image with a different working directory - doesn't need a code change.
   UPLOAD_DIR: z.string().default('uploads'),
 
+  // Vercel Blob (src/utils/profilePictureStorage.ts, src/modules/upload/upload.routes.ts) -
+  // real persistent object storage for profile pictures and product images
+  // on serverless hosts, where local disk (including /tmp) does not survive
+  // between requests. Auto-populated by Vercel when a Blob store is attached
+  // to the project - never set manually outside of that. Optional: unset
+  // means local-disk storage (this repo's local dev / any non-serverless
+  // host), matching this app's behavior before Blob was wired in.
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
+
   // Refresh Token Authentication (backend/src/modules/auth). Governs how
   // long an issued refresh token stays valid before it must be re-obtained
   // via a fresh login. Access tokens (JWT_EXPIRES_IN above) are unrelated
