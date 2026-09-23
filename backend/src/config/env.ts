@@ -54,7 +54,16 @@ const envSchema = z.object({
   // to the project - never set manually outside of that. Optional: unset
   // means local-disk storage (this repo's local dev / any non-serverless
   // host), matching this app's behavior before Blob was wired in.
+  //
+  // Two credential shapes exist depending on how the store was connected:
+  // BLOB_READ_WRITE_TOKEN (older, a static token) or BLOB_STORE_ID (newer,
+  // OIDC-based - the @vercel/blob SDK automatically uses Vercel's own
+  // runtime-injected OIDC token together with this id, per its own docs:
+  // "Ignored when Vercel OIDC token is available and either
+  // process.env.BLOB_STORE_ID or options.storeId is set"). Either one alone
+  // is enough to turn Blob mode on - see isBlobMode in profilePictureStorage.ts.
   BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  BLOB_STORE_ID: z.string().optional(),
 
   // Refresh Token Authentication (backend/src/modules/auth). Governs how
   // long an issued refresh token stays valid before it must be re-obtained

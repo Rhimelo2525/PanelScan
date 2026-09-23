@@ -19,7 +19,7 @@ const router = Router();
 // (including Vercel's own /tmp) does not persist between requests on a
 // serverless host, so product images use Vercel Blob there instead whenever
 // BLOB_READ_WRITE_TOKEN is configured.
-const isBlobMode = Boolean(env.BLOB_READ_WRITE_TOKEN);
+const isBlobMode = Boolean(env.BLOB_READ_WRITE_TOKEN || env.BLOB_STORE_ID);
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const uploadsDirectory = isServerless
   ? path.join('/tmp', 'uploads')

@@ -33,7 +33,7 @@ import { env } from '../config/env';
  * volume, or local dev).
  */
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-const isBlobMode = Boolean(env.BLOB_READ_WRITE_TOKEN);
+const isBlobMode = Boolean(env.BLOB_READ_WRITE_TOKEN || env.BLOB_STORE_ID);
 
 // Same root app.ts serves at /uploads and upload.routes.ts writes product images to (local-disk mode only).
 export const uploadsRoot = isServerless ? path.join('/tmp', 'uploads') : path.resolve(process.cwd(), env.UPLOAD_DIR);
