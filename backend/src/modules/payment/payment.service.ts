@@ -288,7 +288,7 @@ export class PaymentService {
               quantity: 1,
             },
           ],
-          payment_method_types: ['gcash', 'card', 'paymaya', 'grab_pay'],
+          payment_method_types: ['gcash'],
         },
       },
     };
