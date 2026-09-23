@@ -45,6 +45,7 @@ export function AdminDeliveriesPage() {
   const deliveriesResource = useAdminResource(
     (signal) => getDeliveries({ page, limit: 20, deliveryState: deliveryState || undefined, search: search || undefined, sortBy: "createdAt", sortOrder: "desc" }, signal),
     [page, deliveryState, search],
+    { pollIntervalMs: 20_000 },
   )
 
   const rows = useMemo(() => deliveriesResource.data?.deliveries ?? [], [deliveriesResource.data])

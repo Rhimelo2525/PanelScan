@@ -1,10 +1,11 @@
 import { AlertCircle, ArrowLeft, MessageSquarePlus, RefreshCcw, Send } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { createConversation, getConversationMessages, getMyConversations, postMessage } from "@/api/support"
 import { useAuth } from "@/auth/use-auth"
 import { Container } from "@/components/layout/container"
+import { useSilentPolling } from "@/hooks/use-silent-polling"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -68,6 +69,32 @@ export function MessagesPage() {
   }, [activeId, threadKey])
 
   useEffect(() => { threadEndRef.current?.scrollIntoView({ block: "nearest" }) }, [messages])
+
+  // A moderator's reply, or a new conversation opened from the admin side,
+  // should appear here without a manual refresh. Both polls only ever apply
+  // a successful response - a transient failure leaves the thread/list as-is
+  // rather than clearing it, matching the manual "Refresh" button's own
+  // error handling (a toast, not a blank thread).
+  useSilentPolling(
+    useCallback(() => {
+      return getMyConversations()
+        .then((result) => {
+          const sorted = [...result].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+          setConversations(sorted)
+          setActiveId((current) => current ?? sorted[0]?.id ?? null)
+        })
+        .catch(() => {})
+    }, []),
+    20_000,
+  )
+
+  useSilentPolling(
+    useCallback(() => {
+      if (!activeId) return Promise.resolve()
+      return getConversationMessages(activeId).then(setMessages).catch(() => {})
+    }, [activeId]),
+    activeId ? 8_000 : false,
+  )
 
   async function handleStart() {
     setIsStarting(true)

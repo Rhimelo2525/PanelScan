@@ -15,7 +15,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 export function AdminFeedbackPage() {
   useDocumentTitle("Feedback | PanelScan Admin")
   const [page, setPage] = useState(1)
-  const feedback = useAdminResource((signal) => getFeedback({ page, limit: 20 }, signal), [page])
+  const feedback = useAdminResource((signal) => getFeedback({ page, limit: 20 }, signal), [page], { pollIntervalMs: 30_000 })
   const rows = feedback.data?.feedbacks ?? []
   const average = rows.length === 0 ? null : rows.reduce((sum, row) => sum + row.rating, 0) / rows.length
 

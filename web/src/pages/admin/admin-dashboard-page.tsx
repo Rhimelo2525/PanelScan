@@ -26,15 +26,15 @@ export function AdminDashboardPage() {
   const { user } = useAuth()
   const isOwner = user?.role === "OWNER"
 
-  const stats = useAdminResource((signal) => getDashboardStats(signal), [])
-  const products = useAdminResource((signal) => getProductStats({ limit: 5 }, signal), [])
+  const stats = useAdminResource((signal) => getDashboardStats(signal), [], { pollIntervalMs: 45_000 })
+  const products = useAdminResource((signal) => getProductStats({ limit: 5 }, signal), [], { pollIntervalMs: 45_000 })
   // The backend exposes no time-series endpoint, so the trend is bucketed from
   // real sales-report rows. Owners see revenue; moderators see order volume,
   // because their report rows carry no amounts at all.
-  const sales = useAdminResource((signal) => getSalesReport({ limit: 100 }, signal), [])
+  const sales = useAdminResource((signal) => getSalesReport({ limit: 100 }, signal), [], { pollIntervalMs: 45_000 })
   // Stock by panel line: the inventory report carries the SKU, which is the only
   // field available to tell a wall panel from a ceiling panel here.
-  const inventory = useAdminResource((signal) => getInventoryReport({ limit: 100 }, signal), [])
+  const inventory = useAdminResource((signal) => getInventoryReport({ limit: 100 }, signal), [], { pollIntervalMs: 45_000 })
 
   const dashboard = stats.data
   const inventoryRows = inventory.data?.inventory ?? []

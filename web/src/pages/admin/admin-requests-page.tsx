@@ -108,7 +108,8 @@ export function AdminRequestsPage() {
 
   const requests = useAdminResource(
     (signal) => getRequests({ page, limit: 50, status: status || undefined, type: type || undefined }, signal),
-    [page, status, type]
+    [page, status, type],
+    { pollIntervalMs: 20_000 }
   )
   const rows = useMemo(() => requests.data?.requests ?? [], [requests.data])
 

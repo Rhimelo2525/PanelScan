@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { ApiRequestError } from "@/api/client"
+import { useSilentPolling } from "@/hooks/use-silent-polling"
 
 /** Admin-specific error copy: a 403 here means the backend, not the UI, decided. */
 export function getAdminErrorMessage(error: unknown): string {
@@ -18,7 +19,11 @@ export function getAdminErrorMessage(error: unknown): string {
  * same three states (loading, error with retry, data), so they are implemented
  * once instead of in every page.
  */
-export function useAdminResource<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[]) {
+export function useAdminResource<T>(
+  load: (signal: AbortSignal) => Promise<T>,
+  deps: unknown[],
+  options?: { pollIntervalMs?: number },
+) {
   const [data, setData] = useState<T | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +46,21 @@ export function useAdminResource<T>(load: (signal: AbortSignal) => Promise<T>, d
   }, [retryKey, ...deps])
 
   const reload = useCallback(() => setRetryKey((value) => value + 1), [])
+
+  // Background revalidation, opt-in via `pollIntervalMs`: re-runs the same
+  // `load` directly (bypassing retryKey/isLoading entirely) so a page whose
+  // moderator-owned data another open tab needs to see picks it up without a
+  // manual refresh, without ever flashing a loading state or blanking a
+  // working view on a transient failure - only a successful response is
+  // ever applied.
+  useSilentPolling(
+    useCallback(() => {
+      const controller = new AbortController()
+      return load(controller.signal).then(setData).catch(() => {})
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, deps),
+    options?.pollIntervalMs ?? false,
+  )
 
   return { data, isLoading, error, reload, setData }
 }

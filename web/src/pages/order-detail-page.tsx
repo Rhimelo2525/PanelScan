@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { cancelOrder, getOrderById } from "@/api/orders"
 import { findPaymentForOrder } from "@/api/payments"
 import { Container } from "@/components/layout/container"
+import { useSilentPolling } from "@/hooks/use-silent-polling"
 import { OrderItems } from "@/components/orders/order-items"
 import { OrderDeliveryPanel } from "@/components/orders/order-delivery-panel"
 import { OrderFeedbackCard } from "@/components/orders/order-feedback-card"
@@ -75,6 +76,18 @@ export function OrderDetailPage() {
   }, [id, paymentRetryKey])
 
   const reloadPayment = useCallback(() => setPaymentRetryKey((value) => value + 1), [])
+
+  // Moderator status/approval/delivery changes on this order should show up
+  // in an already-open tab without a manual refresh. Polls the order alone
+  // (not payment) and only ever applies a successful response, so a
+  // transient failure never blanks out what's already on screen.
+  useSilentPolling(
+    useCallback(() => {
+      if (!id) return Promise.resolve()
+      return getOrderById(id).then(setOrder).catch(() => {})
+    }, [id]),
+    order ? 20_000 : false,
+  )
 
   useEffect(() => {
     if (location.hash === "#feedback" && !isLoading && order) {

@@ -29,7 +29,7 @@ export function AdminChatPage() {
   const [isSending, setIsSending] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const conversations = useAdminResource((signal) => getConversations({ limit: 30 }, signal), [])
+  const conversations = useAdminResource((signal) => getConversations({ limit: 30 }, signal), [], { pollIntervalMs: 20_000 })
   const rooms = (conversations.data?.conversations ?? []).slice().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   const activeId = selectedId ?? rooms[0]?.id ?? null
   const messages = useAdminResource(async (signal) => {
@@ -39,7 +39,7 @@ export function AdminChatPage() {
     // most recent messages). Reverse here so the thread renders
     // oldest-to-newest, newest at the bottom, like a normal chat.
     return [...result.messages].reverse()
-  }, [activeId])
+  }, [activeId], { pollIntervalMs: 8_000 })
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ block: "nearest" }) }, [messages.data])
 

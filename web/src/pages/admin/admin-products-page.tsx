@@ -66,7 +66,7 @@ export function AdminProductsPage() {
   const productResource = useAdminResource(async (signal) => {
     const data = await getProducts({ limit: 100 }, signal)
     return data.products
-  }, [])
+  }, [], { pollIntervalMs: 30_000 })
 
   useEffect(() => {
     getCategories()

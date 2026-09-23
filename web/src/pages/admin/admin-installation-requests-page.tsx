@@ -68,6 +68,7 @@ export function AdminInstallationRequestsPage() {
         signal,
       ),
     [page, status],
+    { pollIntervalMs: 20_000 },
   )
 
   const rows = useMemo(() => requestsResource.data?.bookings ?? [], [requestsResource.data])
