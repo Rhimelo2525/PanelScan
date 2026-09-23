@@ -432,6 +432,14 @@
 .admin-table tbody tr:hover { background: color-mix(in oklch, var(--secondary), transparent 45%); }
 .admin-table .is-numeric { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* Opt-in roomier variant - for a table whose cells carry more than a single
+   line (product thumbnails, stacked status + action), the default compact
+   padding above reads as cramped. Scoped to any ancestor carrying this class
+   (DataTable itself doesn't expose a className prop for its <table>), so
+   every other Admin table keeps its current density. */
+.admin-table-roomy .admin-table th, .admin-table-roomy .admin-table td { padding: 1rem 1.1rem; }
+.admin-table-roomy .admin-table { font-size: 0.85rem; }
+
 
 /* ================================================================
    Motion system

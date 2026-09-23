@@ -100,6 +100,24 @@ export interface ProjectStats {
 
 // ------------------------------------------------------------------ reports
 
+/**
+ * One order line - productName/quantity come from the immutable OrderItem
+ * snapshot taken at purchase time; productImage is the PRODUCT's current
+ * primary image (order items don't snapshot images, so a later re-upload
+ * changes what's shown here - see backend reports.service.ts#toOrderRow).
+ * unitPrice/lineTotal follow the same OWNER/MODERATOR visibility rule as
+ * totalAmount below - absent entirely wherever totalAmount is.
+ */
+export interface OrderReportItem {
+  id: string
+  productId: string
+  productName: string
+  quantity: number
+  productImage: { url: string; altText: string | null } | null
+  unitPrice?: number
+  lineTotal?: number
+}
+
 export interface OrderReportRow {
   id: string
   orderNumber: string
@@ -117,6 +135,7 @@ export interface OrderReportRow {
   deliveryDeclinedAt?: string | null
   deliveryDeclineReason?: string | null
   itemCount: number
+  items: OrderReportItem[]
   createdAt: string
   totalAmount?: number
 }

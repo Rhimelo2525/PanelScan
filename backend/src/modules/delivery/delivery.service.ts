@@ -1,9 +1,11 @@
-import { DeliveryApprovalStatus, NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { DeliveryApprovalStatus, NotificationType, OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 
+import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import { ActivityAction, buildActivityLogData, type RequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
+import { DELIVERY_FEE_REFERENCE_PREFIX, createPaymongoCheckoutSession } from '../payment/paymongo.client';
 import type { DeliveryLocation, DeliveryQuoteRequest, LalamoveServiceType } from './delivery.domain';
 import { deliveryInclude } from './delivery.types';
 import type { DeliveryFilters, DeliveryWithOrder, PaginatedDeliveries } from './delivery.types';
@@ -689,13 +691,189 @@ export class DeliveryService {
     }
   }
 
+  // ================================================================
+  // DELIVERY-FEE PAYMENT
+  //
+  // Charges the customer for the delivery fee itself (DeliveryPayment) -
+  // entirely separate from the product/order-total Payment in
+  // payment.service.ts. Same PayMongo Checkout Session mechanism, reused
+  // via paymongo.client.ts, but a second charge with its own record.
+  // confirmBooking() below refuses to run until one of these has been
+  // satisfied - see its own comment.
+  // ================================================================
+
+  /**
+   * Shared precondition-loader for both fee-payment endpoints below: the
+   * exact same "does a still-valid quotation exist" check confirmBooking()
+   * itself makes, so a fee payment can never be started for a
+   * quotation-less or already-expired delivery.
+   */
+  private async loadPendingQuotationForFee(orderId: string, requesterId: string, requesterRole: UserRole) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: { include: { deliveryPayment: true } }, customer: true },
+    });
+    if (!order) {
+      throw new AppError('Order not found.', 404);
+    }
+    this.ownsOrderOrIsStaff(order, requesterId, requesterRole);
+
+    if (!order.delivery || order.delivery.approvalStatus !== DeliveryApprovalStatus.APPROVED) {
+      throw new AppError('Delivery request must be approved by PanelScan staff before paying the delivery fee.', 400);
+    }
+    if (order.delivery.lalamoveOrderId) {
+      throw new AppError('This order has already been booked with the delivery provider.', 409);
+    }
+
+    const metadata = (order.delivery.providerMetadata as Prisma.JsonObject | null) ?? {};
+    const pendingQuotation = metadata.pendingQuotation as
+      | { quotationId: string; expiresAt: string; amount: number; currency: string; serviceType: string }
+      | undefined;
+
+    if (!pendingQuotation) {
+      throw new AppError('No quotation is on file for this order. Please request a quotation first.', 400);
+    }
+    if (new Date(pendingQuotation.expiresAt).getTime() <= Date.now()) {
+      throw new AppError('This quotation has expired. Please request a new one.', 400);
+    }
+
+    return { order, delivery: order.delivery, quotation: pendingQuotation };
+  }
+
+  /**
+   * Opens a PayMongo GCash checkout session for exactly the delivery fee
+   * shown in the still-valid quotation - never the product price, never a
+   * value taken from the request body. Upserts a PENDING DeliveryPayment so
+   * confirmBooking()'s gate has something to find once PayMongo confirms it
+   * (see handleDeliveryFeeWebhook below).
+   */
+  async createFeeGcashCheckout(orderId: string, requesterId: string, requesterRole: UserRole, context: RequestAuditContext): Promise<{ checkoutUrl: string }> {
+    const { order, delivery, quotation } = await this.loadPendingQuotationForFee(orderId, requesterId, requesterRole);
+    const amountInCentavos = Math.round(quotation.amount * 100);
+
+    const checkoutSession = await createPaymongoCheckoutSession({
+      referenceNumber: `${DELIVERY_FEE_REFERENCE_PREFIX}${delivery.id}`,
+      description: `Delivery fee for order ${order.orderNumber}`,
+      amountInCentavos,
+      lineItemName: `Delivery fee - ${quotation.serviceType}`,
+      billing: {
+        name: `${order.customer.firstName} ${order.customer.lastName}`,
+        email: order.customer.email,
+        phone: order.customer.phone ?? undefined,
+      },
+      successUrl: env.DELIVERY_PAYMENT_SUCCESS_URL,
+      cancelUrl: env.DELIVERY_PAYMENT_CANCEL_URL,
+      paymentMethodTypes: ['gcash'],
+    });
+
+    await prisma.deliveryPayment.upsert({
+      where: { deliveryId: delivery.id },
+      update: { status: PaymentStatus.PENDING, method: 'PayMongo', amount: quotation.amount, transactionRef: checkoutSession.id },
+      create: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: quotation.amount, transactionRef: checkoutSession.id },
+    });
+
+    await prisma.activityLog.create({
+      data: buildActivityLogData(requesterId, ActivityAction.DELIVERY_FEE_CHECKOUT_CREATED, context, { orderId: order.id, deliveryId: delivery.id, amount: quotation.amount }),
+    });
+
+    return { checkoutUrl: checkoutSession.attributes.checkout_url };
+  }
+
+  /**
+   * Records Cash on Delivery for the delivery fee - the rider collects it in
+   * person at drop-off (see the wallet/COD explanation given earlier); no
+   * PayMongo session, nothing charged now. Still gates confirmBooking() the
+   * same way a PAID GCash fee does - a real choice was made, not skipped.
+   */
+  async selectFeeCash(orderId: string, requesterId: string, requesterRole: UserRole, context: RequestAuditContext): Promise<{ amount: number }> {
+    const { order, delivery, quotation } = await this.loadPendingQuotationForFee(orderId, requesterId, requesterRole);
+
+    await prisma.deliveryPayment.upsert({
+      where: { deliveryId: delivery.id },
+      update: { status: PaymentStatus.PENDING, method: 'Cash', amount: quotation.amount, transactionRef: null },
+      create: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'Cash', amount: quotation.amount },
+    });
+
+    await prisma.activityLog.create({
+      data: buildActivityLogData(requesterId, ActivityAction.DELIVERY_FEE_CASH_SELECTED, context, { orderId: order.id, deliveryId: delivery.id, amount: quotation.amount }),
+    });
+
+    return { amount: quotation.amount };
+  }
+
+  /**
+   * Applies one PayMongo webhook event for a delivery-fee Checkout Session -
+   * routed here by payment.service.ts#handleWebhook via the "delivery:"
+   * reference_number prefix (see paymongo.client.ts). Idempotent, matching
+   * the product-payment webhook's own pattern. Deliberately does NOT place
+   * the Lalamove booking itself - the customer still clicks "Book vehicle"
+   * after being redirected back (see the web delivery-fee result page), so
+   * a real, billable Lalamove order is never placed from an unattended
+   * webhook call with no one there to see a failure.
+   */
+  async handleDeliveryFeeWebhook(deliveryId: string, eventType: 'payment.paid' | 'payment.failed', eventPaymentId: string | undefined): Promise<void> {
+    const deliveryPayment = await prisma.deliveryPayment.findUnique({
+      where: { deliveryId },
+      include: { delivery: { include: deliveryInclude } },
+    });
+    if (!deliveryPayment) {
+      return; // Not one of ours (or already deleted) - ack without error, per the product-payment webhook's established pattern.
+    }
+
+    if (eventType === 'payment.paid') {
+      if (deliveryPayment.status === PaymentStatus.PAID) {
+        return;
+      }
+
+      await prisma.deliveryPayment.update({
+        where: { id: deliveryPayment.id },
+        data: { status: PaymentStatus.PAID, paidAt: new Date(), transactionRef: eventPaymentId ?? deliveryPayment.transactionRef },
+      });
+
+      await createNotification({
+        userId: deliveryPayment.delivery.order.customerId,
+        type: NotificationType.PAYMENT,
+        title: 'Delivery fee paid',
+        message: `Your delivery fee for order ${deliveryPayment.delivery.order.orderNumber} has been paid. You can now confirm your booking.`,
+        metadata: { deliveryId, orderId: deliveryPayment.delivery.order.id, event: 'DELIVERY_FEE_PAID' },
+      });
+
+      await prisma.activityLog.create({
+        data: buildActivityLogData(null, ActivityAction.DELIVERY_FEE_PAID, { ipAddress: null, userAgent: null }, { deliveryId, transactionRef: eventPaymentId }),
+      });
+      return;
+    }
+
+    // payment.failed - only downgrade a still-pending fee payment; never
+    // overwrite an already-PAID one based on a possibly late/redelivered event.
+    if (deliveryPayment.status === PaymentStatus.PENDING) {
+      await prisma.deliveryPayment.update({
+        where: { id: deliveryPayment.id },
+        data: { status: PaymentStatus.FAILED, transactionRef: eventPaymentId ?? deliveryPayment.transactionRef },
+      });
+
+      await prisma.activityLog.create({
+        data: buildActivityLogData(null, ActivityAction.DELIVERY_FEE_PAYMENT_FAILED, { ipAddress: null, userAgent: null }, { deliveryId }),
+      });
+    }
+  }
+
   /**
    * Redeems a still-valid stored quotation into a real Lalamove booking.
    * Nothing about the stops or fee is taken from the request body - both
    * come from the quotation this service itself stored moments earlier.
+   * Hard-gated on the delivery fee itself: refuses to run unless a
+   * DeliveryPayment exists that is either Cash (any status - rider collects
+   * in person) or PayMongo AND already PAID. This is enforced here, not
+   * just hidden in the frontend, so a customer cannot reach a real,
+   * billable Lalamove booking by calling this endpoint directly without
+   * having paid or chosen Cash on Delivery.
    */
   async confirmBooking(orderId: string, requesterId: string, requesterRole: UserRole, context: RequestAuditContext): Promise<DeliveryWithOrder> {
-    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { delivery: true, customer: true } });
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { delivery: { include: { deliveryPayment: true } }, customer: true },
+    });
     if (!order) {
       throw new AppError('Order not found.', 404);
     }
@@ -708,6 +886,14 @@ export class DeliveryService {
       throw new AppError('This order has already been booked with the delivery provider.', 409);
     }
 
+    const feePayment = order.delivery.deliveryPayment;
+    if (!feePayment) {
+      throw new AppError('The delivery fee must be paid via GCash, or Cash on Delivery selected, before booking.', 400);
+    }
+    if (feePayment.method !== 'Cash' && feePayment.status !== PaymentStatus.PAID) {
+      throw new AppError('The delivery fee payment has not been confirmed yet. Please complete GCash payment first.', 400);
+    }
+
     const metadata = (order.delivery.providerMetadata as Prisma.JsonObject | null) ?? {};
     const pendingQuotation = metadata.pendingQuotation as
       | { quotationId: string; expiresAt: string; stops: { stopId: string }[]; serviceType: string; amount: number; currency: string }
@@ -718,6 +904,15 @@ export class DeliveryService {
     }
     if (new Date(pendingQuotation.expiresAt).getTime() <= Date.now()) {
       throw new AppError('This quotation has expired. Please request a new one.', 400);
+    }
+    // The fee payment must match THIS quotation, not just any past one - a
+    // customer who paid for a cheap vehicle, then requested a pricier one
+    // (overwriting pendingQuotation) without paying again, must not be able
+    // to book the pricier vehicle off the old payment. 1 centavo tolerance
+    // for decimal rounding between the stored quotation and the Decimal
+    // amount PayMongo/Cash recorded from it.
+    if (Math.abs(Number(feePayment.amount) - pendingQuotation.amount) > 0.01) {
+      throw new AppError('The delivery fee payment does not match the current quotation. Please pay the delivery fee again for this vehicle.', 400);
     }
 
     const dropoffLocation = order.deliveryLocation as unknown as DeliveryLocation | null;

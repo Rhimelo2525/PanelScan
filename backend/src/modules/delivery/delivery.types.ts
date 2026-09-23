@@ -6,6 +6,11 @@ export const deliveryInclude = {
   // admin deliveries UI needs to show staff whether a manual coordinate fix
   // is required - see setDeliveryCoordinates in delivery.service.ts.
   order: { select: { id: true, orderNumber: true, customerId: true, status: true, deliveryLocation: true } },
+  // The delivery-fee charge (separate from the product Payment) - carried on
+  // every Delivery read so the frontend can gate its own "Book vehicle"
+  // button on deliveryPayment.status without a second round trip. See
+  // delivery.service.ts's DELIVERY-FEE PAYMENT section.
+  deliveryPayment: true,
 } satisfies Prisma.DeliveryInclude;
 
 export type DeliveryWithOrder = Prisma.DeliveryGetPayload<{ include: typeof deliveryInclude }>;

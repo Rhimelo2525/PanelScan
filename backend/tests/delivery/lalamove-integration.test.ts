@@ -233,9 +233,16 @@ describe('Live Lalamove integration', () => {
   // ---------------------------------------------------------------- booking
 
   describe('POST /api/delivery/orders/:orderId/book', () => {
+    // Booking is gated on the delivery fee itself since the delivery-fee
+    // payment feature was added (see delivery-fee-payment.test.ts for that
+    // gate's own dedicated coverage) - Cash is the simplest way to satisfy
+    // it here without pulling PayMongo into tests that are really about the
+    // quotation/booking mechanics.
     async function withQuotation(customerId: string, moderatorId: string, quotationOverrides: Partial<typeof QUOTATION_RESULT> = {}) {
       const { order, delivery } = await createApprovedDeliveryOrder(customerId, moderatorId);
+      const amount = quotationOverrides.amount ?? QUOTATION_RESULT.amount;
       await prisma.delivery.update({ where: { id: delivery.id }, data: { providerMetadata: { pendingQuotation: { ...QUOTATION_RESULT, ...quotationOverrides } } } });
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: 'PENDING', method: 'Cash', amount } });
       return { order, delivery };
     }
 
@@ -269,7 +276,10 @@ describe('Live Lalamove integration', () => {
     it('rejects booking without a stored quotation', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
+      const { order, delivery } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
+      // The delivery-fee gate is checked first - satisfy it (Cash) so this
+      // test actually reaches the "no quotation on file" check it's testing.
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: 'PENDING', method: 'Cash', amount: 189 } });
 
       const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
 

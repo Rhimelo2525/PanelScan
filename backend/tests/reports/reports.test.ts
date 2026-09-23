@@ -276,6 +276,33 @@ describe('Reports module', () => {
       expect(deliveredRow?.paymentStatus).toBe('PAID');
     });
 
+    it('returns each order\'s product-level items (name/quantity/price/image), sourced from the order snapshot', async () => {
+      const fixtures = await seedReportsFixtures();
+
+      const response = await request(app).get('/api/reports/sales').set('Authorization', `Bearer ${fixtures.owner.token}`);
+
+      expectApiSuccess(response, 200);
+      const deliveredRow = (
+        response.body.data.orders as Array<{
+          id: string;
+          itemCount: number;
+          items: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number; productImage: unknown }>;
+        }>
+      ).find((row) => row.id === fixtures.orderDelivered.id);
+
+      expect(deliveredRow?.itemCount).toBe(1);
+      expect(deliveredRow?.items).toHaveLength(1);
+      const item = deliveredRow!.items[0]!;
+      expect(item.productId).toBe(fixtures.productA.id);
+      // The snapshot name from the OrderItem row (factory default, not a live product lookup) - confirms the API returns the SNAPSHOT, not the live product's current name.
+      expect(item.productName).toBe('Test Product');
+      expect(item.quantity).toBe(2);
+      expect(item.unitPrice).toBe(100);
+      expect(item.lineTotal).toBe(200);
+      // No image was ever uploaded for this fixture product - never a fabricated placeholder.
+      expect(item.productImage).toBeNull();
+    });
+
     it('returns revenue fields, per-row totalAmount, and paymentStatus for MODERATOR', async () => {
       const fixtures = await seedReportsFixtures();
 
@@ -435,6 +462,19 @@ describe('Reports module', () => {
       expectApiSuccess(response, 200);
       const orders = response.body.data.orders as Array<{ totalAmount?: number }>;
       expect(orders.every((row) => row.totalAmount === undefined)).toBe(true);
+    });
+
+    it('omits item-level unitPrice/lineTotal for MODERATOR, but still returns productName/quantity/image', async () => {
+      const fixtures = await seedReportsFixtures();
+
+      const response = await request(app).get('/api/reports/orders').set('Authorization', `Bearer ${fixtures.moderator.token}`);
+
+      expectApiSuccess(response, 200);
+      const orders = response.body.data.orders as Array<{ items: Array<{ productName: string; quantity: number; unitPrice?: number; lineTotal?: number }> }>;
+      const allItems = orders.flatMap((row) => row.items);
+      expect(allItems.length).toBeGreaterThan(0);
+      expect(allItems.every((item) => item.unitPrice === undefined && item.lineTotal === undefined)).toBe(true);
+      expect(allItems.every((item) => typeof item.productName === 'string' && typeof item.quantity === 'number')).toBe(true);
     });
   });
 

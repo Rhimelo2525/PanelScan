@@ -22,6 +22,24 @@ export interface StatusBreakdown {
   count: number;
 }
 
+/**
+ * One order line, sourced from the OrderItem snapshot (productName/unitPrice
+ * taken at purchase time, so a later product rename/reprice never changes a
+ * historical order's display) plus the PRODUCT's current primary image
+ * (order items don't snapshot images - see reports.service.ts#toOrderRow).
+ * unitPrice/lineTotal follow the same OWNER/MODERATOR field-hiding rule as
+ * totalAmount below - omitted entirely wherever totalAmount is.
+ */
+export interface OrderReportItem {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  productImage: { url: string; altText: string | null } | null;
+  unitPrice?: number;
+  lineTotal?: number;
+}
+
 /** Row shape shared by /sales and /orders. */
 export interface OrderReportRow {
   id: string;
@@ -40,6 +58,7 @@ export interface OrderReportRow {
   deliveryDeclinedAt?: Date | null;
   deliveryDeclineReason?: string | null;
   itemCount: number;
+  items: OrderReportItem[];
   createdAt: Date;
   totalAmount?: number;
 }

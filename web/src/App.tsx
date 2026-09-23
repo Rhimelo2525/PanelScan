@@ -31,6 +31,8 @@ const FeedbackPage = lazy(() => import("@/pages/feedback-page").then((module) =>
 const InstallationPage = lazy(() => import("@/pages/installation-page").then((module) => ({ default: module.InstallationPage })))
 const PaymentSuccessPage = lazy(() => import("@/pages/payment-success-page").then((module) => ({ default: module.PaymentSuccessPage })))
 const PaymentCancelPage = lazy(() => import("@/pages/payment-cancel-page").then((module) => ({ default: module.PaymentCancelPage })))
+const DeliveryFeeSuccessPage = lazy(() => import("@/pages/delivery-fee-success-page").then((module) => ({ default: module.DeliveryFeeSuccessPage })))
+const DeliveryFeeCancelPage = lazy(() => import("@/pages/delivery-fee-cancel-page").then((module) => ({ default: module.DeliveryFeeCancelPage })))
 const CustomerProjectsPage = lazy(() => import("@/pages/customer-projects-page").then((module) => ({ default: module.CustomerProjectsPage })))
 const TermsPage = lazy(() => import("@/pages/terms-page").then((module) => ({ default: module.TermsPage })))
 const PrivacyPage = lazy(() => import("@/pages/privacy-page").then((module) => ({ default: module.PrivacyPage })))
@@ -113,6 +115,9 @@ function App() {
                 {/* PayMongo return routes. These match the backend's PAYMENT_SUCCESS_URL / PAYMENT_CANCEL_URL paths and stay behind the customer guard: an unauthenticated return is sent to login and back here, never shown payment data. */}
                 <Route path="payment/success" element={<Suspense fallback={<RoutePageFallback />}><PaymentSuccessPage /></Suspense>} />
                 <Route path="payment/cancel" element={<Suspense fallback={<RoutePageFallback />}><PaymentCancelPage /></Suspense>} />
+                {/* Same PayMongo return-route pattern, for the separate delivery-fee checkout (DELIVERY_PAYMENT_SUCCESS_URL / DELIVERY_PAYMENT_CANCEL_URL). */}
+                <Route path="delivery-fee/success" element={<Suspense fallback={<RoutePageFallback />}><DeliveryFeeSuccessPage /></Suspense>} />
+                <Route path="delivery-fee/cancel" element={<Suspense fallback={<RoutePageFallback />}><DeliveryFeeCancelPage /></Suspense>} />
               </Route>
               <Route path="*" element={<Suspense fallback={<RoutePageFallback />}><PlaceholderPage eyebrow="404" title="This page could not be found." description="The address may have changed, or this part of PanelScan may not be available yet." notFound /></Suspense>} />
             </Route>

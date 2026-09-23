@@ -20,6 +20,14 @@ export const ActivityAction = {
   LALAMOVE_WEBHOOK_RECEIVED: 'LALAMOVE_WEBHOOK_RECEIVED',
   LALAMOVE_WEBHOOK_REJECTED: 'LALAMOVE_WEBHOOK_REJECTED',
   DELIVERY_COORDINATES_SET: 'DELIVERY_COORDINATES_SET',
+
+  // Delivery-fee payment (DeliveryPayment) - separate from the product
+  // PAYMENT_* actions, which don't exist in this table but live implicitly
+  // via the "payments" audit trail elsewhere.
+  DELIVERY_FEE_CHECKOUT_CREATED: 'DELIVERY_FEE_CHECKOUT_CREATED',
+  DELIVERY_FEE_CASH_SELECTED: 'DELIVERY_FEE_CASH_SELECTED',
+  DELIVERY_FEE_PAID: 'DELIVERY_FEE_PAID',
+  DELIVERY_FEE_PAYMENT_FAILED: 'DELIVERY_FEE_PAYMENT_FAILED',
 } as const;
 
 export type ActivityActionCode = (typeof ActivityAction)[keyof typeof ActivityAction];

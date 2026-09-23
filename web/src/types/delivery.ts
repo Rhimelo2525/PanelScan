@@ -100,6 +100,21 @@ export interface DeliveryQuotation {
 
 export type DeliveryApprovalStatus = 'NOT_REQUESTED' | 'PENDING_APPROVAL' | 'APPROVED' | 'DECLINED'
 
+export type DeliveryPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
+
+/** The delivery-fee charge - separate from the product Payment. `method` is "PayMongo" (GCash) or "Cash" (Cash on Delivery). */
+export interface DeliveryFeePayment {
+  id: string
+  deliveryId: string
+  status: DeliveryPaymentStatus
+  method: string
+  amount: string
+  transactionRef: string | null
+  paidAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface DeliveryRecord {
   id: string
   orderId: string
@@ -121,6 +136,7 @@ export interface DeliveryRecord {
   createdAt: string
   updatedAt: string
   order?: { id: string; orderNumber: string; customerId: string; status: string; deliveryLocation?: DeliveryLocation | null }
+  deliveryPayment?: DeliveryFeePayment | null
 }
 
 export interface DeliveryActivityLog {

@@ -1,4 +1,4 @@
-import { ArrowRight, Bike, CalendarDays, Car, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw, Truck } from "lucide-react"
+import { ArrowRight, Banknote, Bike, CalendarDays, Car, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw, Smartphone, Truck } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -6,12 +6,13 @@ import { StatusBadge } from "@/components/admin/status-badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { formatOrderDate } from "@/orders/order-format"
-import { confirmDeliveryBooking, getVehicleTypes, refreshDeliveryStatus, requestDelivery, requestQuotation } from "@/api/delivery"
+import { confirmDeliveryBooking, getDeliveryById, getVehicleTypes, refreshDeliveryStatus, requestDelivery, requestQuotation, selectDeliveryFeeCash } from "@/api/delivery"
 import { ApiRequestError } from "@/api/client"
 import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
 import { formatProductPrice } from "@/lib/format-price"
 import { cn } from "@/lib/utils"
-import type { DeliveryQuotation, DeliveryRecord, LalamoveServiceType } from "@/types/delivery"
+import { useStartDeliveryFeePayment } from "@/payments/use-start-delivery-fee-payment"
+import type { DeliveryFeePayment, DeliveryQuotation, DeliveryRecord, LalamoveServiceType } from "@/types/delivery"
 import type { Order } from "@/types/order"
 
 /**
@@ -235,6 +236,80 @@ function initialQuotationFromMetadata(delivery: DeliveryRecord | null): Delivery
   return pending
 }
 
+/**
+ * A stored DeliveryPayment is only meaningful for the quotation it was paid
+ * against - see delivery.service.ts#confirmBooking's own amount-match gate.
+ * If the customer requested a NEW quote (a different/pricier vehicle) after
+ * already paying or selecting Cash for an OLDER one, that old fee choice is
+ * stale and must not be shown as "ready to book" here.
+ */
+function isFeePaymentCurrent(delivery: DeliveryRecord | null, quotation: DeliveryQuotation): boolean {
+  const feePayment = delivery?.deliveryPayment
+  if (!feePayment) return false
+  return Math.abs(Number(feePayment.amount) - quotation.amount) < 0.01
+}
+
+/**
+ * The Cash/GCash choice for the delivery fee (spec: "the vehicle must NOT be
+ * booked before the required payment step"). Once a choice resolves to
+ * "ready" (Cash selected, or GCash confirmed PAID), it collapses to a single
+ * explicit "Book vehicle" button - booking itself is never automatic.
+ */
+function DeliveryFeeChoice({
+  feePayment,
+  isBooking,
+  isStartingGcash,
+  isSelectingCash,
+  onPayWithGcash,
+  onSelectCash,
+  onConfirmBooking,
+}: {
+  feePayment: DeliveryFeePayment | null
+  isBooking: boolean
+  isStartingGcash: boolean
+  isSelectingCash: boolean
+  onPayWithGcash: () => void
+  onSelectCash: () => void
+  onConfirmBooking: () => void
+}) {
+  const isReadyToBook = feePayment?.method === "Cash" || (feePayment?.method === "PayMongo" && feePayment.status === "PAID")
+
+  if (isReadyToBook) {
+    return (
+      <div className="mt-4">
+        <p className="mb-2 text-xs text-muted-foreground">
+          {feePayment?.method === "Cash" ? "Cash on Delivery selected - the rider will collect the delivery fee at drop-off." : "GCash payment confirmed for the delivery fee."}
+        </p>
+        <Button className="w-full" onClick={onConfirmBooking} disabled={isBooking}>
+          {isBooking ? <><Loader2 className="animate-spin" aria-hidden="true" />Booking…</> : <>Book vehicle<ArrowRight data-icon="inline-end" aria-hidden="true" /></>}
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      {feePayment?.status === "FAILED" && (
+        <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 p-2 text-xs leading-5 text-destructive">
+          Your last GCash attempt did not go through. Try again, or choose Cash on Delivery.
+        </p>
+      )}
+      {feePayment?.status === "PENDING" && feePayment.method === "PayMongo" && (
+        <p className="rounded-lg border border-border bg-secondary/35 p-2 text-xs leading-5 text-muted-foreground">
+          Waiting for GCash confirmation. If you already paid, this will update shortly - you can also try again below.
+        </p>
+      )}
+      <p className="text-xs font-medium text-foreground">How would you like to pay the delivery fee?</p>
+      <Button className="w-full" onClick={onPayWithGcash} disabled={isStartingGcash || isSelectingCash}>
+        {isStartingGcash ? <><Loader2 className="animate-spin" aria-hidden="true" />Opening secure checkout…</> : <><Smartphone data-icon="inline-start" aria-hidden="true" />Pay with GCash</>}
+      </Button>
+      <Button variant="outline" className="w-full" onClick={onSelectCash} disabled={isStartingGcash || isSelectingCash}>
+        {isSelectingCash ? <><Loader2 className="animate-spin" aria-hidden="true" />Selecting…</> : <><Banknote data-icon="inline-start" aria-hidden="true" />Cash on Delivery</>}
+      </Button>
+    </div>
+  )
+}
+
 function QuotationCard({ order, delivery, onDeliveryUpdated }: { order: Order; delivery: DeliveryRecord | null; onDeliveryUpdated: (delivery: DeliveryRecord) => void }) {
   const [vehicleTypes, setVehicleTypes] = useState<LalamoveServiceType[]>([])
   const [isLoadingVehicles, setIsLoadingVehicles] = useState(true)
@@ -243,7 +318,9 @@ function QuotationCard({ order, delivery, onDeliveryUpdated }: { order: Order; d
   const [quotation, setQuotation] = useState<DeliveryQuotation | null>(() => initialQuotationFromMetadata(delivery))
   const [isRequestingQuote, setIsRequestingQuote] = useState(false)
   const [isBooking, setIsBooking] = useState(false)
+  const [isSelectingCash, setIsSelectingCash] = useState(false)
   const [error, setError] = useState("")
+  const { startPayment: startFeeGcashPayment, isStarting: isStartingFeeGcash } = useStartDeliveryFeePayment()
 
   useEffect(() => {
     const controller = new AbortController()
@@ -286,6 +363,28 @@ function QuotationCard({ order, delivery, onDeliveryUpdated }: { order: Order; d
       setError(getDeliveryErrorMessage(err, "We couldn't confirm your booking. Please request a new quote."))
     } finally {
       setIsBooking(false)
+    }
+  }
+
+  async function handlePayFeeWithGcash() {
+    if (!delivery) return
+    setError("")
+    await startFeeGcashPayment({ deliveryId: delivery.id, orderId: order.id, orderNumber: order.orderNumber })
+    // On success the browser navigates away to PayMongo; on failure the hook shows its own toast.
+  }
+
+  async function handleSelectCash() {
+    if (!delivery) return
+    setIsSelectingCash(true)
+    setError("")
+    try {
+      await selectDeliveryFeeCash(order.id)
+      const refreshed = await getDeliveryById(delivery.id)
+      onDeliveryUpdated(refreshed.delivery)
+    } catch (err) {
+      setError(getDeliveryErrorMessage(err, "We couldn't select Cash on Delivery right now."))
+    } finally {
+      setIsSelectingCash(false)
     }
   }
 
@@ -372,12 +471,18 @@ function QuotationCard({ order, delivery, onDeliveryUpdated }: { order: Order; d
                 <span className="text-xl font-semibold text-foreground">{formatProductPrice(quotation.amount.toFixed(2))}</span>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Quote valid until {new Date(quotation.expiresAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}. Vehicle: {quotation.serviceType}.</p>
-              <div className="mt-4 flex flex-col gap-2">
-                <Button className="w-full" onClick={() => void handleConfirmBooking()} disabled={isBooking}>
-                  {isBooking ? <><Loader2 className="animate-spin" aria-hidden="true" />Booking…</> : <>Confirm &amp; book<ArrowRight data-icon="inline-end" aria-hidden="true" /></>}
-                </Button>
-                <Button variant="outline" className="w-full" onClick={() => setQuotation(null)} disabled={isBooking}>Choose a different vehicle</Button>
-              </div>
+
+              <DeliveryFeeChoice
+                feePayment={isFeePaymentCurrent(delivery, quotation) ? (delivery?.deliveryPayment ?? null) : null}
+                isBooking={isBooking}
+                isStartingGcash={isStartingFeeGcash}
+                isSelectingCash={isSelectingCash}
+                onPayWithGcash={() => void handlePayFeeWithGcash()}
+                onSelectCash={() => void handleSelectCash()}
+                onConfirmBooking={() => void handleConfirmBooking()}
+              />
+
+              <Button variant="outline" className="mt-2 w-full" onClick={() => setQuotation(null)} disabled={isBooking || isStartingFeeGcash || isSelectingCash}>Choose a different vehicle</Button>
             </div>
           ) : (
             <Button className="w-full" onClick={() => void handleGetQuote()} disabled={isRequestingQuote || isLoadingVehicles || !selectedVehicle}>

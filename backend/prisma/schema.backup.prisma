@@ -357,10 +357,28 @@ model Delivery {
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @updatedAt @map("updated_at")
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deliveryPayment DeliveryPayment?
 
   @@index([approvalStatus])
   @@map("deliveries")
+}
+
+model DeliveryPayment {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deliveryId     String        @unique @map("delivery_id") @db.Uuid
+  status         PaymentStatus @default(PENDING)
+  method         String
+  amount         Decimal       @db.Decimal(12, 2)
+  transactionRef String?       @unique @map("transaction_ref")
+  paidAt         DateTime?     @map("paid_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("delivery_payments")
 }
 
 // ================================================================

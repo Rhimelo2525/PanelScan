@@ -144,7 +144,17 @@ export function requestQuotation(orderId: string, serviceType: string, signal?: 
   })
 }
 
-/** Redeems the quotation from requestQuotation() into a real, billable Lalamove booking. */
+/** Opens a PayMongo GCash checkout session for the delivery fee shown in the current quotation - a separate charge from the product payment. */
+export function payDeliveryFeeWithGcash(orderId: string, signal?: AbortSignal) {
+  return apiRequest<{ checkoutUrl: string }>(`/delivery/orders/${orderId}/fee/gcash`, { method: "POST", authenticated: true, signal })
+}
+
+/** Selects Cash on Delivery for the delivery fee - the rider collects it at drop-off. */
+export function selectDeliveryFeeCash(orderId: string, signal?: AbortSignal) {
+  return apiRequest<{ amount: number }>(`/delivery/orders/${orderId}/fee/cash`, { method: "POST", authenticated: true, signal })
+}
+
+/** Redeems the quotation from requestQuotation() into a real, billable Lalamove booking. Requires the delivery fee to be paid (GCash) or Cash on Delivery selected first - see delivery.service.ts#confirmBooking. */
 export function confirmDeliveryBooking(orderId: string, signal?: AbortSignal) {
   return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/book`, { method: "POST", authenticated: true, signal })
 }

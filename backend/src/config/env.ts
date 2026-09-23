@@ -83,6 +83,14 @@ const envSchema = z.object({
   PAYMENT_SUCCESS_URL: z.string().url().default('http://localhost:3000/payment/success'),
   PAYMENT_CANCEL_URL: z.string().url().default('http://localhost:3000/payment/cancel'),
 
+  // Same PayMongo Checkout Session mechanism as above, but for the Lalamove
+  // delivery-fee charge (see delivery.service.ts's createFeeGcashCheckout) -
+  // a completely separate charge from the product payment above, so it gets
+  // its own return URLs rather than reusing PAYMENT_SUCCESS_URL/CANCEL_URL
+  // (which would show the wrong - product - payment on return).
+  DELIVERY_PAYMENT_SUCCESS_URL: z.string().url().default('http://localhost:3000/delivery-fee/success'),
+  DELIVERY_PAYMENT_CANCEL_URL: z.string().url().default('http://localhost:3000/delivery-fee/cancel'),
+
   // Google OAuth 2.0 (Customer Authentication).
   // Optional at process startup so the backend boots even before credentials
   // are configured in development or testing. Routes under /api/auth/google

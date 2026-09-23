@@ -391,10 +391,36 @@ model Delivery {
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @updatedAt @map("updated_at")
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order           Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deliveryPayment DeliveryPayment?
 
   @@index([approvalStatus])
   @@map("deliveries")
+}
+
+// Charges the customer for the Lalamove delivery fee itself, kept entirely
+// separate from Payment (which is the product/order subtotal charge only -
+// see payment.service.ts). Same shape as Payment on purpose: same status
+// enum, same "method" free-text field ("PayMongo" | "Cash"), same
+// transactionRef uniqueness - it's the exact same PayMongo Checkout Session
+// mechanism, just correlated to a Delivery instead of an Order. Cash never
+// touches PayMongo at all: method="Cash" rows go straight to PENDING and
+// stay there (rider collects the fee on drop-off; see delivery.service.ts).
+model DeliveryPayment {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deliveryId     String        @unique @map("delivery_id") @db.Uuid
+  status         PaymentStatus @default(PENDING)
+  method         String
+  amount         Decimal       @db.Decimal(12, 2)
+  transactionRef String?       @unique @map("transaction_ref")
+  paidAt         DateTime?     @map("paid_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("delivery_payments")
 }
 
 // ================================================================

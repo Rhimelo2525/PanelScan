@@ -87,7 +87,21 @@ router.post(
   deliveryController.requestQuotation,
 );
 
-// POST /api/delivery/orders/:orderId/book - redeems the stored quotation into a real Lalamove order
+// POST /api/delivery/orders/:orderId/fee/gcash - opens a PayMongo GCash checkout session for the delivery fee (separate charge from the product payment)
+router.post(
+  '/orders/:orderId/fee/gcash',
+  validate(orderIdParamsSchema),
+  deliveryController.payFeeWithGcash,
+);
+
+// POST /api/delivery/orders/:orderId/fee/cash - selects Cash on Delivery for the delivery fee
+router.post(
+  '/orders/:orderId/fee/cash',
+  validate(orderIdParamsSchema),
+  deliveryController.payFeeWithCash,
+);
+
+// POST /api/delivery/orders/:orderId/book - redeems the stored quotation into a real Lalamove order. Requires the delivery fee to be paid (GCash) or Cash on Delivery selected first.
 router.post(
   '/orders/:orderId/book',
   validate(orderIdParamsSchema),

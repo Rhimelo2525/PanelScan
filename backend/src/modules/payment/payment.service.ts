@@ -1,57 +1,24 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
-
 import { NotificationType, OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import { AppError } from '../../utils/AppError';
+import { deliveryService } from '../delivery/delivery.service';
+import { DELIVERY_FEE_REFERENCE_PREFIX, createPaymongoCheckoutSession, verifyPaymongoSignature } from './paymongo.client';
 import {
   paymentInclude,
   type CreatePaymentResult,
   type PaginatedPayments,
   type PaymentFilters,
   type PaymentWithOrder,
-  type PaymongoCheckoutSessionRequest,
-  type PaymongoCheckoutSessionResponse,
   type PaymongoCheckoutSessionResponseData,
-  type PaymongoErrorResponse,
   type PaymongoWebhookEvent,
 } from './payment.types';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const PAYMENT_METHOD = 'PayMongo';
-
-/**
- * PayMongo signs webhook requests with a `Paymongo-Signature` header shaped
- * like `t=<unix_timestamp>,te=<test_signature>,li=<live_signature>`, where
- * each signature is HMAC-SHA256(webhook_secret, `${t}.${rawBody}`) in hex.
- * Accepts a match on either `te` or `li` since this integration doesn't yet
- * separate test/live webhook secrets. `timingSafeEqual` avoids leaking
- * signature bytes through response-time comparisons.
- */
-const verifyPaymongoSignature = (rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean => {
-  if (!signatureHeader) return false;
-
-  const parts = new Map<string, string>();
-  for (const segment of signatureHeader.split(',')) {
-    const [key, value] = segment.split('=');
-    if (key && value) parts.set(key.trim(), value.trim());
-  }
-
-  const timestamp = parts.get('t');
-  const candidates = [parts.get('li'), parts.get('te')].filter((value): value is string => Boolean(value));
-  if (!timestamp || candidates.length === 0) return false;
-
-  const expected = createHmac('sha256', secret).update(`${timestamp}.${rawBody.toString('utf8')}`).digest('hex');
-  const expectedBuffer = Buffer.from(expected, 'utf8');
-
-  return candidates.some((candidate) => {
-    const candidateBuffer = Buffer.from(candidate, 'utf8');
-    return candidateBuffer.length === expectedBuffer.length && timingSafeEqual(candidateBuffer, expectedBuffer);
-  });
-};
 
 /** Pulls our own correlation id back out of a webhook payload's nested payment/checkout-session data. */
 const extractReferenceNumber = (event: PaymongoWebhookEvent): string | undefined => {
@@ -194,6 +161,16 @@ export class PaymentService {
     const referenceNumber = extractReferenceNumber(event);
     const eventPaymentId = event.data?.attributes?.data?.id;
 
+    // A delivery-fee Checkout Session's reference_number carries the
+    // "delivery:" prefix (see paymongo.client.ts) - route it to the
+    // delivery module entirely and stop here. Everything below this point
+    // is unchanged, pre-existing product-order Payment handling.
+    if (referenceNumber?.startsWith(DELIVERY_FEE_REFERENCE_PREFIX)) {
+      const deliveryId = referenceNumber.slice(DELIVERY_FEE_REFERENCE_PREFIX.length);
+      await deliveryService.handleDeliveryFeeWebhook(deliveryId, eventType, eventPaymentId);
+      return;
+    }
+
     const payment = await prisma.payment.findFirst({
       where: {
         OR: [
@@ -254,71 +231,27 @@ export class PaymentService {
     }
   }
 
+  /** Product/order-total charge only - see paymongo.client.ts for the shared PayMongo mechanics, and delivery.service.ts for the separate delivery-fee charge. */
   private async createPaymongoCheckoutSession(
     order: { id: string; orderNumber: string; totalAmount: Prisma.Decimal },
     customer: { firstName: string; lastName: string; email: string; phone: string | null },
   ): Promise<PaymongoCheckoutSessionResponseData> {
-    if (!env.PAYMONGO_SECRET_KEY) {
-      throw new AppError('Payment provider is not configured.', 500);
-    }
-
     const amountInCentavos = Math.round(Number(order.totalAmount) * 100);
 
-    const requestBody: PaymongoCheckoutSessionRequest = {
-      data: {
-        attributes: {
-          billing: {
-            name: `${customer.firstName} ${customer.lastName}`,
-            email: customer.email,
-            ...(customer.phone ? { phone: customer.phone } : {}),
-          },
-          send_email_receipt: false,
-          show_description: true,
-          show_line_items: true,
-          cancel_url: env.PAYMENT_CANCEL_URL,
-          success_url: env.PAYMENT_SUCCESS_URL,
-          description: `Payment for order ${order.orderNumber}`,
-          reference_number: order.id,
-          line_items: [
-            {
-              currency: 'PHP',
-              amount: amountInCentavos,
-              description: `PanelScan order ${order.orderNumber}`,
-              name: `Order ${order.orderNumber}`,
-              quantity: 1,
-            },
-          ],
-          payment_method_types: ['gcash'],
-        },
+    return createPaymongoCheckoutSession({
+      referenceNumber: order.id,
+      description: `Payment for order ${order.orderNumber}`,
+      amountInCentavos,
+      lineItemName: `Order ${order.orderNumber}`,
+      billing: {
+        name: `${customer.firstName} ${customer.lastName}`,
+        email: customer.email,
+        phone: customer.phone ?? undefined,
       },
-    };
-
-    const authHeader = `Basic ${Buffer.from(`${env.PAYMONGO_SECRET_KEY}:`).toString('base64')}`;
-
-    let response: Response;
-    try {
-      response = await fetch(`${env.PAYMONGO_API_URL}/checkout_sessions`, {
-        method: 'POST',
-        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-    } catch {
-      throw new AppError('Could not reach the payment provider. Please try again later.', 500);
-    }
-
-    if (!response.ok) {
-      let detail = 'Failed to create a checkout session with the payment provider.';
-      try {
-        const errorBody = (await response.json()) as PaymongoErrorResponse;
-        detail = errorBody.errors?.[0]?.detail ?? detail;
-      } catch {
-        // Response wasn't JSON - fall back to the generic message.
-      }
-      throw new AppError(detail, 500);
-    }
-
-    const body = (await response.json()) as PaymongoCheckoutSessionResponse;
-    return body.data;
+      successUrl: env.PAYMENT_SUCCESS_URL,
+      cancelUrl: env.PAYMENT_CANCEL_URL,
+      paymentMethodTypes: ['gcash'],
+    });
   }
 }
 

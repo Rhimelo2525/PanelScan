@@ -32,6 +32,7 @@ const SYNC_ORDER = [
   'orderItem',
   'payment',
   'delivery',
+  'deliveryPayment',
   'installer',
   'booking',
   'measurement',

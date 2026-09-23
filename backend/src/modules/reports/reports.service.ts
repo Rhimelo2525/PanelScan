@@ -42,10 +42,27 @@ const paginationMeta = (page: number, limit: number, total: number) => ({
   totalPages: Math.max(1, Math.ceil(total / limit)),
 });
 
+// Every product's CURRENT primary image (order items snapshot productName/
+// unitPrice/quantity at purchase time, but never an image - see the
+// OrderReportItem doc comment in reports.types.ts). Same
+// `images: { where: { isPrimary: true }, take: 1 }` shape already used by
+// cart.service.ts for the same "one thumbnail per line item" purpose.
+const orderItemsInclude = {
+  select: {
+    id: true,
+    productId: true,
+    productName: true,
+    unitPrice: true,
+    quantity: true,
+    lineTotal: true,
+    product: { select: { images: { where: { isPrimary: true }, take: 1, select: { url: true, altText: true } } } },
+  },
+} satisfies Prisma.Order$itemsArgs;
+
 type OrderWithRelations = Prisma.OrderGetPayload<{
   include: {
     customer: { select: { firstName: true; lastName: true } };
-    items: { select: { id: true } };
+    items: typeof orderItemsInclude;
     payment: { select: { status: true } };
     delivery: {
       select: {
@@ -83,7 +100,7 @@ export class ReportsService {
         where,
         include: {
           customer: { select: { firstName: true, lastName: true } },
-          items: { select: { id: true } },
+          items: orderItemsInclude,
           payment: { select: { status: true } },
           delivery: {
             select: {
@@ -152,7 +169,7 @@ export class ReportsService {
         where,
         include: {
           customer: { select: { firstName: true, lastName: true } },
-          items: { select: { id: true } },
+          items: orderItemsInclude,
           payment: { select: { status: true } },
           delivery: {
             select: {
@@ -202,6 +219,21 @@ export class ReportsService {
       deliveryDeclinedAt: order.delivery?.declinedAt ?? null,
       deliveryDeclineReason: order.delivery?.declineReason ?? null,
       itemCount: order.items.length,
+      items: order.items.map((item) => {
+        const primaryImage = item.product.images[0];
+        const itemRow: OrderReportRow['items'][number] = {
+          id: item.id,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          productImage: primaryImage ? { url: primaryImage.url, altText: primaryImage.altText } : null,
+        };
+        if (includeAmount) {
+          itemRow.unitPrice = Number(item.unitPrice);
+          itemRow.lineTotal = Number(item.lineTotal);
+        }
+        return itemRow;
+      }),
       createdAt: order.createdAt,
     };
     if (includeAmount) {

@@ -173,12 +173,28 @@ export class DeliveryController {
     sendSuccess(res, 200, 'Quotation retrieved successfully.', { quotation });
   });
 
-  /** Redeems the stored quotation into a real, billable Lalamove booking. */
+  /** Redeems the stored quotation into a real, billable Lalamove booking. Refuses unless the delivery fee is paid (GCash) or Cash on Delivery is selected - see delivery.service.ts#confirmBooking. */
   confirmBooking = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
     const delivery = await this.deliveryService.confirmBooking(orderId, requester.id, requester.role, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery booked successfully.', { delivery });
+  });
+
+  /** Opens a PayMongo GCash checkout session for the delivery fee shown in the still-valid quotation. */
+  payFeeWithGcash = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const orderId = req.params.orderId as string;
+    const result = await this.deliveryService.createFeeGcashCheckout(orderId, requester.id, requester.role, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Delivery fee checkout created successfully.', result);
+  });
+
+  /** Selects Cash on Delivery for the delivery fee - rider collects it at drop-off. */
+  payFeeWithCash = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const orderId = req.params.orderId as string;
+    const result = await this.deliveryService.selectFeeCash(orderId, requester.id, requester.role, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Cash on Delivery selected for the delivery fee.', result);
   });
 
   /** Pulls live status + driver info from Lalamove and syncs it onto the record. */
