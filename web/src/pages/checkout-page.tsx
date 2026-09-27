@@ -1,77 +1,27 @@
-import { AlertTriangle, ArrowLeft, CheckCircle2, Hammer, Loader2, MapPin, MapPinned } from "lucide-react"
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { AlertTriangle, ArrowLeft, Hammer, MapPin, MapPinPlus } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import type { CartItem } from "@/types/cart"
 
-import {
-  getDeliveryBarangays,
-  getDeliveryCities,
-  getDeliveryProvinces,
-  getDeliveryRegions,
-} from "@/api/delivery"
+import { getSavedAddresses } from "@/api/addresses"
 import { createOrder } from "@/api/orders"
-import { useAuth } from "@/auth/use-auth"
 import { getCartProductWarning } from "@/cart/cart-utils"
 import { useCart } from "@/cart/use-cart"
+import { AddressDialog } from "@/components/addresses/address-dialog"
+import { SavedAddressSummary } from "@/components/addresses/saved-address-summary"
 import { CartEmptyState, CartErrorState, CartPageSkeleton } from "@/components/cart/cart-states"
 import { CheckoutOrderSummary } from "@/components/checkout/checkout-order-summary"
-import type { ConfirmedPin } from "@/components/checkout/delivery-map-picker"
 import { Container } from "@/components/layout/container"
 import { Button } from "@/components/ui/button"
-
-// mapbox-gl is a large library (~1MB) - loaded only when the customer
-// actually opens the picker, not bundled into every checkout page load.
-const DeliveryMapPicker = lazy(() =>
-  import("@/components/checkout/delivery-map-picker").then((module) => ({ default: module.DeliveryMapPicker })),
-)
-import { Combobox } from "@/components/ui/combobox"
 import { DatePickerInput } from "@/components/ui/date-picker-input"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import {
-  formatPhilippineDeliveryAddress,
-  normalizePhilippinePhone,
-} from "@/lib/delivery/address-formatter"
 import { getOrderErrorMessage } from "@/orders/order-errors"
-import type { DeliveryLocation, PsgcBarangay, PsgcCity, PsgcProvince, PsgcRegion } from "@/types/delivery"
-
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined
-
-/** Best-effort approximate center for the map picker, from whatever address text is typed so far - never the coordinates actually saved (see delivery-map-picker.tsx). A failure here just opens the map at its own generic default. */
-async function approximateCenter(query: string, signal: AbortSignal): Promise<{ latitude: number; longitude: number } | null> {
-  if (!MAPBOX_TOKEN || !query.trim()) return null
-  const params = new URLSearchParams({ q: query, access_token: MAPBOX_TOKEN, country: "ph", language: "en", limit: "1" })
-  try {
-    const response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params.toString()}`, { signal })
-    if (!response.ok) return null
-    const body = (await response.json()) as { features?: Array<{ properties?: { coordinates?: { latitude?: number; longitude?: number } } }> }
-    const coords = body.features?.[0]?.properties?.coordinates
-    return typeof coords?.latitude === "number" && typeof coords?.longitude === "number" ? { latitude: coords.latitude, longitude: coords.longitude } : null
-  } catch {
-    return null
-  }
-}
+import type { SavedAddress } from "@/types/address"
 
 interface CheckoutFields {
-  recipientName: string
-  phone: string
-  addressLine1: string
-
-  regionCode: string
-  regionName: string
-
-  provinceCode: string
-  provinceName: string
-
-  cityCode: string
-  cityName: string
-
-  barangayCode: string
-  barangayName: string
-
-  postalCode: string
   notes: string
 }
 
@@ -83,7 +33,7 @@ interface InstallationFields {
   notes: string
 }
 
-type CheckoutErrors = Partial<Record<keyof CheckoutFields | "installationDate" | "installationAddress" | "form", string>>
+type CheckoutErrors = Partial<Record<keyof CheckoutFields | "address" | "installationDate" | "installationAddress" | "form", string>>
 
 function minimumDate(): string {
   const date = new Date()
@@ -93,22 +43,11 @@ function minimumDate(): string {
 
 function validateCheckout(
   fields: CheckoutFields,
-  isNcr: boolean,
+  selectedAddress: SavedAddress | null,
   installation: InstallationFields,
 ): CheckoutErrors {
   const errors: CheckoutErrors = {}
-  if (fields.recipientName.trim().length < 2) errors.recipientName = "Enter the recipient's full name."
-  if (fields.recipientName.trim().length > 100) errors.recipientName = "Recipient name must be 100 characters or fewer."
-  if (fields.phone.trim().length < 7) errors.phone = "Enter a contact phone number."
-  if (fields.phone.trim().length > 30) errors.phone = "Phone number must be 30 characters or fewer."
-  if (fields.addressLine1.trim().length < 3) errors.addressLine1 = "Enter a complete street, building, or unit address."
-
-  if (!fields.regionCode) errors.regionCode = "Select a region."
-  if (!isNcr && !fields.provinceCode) errors.provinceCode = "Select a province."
-  if (!fields.cityCode) errors.cityCode = "Select a city or municipality."
-  if (!fields.barangayCode) errors.barangayCode = "Select a barangay."
-  if (fields.postalCode.trim().length < 3) errors.postalCode = "Enter a valid postal code."
-
+  if (!selectedAddress) errors.address = "Choose a shipping address, or add one."
   if (fields.notes.trim().length > 1000) errors.notes = "Order notes must be 1,000 characters or fewer."
 
   if (installation.choice === "yes") {
@@ -135,7 +74,6 @@ function validateCheckout(
 
 export function CheckoutPage() {
   useDocumentTitle("Checkout | PanelScan")
-  const { user } = useAuth()
   const { items, selectedItems, selectedItemCount, isLoading, error: cartError, refreshCart } = useCart()
   const location = useLocation()
   const navigate = useNavigate()
@@ -161,21 +99,7 @@ export function CheckoutPage() {
 
   const isDirectCheckout = Boolean(directCheckoutItem)
 
-  const [fields, setFields] = useState<CheckoutFields>({
-    recipientName: "",
-    phone: "",
-    addressLine1: "",
-    regionCode: "",
-    regionName: "",
-    provinceCode: "",
-    provinceName: "",
-    cityCode: "",
-    cityName: "",
-    barangayCode: "",
-    barangayName: "",
-    postalCode: "",
-    notes: "",
-  })
+  const [fields, setFields] = useState<CheckoutFields>({ notes: "" })
 
   const [installation, setInstallation] = useState<InstallationFields>({
     choice: "no",
@@ -185,82 +109,39 @@ export function CheckoutPage() {
     notes: "",
   })
 
-  // Location data states
-  const [regions, setRegions] = useState<PsgcRegion[]>([])
-  const [provinces, setProvinces] = useState<PsgcProvince[]>([])
-  const [cities, setCities] = useState<PsgcCity[]>([])
-  const [barangays, setBarangays] = useState<PsgcBarangay[]>([])
-
-  const [isLoadingRegions, setIsLoadingRegions] = useState(false)
-  const [isLoadingProvinces, setIsLoadingProvinces] = useState(false)
-  const [isLoadingCities, setIsLoadingCities] = useState(false)
-  const [isLoadingBarangays, setIsLoadingBarangays] = useState(false)
+  // Saved shipping addresses (managed on the profile page). The default one
+  // is preselected; the order receives a snapshot of whichever is chosen -
+  // recipient, address, and its pinned coordinates - so nothing is retyped.
+  const [addresses, setAddresses] = useState<SavedAddress[] | null>(null)
+  const [addressLoadError, setAddressLoadError] = useState(false)
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null)
+  const [isAddressDialogOpen, setIsAddressDialogOpen] = useState(false)
 
   const [errors, setErrors] = useState<CheckoutErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCartAction, setShowCartAction] = useState(false)
   const submissionLock = useRef(false)
 
-  // Exact delivery pin (see delivery-map-picker.tsx) - optional. When set,
-  // its coordinates are what actually get saved with the order; when not,
-  // checkout behaves exactly as before (server-side forward-geocoding,
-  // which can fail for ambiguous addresses - see geocoding.service.ts).
-  const [confirmedPin, setConfirmedPin] = useState<ConfirmedPin | null>(null)
-  const [isMapPickerOpen, setIsMapPickerOpen] = useState(false)
-  const [mapPickerCenter, setMapPickerCenter] = useState<{ latitude: number; longitude: number } | null>(null)
-  const [isLocatingCenter, setIsLocatingCenter] = useState(false)
-
-  const isNcr = fields.regionCode === "130000000"
-  const hasEnoughAddressForPin = Boolean(fields.addressLine1.trim() && fields.cityCode && fields.barangayCode)
-
-  async function handleOpenMapPicker() {
-    setIsLocatingCenter(true)
-    const query = formatPhilippineDeliveryAddress({
-      addressLine1: fields.addressLine1,
-      barangayName: fields.barangayName,
-      cityMunicipalityName: fields.cityName,
-      provinceName: isNcr ? null : (fields.provinceName || null),
-      regionName: fields.regionName,
-      postalCode: fields.postalCode,
-    })
-    const controller = new AbortController()
+  async function loadAddresses(preferredId?: string) {
     try {
-      const center = confirmedPin ? { latitude: confirmedPin.latitude, longitude: confirmedPin.longitude } : await approximateCenter(query, controller.signal)
-      setMapPickerCenter(center)
-    } finally {
-      setIsLocatingCenter(false)
-      setIsMapPickerOpen(true)
+      const list = await getSavedAddresses()
+      setAddresses(list)
+      setAddressLoadError(false)
+      setSelectedAddressId((current) => {
+        const keep = preferredId ?? current
+        if (keep && list.some((address) => address.id === keep)) return keep
+        return (list.find((address) => address.isDefault) ?? list[0])?.id ?? null
+      })
+    } catch {
+      setAddressLoadError(true)
     }
   }
 
-  // Load preliminary regions on mount
   useEffect(() => {
-    let isMounted = true
-    setIsLoadingRegions(true)
-    getDeliveryRegions()
-      .then((data) => {
-        if (isMounted) setRegions(data)
-      })
-      .catch((err) => {
-        console.error("Failed to load delivery regions:", err)
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingRegions(false)
-      })
-    return () => {
-      isMounted = false
-    }
+    void loadAddresses()
   }, [])
 
-  // Auto-fill user contact info
-  useEffect(() => {
-    if (!user) return
-    setFields((current) => ({
-      ...current,
-      recipientName: current.recipientName || `${user.firstName} ${user.lastName}`.trim(),
-      phone: current.phone || user.phone || "",
-    }))
-  }, [user])
+  const selectedAddress = addresses?.find((address) => address.id === selectedAddressId) ?? null
 
   const checkoutItems = useMemo(
     () => (directCheckoutItem ? [directCheckoutItem] : selectedItems),
@@ -286,214 +167,23 @@ export function CheckoutPage() {
     setShowCartAction(false)
   }
 
-  // Cascading handler: Region change
-  async function handleRegionChange(newRegionCode: string) {
-    setConfirmedPin(null) // The pin was for the old area - the customer needs to re-confirm it for the new one.
-    const selectedRegion = regions.find((r) => r.code === newRegionCode)
-    const isNowNcr = newRegionCode === "130000000"
-
-    setFields((current) => ({
-      ...current,
-      regionCode: newRegionCode,
-      regionName: selectedRegion?.name || "",
-      provinceCode: "",
-      provinceName: "",
-      cityCode: "",
-      cityName: "",
-      barangayCode: "",
-      barangayName: "",
-    }))
-
-    setErrors((current) => ({
-      ...current,
-      regionCode: undefined,
-      provinceCode: undefined,
-      cityCode: undefined,
-      barangayCode: undefined,
-      form: undefined,
-    }))
-
-    setProvinces([])
-    setCities([])
-    setBarangays([])
-
-    if (!newRegionCode) return
-
-    if (isNowNcr) {
-      // NCR special flow: NCR -> City (no province)
-      setIsLoadingCities(true)
-      try {
-        const cityList = await getDeliveryCities(newRegionCode, null)
-        setCities(cityList)
-      } catch (error) {
-        console.error("Failed to load NCR cities:", error)
-      } finally {
-        setIsLoadingCities(false)
-      }
-    } else {
-      // Provincial flow: Region -> Province -> City
-      setIsLoadingProvinces(true)
-      try {
-        const provinceList = await getDeliveryProvinces(newRegionCode)
-        setProvinces(provinceList)
-      } catch (error) {
-        console.error("Failed to load provinces:", error)
-      } finally {
-        setIsLoadingProvinces(false)
-      }
-    }
-  }
-
-  // Cascading handler: Province change
-  async function handleProvinceChange(newProvinceCode: string) {
-    setConfirmedPin(null)
-    const selectedProvince = provinces.find((p) => p.code === newProvinceCode)
-
-    setFields((current) => ({
-      ...current,
-      provinceCode: newProvinceCode,
-      provinceName: selectedProvince?.name || "",
-      cityCode: "",
-      cityName: "",
-      barangayCode: "",
-      barangayName: "",
-    }))
-
-    setErrors((current) => ({
-      ...current,
-      provinceCode: undefined,
-      cityCode: undefined,
-      barangayCode: undefined,
-      form: undefined,
-    }))
-
-    setCities([])
-    setBarangays([])
-
-    if (!newProvinceCode || !fields.regionCode) return
-
-    setIsLoadingCities(true)
-    try {
-      const cityList = await getDeliveryCities(fields.regionCode, newProvinceCode)
-      setCities(cityList)
-    } catch (error) {
-      console.error("Failed to load cities:", error)
-    } finally {
-      setIsLoadingCities(false)
-    }
-  }
-
-  // Cascading handler: City change
-  async function handleCityChange(newCityCode: string) {
-    setConfirmedPin(null)
-    const selectedCity = cities.find((c) => c.code === newCityCode)
-
-    setFields((current) => ({
-      ...current,
-      cityCode: newCityCode,
-      cityName: selectedCity?.name || "",
-      barangayCode: "",
-      barangayName: "",
-      postalCode: selectedCity?.defaultPostalCode || current.postalCode,
-    }))
-
-    setErrors((current) => ({
-      ...current,
-      cityCode: undefined,
-      barangayCode: undefined,
-      postalCode: undefined,
-      form: undefined,
-    }))
-
-    setBarangays([])
-
-    if (!newCityCode) return
-
-    setIsLoadingBarangays(true)
-    try {
-      const barangayList = await getDeliveryBarangays(newCityCode)
-      setBarangays(barangayList)
-    } catch (error) {
-      console.error("Failed to load barangays:", error)
-    } finally {
-      setIsLoadingBarangays(false)
-    }
-  }
-
-  // Cascading handler: Barangay change
-  function handleBarangayChange(newBarangayCode: string) {
-    setConfirmedPin(null)
-    const selectedBarangay = barangays.find((b) => b.code === newBarangayCode)
-
-    setFields((current) => ({
-      ...current,
-      barangayCode: newBarangayCode,
-      barangayName: selectedBarangay?.name || "",
-      postalCode: selectedBarangay?.postalCode || current.postalCode,
-    }))
-
-    setErrors((current) => ({
-      ...current,
-      barangayCode: undefined,
-      postalCode: undefined,
-      form: undefined,
-    }))
+  function selectAddress(addressId: string) {
+    setSelectedAddressId(addressId)
+    setErrors((current) => ({ ...current, address: undefined, form: undefined }))
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const nextErrors = validateCheckout(fields, isNcr, installation)
+    const nextErrors = validateCheckout(fields, selectedAddress, installation)
 
     if (!canSubmit) {
       nextErrors.form = cartWarnings[0] ?? "Your cart is not ready for checkout. Return to the cart and try again."
     }
 
-    if (Object.values(nextErrors).some(Boolean)) {
+    if (Object.values(nextErrors).some(Boolean) || !selectedAddress) {
       setErrors(nextErrors)
       setShowCartAction(!canSubmit)
-      document.getElementById("checkout-error-summary")?.focus()
-      return
-    }
-
-    // Build canonical structured DeliveryLocation snapshot
-    const formattedAddress = formatPhilippineDeliveryAddress({
-      addressLine1: fields.addressLine1,
-      barangayName: fields.barangayName,
-      cityMunicipalityName: fields.cityName,
-      provinceName: isNcr ? null : (fields.provinceName || null),
-      regionName: fields.regionName,
-      postalCode: fields.postalCode,
-    })
-
-    const normalizedPhone = normalizePhilippinePhone(fields.phone)
-
-    const deliveryLocation: DeliveryLocation = {
-      addressLine1: fields.addressLine1.trim(),
-      regionCode: fields.regionCode,
-      regionName: fields.regionName,
-      provinceCode: isNcr ? null : (fields.provinceCode || null),
-      provinceName: isNcr ? null : (fields.provinceName || null),
-      cityMunicipalityCode: fields.cityCode,
-      cityMunicipalityName: fields.cityName,
-      barangayCode: fields.barangayCode,
-      barangayName: fields.barangayName,
-      postalCode: fields.postalCode.trim(),
-      formattedAddress,
-      recipientName: fields.recipientName.trim(),
-      recipientPhone: normalizedPhone,
-      // Trust the customer's own confirmed map pin when they provided one -
-      // it's the exact spot they dropped, not a geocoded guess (see
-      // delivery-map-picker.tsx). Otherwise unchanged from before: left
-      // null/pending for the backend's own forward-geocoding attempt.
-      latitude: confirmedPin?.latitude ?? null,
-      longitude: confirmedPin?.longitude ?? null,
-      geocodingStatus: confirmedPin ? "completed" : "pending",
-      geocodingProvider: confirmedPin ? "customer-pin" : null,
-      geocodingPlaceId: null,
-    }
-
-    if (formattedAddress.length > 500) {
-      setErrors({ form: "The combined delivery address is too long. Shorten the address details." })
+      document.getElementById(nextErrors.form ? "checkout-error-summary" : "shipping-address-title")?.focus()
       return
     }
 
@@ -505,15 +195,17 @@ export function CheckoutPage() {
       installation.choice === "yes"
         ? {
             scheduledDate: new Date(`${installation.date}T09:00:00`).toISOString(),
-            address: installation.sameAsShipping ? formattedAddress : installation.customAddress.trim(),
+            address: installation.sameAsShipping ? selectedAddress.formattedAddress : installation.customAddress.trim(),
             notes: installation.notes.trim() || undefined,
           }
         : undefined
 
     try {
       const order = await createOrder({
-        shippingAddress: formattedAddress,
-        deliveryLocation,
+        // The backend builds the order's delivery snapshot from the saved
+        // address itself; shippingAddress is sent only for older API clients' parity.
+        addressId: selectedAddress.id,
+        shippingAddress: selectedAddress.formattedAddress,
         notes: fields.notes.trim() || undefined,
         installation: installationPayload,
         selectedItemIds: isDirectCheckout ? undefined : checkoutItems.map((item) => item.id),
@@ -581,30 +273,6 @@ export function CheckoutPage() {
     )
   }
 
-  // Format options for comboboxes
-  const regionOptions = regions.map((r) => ({
-    value: r.code,
-    label: r.name,
-    secondaryText: r.shortName,
-  }))
-
-  const provinceOptions = provinces.map((p) => ({
-    value: p.code,
-    label: p.name,
-  }))
-
-  const cityOptions = cities.map((c) => ({
-    value: c.code,
-    label: c.name,
-    secondaryText: c.defaultPostalCode ? `Postal: ${c.defaultPostalCode}` : undefined,
-  }))
-
-  const barangayOptions = barangays.map((b) => ({
-    value: b.code,
-    label: b.name,
-    secondaryText: b.postalCode ? `Postal: ${b.postalCode}` : undefined,
-  }))
-
   return (
     <Container className="py-10 sm:py-14 lg:py-18">
       <Button
@@ -626,7 +294,7 @@ export function CheckoutPage() {
         <p className="section-eyebrow">Secure order creation</p>
         <h1 className="type-h1 mt-4">Delivery information</h1>
         <p className="mt-4 text-base leading-7 text-muted-foreground">
-          Enter your delivery destination. Your order is created before payment and verified against official delivery zones.
+          Choose where to deliver - your saved address, exact map pin included, is used automatically. Your order is created before payment and verified against official delivery zones.
         </p>
       </div>
 
@@ -654,15 +322,24 @@ export function CheckoutPage() {
         noValidate
       >
         <div className="space-y-8">
-          <section className="surface-card p-5 sm:p-8" aria-labelledby="delivery-form-title">
-          <div className="flex items-center gap-2">
-            <MapPin className="size-4 text-primary" aria-hidden="true" />
-            <h2 id="delivery-form-title" className="text-sm font-semibold tracking-[0.12em] uppercase">
-              Recipient and address
-            </h2>
+          <section className="surface-card p-5 sm:p-8" aria-labelledby="shipping-address-title">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <MapPin className="size-4 text-primary" aria-hidden="true" />
+              <h2 id="shipping-address-title" tabIndex={-1} className="text-sm font-semibold tracking-[0.12em] uppercase outline-none">
+                Select shipping address
+              </h2>
+            </div>
+            {addresses && addresses.length > 0 && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsAddressDialogOpen(true)}>
+                <MapPinPlus className="size-3.5" data-icon="inline-start" aria-hidden="true" />
+                Add new address
+              </Button>
+            )}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Delivery is currently available within selected areas in Luzon.
+            Delivery is currently available within selected areas in Luzon. Manage your addresses anytime from your{" "}
+            <Link to="/profile" className="font-medium text-primary hover:underline">profile</Link>.
           </p>
 
           {errors.form && (
@@ -685,244 +362,63 @@ export function CheckoutPage() {
             </div>
           )}
 
-          <div className="mt-7 grid gap-6 sm:grid-cols-2">
-            {/* ROW 1: Recipient full name | Contact phone */}
-            <div>
-              <Label htmlFor="recipientName">Recipient full name</Label>
-              <Input
-                id="recipientName"
-                name="recipientName"
-                value={fields.recipientName}
-                onChange={(e) => updateField("recipientName", e.target.value)}
-                autoComplete="name"
-                aria-invalid={Boolean(errors.recipientName)}
-                aria-describedby={errors.recipientName ? "recipientName-error" : undefined}
-                className="mt-2 h-11"
-              />
-              {errors.recipientName && (
-                <p id="recipientName-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.recipientName}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label htmlFor="phone">Contact phone</Label>
-              <Input
-                id="phone"
-                name="phone"
-                value={fields.phone}
-                onChange={(e) => updateField("phone", e.target.value)}
-                autoComplete="tel"
-                inputMode="tel"
-                placeholder="e.g. 0917 123 4567"
-                aria-invalid={Boolean(errors.phone)}
-                aria-describedby={errors.phone ? "phone-error" : undefined}
-                className="mt-2 h-11"
-              />
-              {errors.phone && (
-                <p id="phone-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.phone}
-                </p>
-              )}
-            </div>
-
-            {/* ROW 2: Street, building, or unit — full width */}
-            <div className="sm:col-span-2">
-              <Label htmlFor="addressLine1">Street, building, or unit</Label>
-              <Input
-                id="addressLine1"
-                name="addressLine1"
-                value={fields.addressLine1}
-                onChange={(e) => {
-                  updateField("addressLine1", e.target.value)
-                  setConfirmedPin(null)
-                }}
-                autoComplete="street-address"
-                placeholder="House / Unit / Block / Lot, Building name, Street"
-                aria-invalid={Boolean(errors.addressLine1)}
-                aria-describedby={errors.addressLine1 ? "addressLine1-error" : undefined}
-                className="mt-2 h-11"
-              />
-              {errors.addressLine1 && (
-                <p id="addressLine1-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.addressLine1}
-                </p>
-              )}
-            </div>
-
-            {/* ROW 3: Region | Province */}
-            <div>
-              <Label htmlFor="region">Region</Label>
-              <div className="mt-2">
-                <Combobox
-                  id="region"
-                  placeholder={isLoadingRegions ? "Loading regions..." : "Select Region"}
-                  searchPlaceholder="Search Luzon region..."
-                  options={regionOptions}
-                  value={fields.regionCode}
-                  onChange={handleRegionChange}
-                  disabled={isLoadingRegions || regions.length === 0}
-                  error={errors.regionCode}
-                />
-              </div>
-              {errors.regionCode && (
-                <p id="region-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.regionCode}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label htmlFor="province">Province</Label>
-              <div className="mt-2">
-                <Combobox
-                  id="province"
-                  placeholder={
-                    isNcr
-                      ? "— Not applicable (NCR) —"
-                      : isLoadingProvinces
-                      ? "Loading provinces..."
-                      : !fields.regionCode
-                      ? "Select a region first"
-                      : "Select Province"
-                  }
-                  searchPlaceholder="Search province..."
-                  options={provinceOptions}
-                  value={fields.provinceCode}
-                  onChange={handleProvinceChange}
-                  disabled={isNcr || !fields.regionCode || isLoadingProvinces}
-                  error={errors.provinceCode}
-                />
-              </div>
-              {errors.provinceCode && !isNcr && (
-                <p id="province-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.provinceCode}
-                </p>
-              )}
-            </div>
-
-            {/* ROW 4: City / Municipality | Barangay */}
-            <div>
-              <Label htmlFor="city">City or municipality</Label>
-              <div className="mt-2">
-                <Combobox
-                  id="city"
-                  placeholder={
-                    isLoadingCities
-                      ? "Loading cities..."
-                      : !fields.regionCode
-                      ? "Select a region first"
-                      : !isNcr && !fields.provinceCode
-                      ? "Select a province first"
-                      : "Search City / Municipality..."
-                  }
-                  searchPlaceholder="Type city or municipality..."
-                  options={cityOptions}
-                  value={fields.cityCode}
-                  onChange={handleCityChange}
-                  disabled={
-                    isLoadingCities ||
-                    !fields.regionCode ||
-                    (!isNcr && !fields.provinceCode)
-                  }
-                  error={errors.cityCode}
-                  emptyMessage="No matching city found in coverage."
-                />
-              </div>
-              {errors.cityCode && (
-                <p id="city-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.cityCode}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label htmlFor="barangay">Barangay</Label>
-              <div className="mt-2">
-                <Combobox
-                  id="barangay"
-                  placeholder={
-                    isLoadingBarangays
-                      ? "Loading barangays..."
-                      : !fields.cityCode
-                      ? "Select a city first"
-                      : "Search Barangay..."
-                  }
-                  searchPlaceholder="Type barangay..."
-                  options={barangayOptions}
-                  value={fields.barangayCode}
-                  onChange={handleBarangayChange}
-                  disabled={isLoadingBarangays || !fields.cityCode}
-                  error={errors.barangayCode}
-                  emptyMessage="No matching barangay found in coverage."
-                />
-              </div>
-              {errors.barangayCode && (
-                <p id="barangay-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.barangayCode}
-                </p>
-              )}
-            </div>
-
-            {/* ROW 5: Postal code */}
-            <div>
-              <Label htmlFor="postalCode">Postal code</Label>
-              <Input
-                id="postalCode"
-                name="postalCode"
-                value={fields.postalCode}
-                onChange={(e) => updateField("postalCode", e.target.value)}
-                autoComplete="postal-code"
-                inputMode="numeric"
-                placeholder="4-digit postal code"
-                aria-invalid={Boolean(errors.postalCode)}
-                aria-describedby={errors.postalCode ? "postalCode-error" : undefined}
-                className="mt-2 h-11"
-              />
-              {errors.postalCode && (
-                <p id="postalCode-error" className="motion-swap mt-1.5 text-xs text-destructive">
-                  {errors.postalCode}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Exact delivery pin - optional but recommended; see delivery-map-picker.tsx */}
           <div className="mt-6">
-            <Label>Exact delivery location (recommended)</Label>
-            {confirmedPin ? (
-              <div className="mt-2 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3.5">
-                <p className="flex items-start gap-2 text-sm">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
-                  <span>
-                    <span className="block font-medium text-foreground">Location pinned</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {confirmedPin.reverseGeocodedAddress ?? `${confirmedPin.latitude.toFixed(7)}, ${confirmedPin.longitude.toFixed(7)}`}
-                    </span>
-                  </span>
+            {addresses === null && !addressLoadError ? (
+              <div className="space-y-3" aria-label="Loading your saved addresses" aria-busy="true">
+                <Skeleton className="h-28 w-full rounded-lg" />
+                <Skeleton className="h-28 w-full rounded-lg" />
+              </div>
+            ) : addressLoadError ? (
+              <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">
+                <p>Your saved addresses could not be loaded.</p>
+                <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { setAddressLoadError(false); setAddresses(null); void loadAddresses() }}>
+                  Try again
+                </Button>
+              </div>
+            ) : addresses && addresses.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-secondary/35 px-6 py-10 text-center">
+                <p className="text-sm font-medium">No shipping address saved yet.</p>
+                <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
+                  Pin your delivery spot on the map once - we'll fill in the address and remember it for next time.
                 </p>
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleOpenMapPicker()} disabled={isLocatingCenter}>
-                  {isLocatingCenter ? <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" aria-hidden="true" /> : <MapPinned className="size-3.5" data-icon="inline-start" aria-hidden="true" />}
-                  Change pin
+                <Button type="button" className="mt-5" onClick={() => setIsAddressDialogOpen(true)}>
+                  <MapPinPlus data-icon="inline-start" aria-hidden="true" />
+                  Add shipping address
                 </Button>
               </div>
             ) : (
-              <div className="mt-2">
-                <Button type="button" variant="outline" onClick={() => void handleOpenMapPicker()} disabled={!hasEnoughAddressForPin || isLocatingCenter}>
-                  {isLocatingCenter ? <Loader2 className="size-4 animate-spin" data-icon="inline-start" aria-hidden="true" /> : <MapPinned className="size-4" data-icon="inline-start" aria-hidden="true" />}
-                  Pin exact location on map
-                </Button>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {hasEnoughAddressForPin
-                    ? "Drop a pin on your exact spot so your rider never has to guess. Optional - PanelScan staff will confirm your location manually if you skip this."
-                    : "Fill in your street, city, and barangay above first."}
-                </p>
+              <div role="radiogroup" aria-labelledby="shipping-address-title" aria-invalid={Boolean(errors.address)} className="space-y-3">
+                {addresses?.map((address) => {
+                  const isSelected = address.id === selectedAddressId
+                  return (
+                    <label
+                      key={address.id}
+                      className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors ${
+                        isSelected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="shippingAddress"
+                        value={address.id}
+                        checked={isSelected}
+                        onChange={() => selectAddress(address.id)}
+                        className="mt-1 text-primary focus:ring-primary"
+                      />
+                      <SavedAddressSummary address={address} />
+                    </label>
+                  )
+                })}
               </div>
+            )}
+            {errors.address && (
+              <p className="motion-swap mt-2 text-xs text-destructive" role="alert">
+                {errors.address}
+              </p>
             )}
           </div>
 
-          {/* ROW 6: Order notes — full width */}
+          {/* Order notes — full width */}
           <div className="mt-6 space-y-2">
             <Label htmlFor="notes">Order notes (optional)</Label>
             <Textarea
@@ -1058,7 +554,7 @@ export function CheckoutPage() {
 
                 {installation.sameAsShipping ? (
                   <div className="mt-2 rounded-lg border border-border/80 bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
-                    Using shipping address entered above. Uncheck &ldquo;Same as shipping address&rdquo; to provide a different installation site.
+                    Using the shipping address selected above. Uncheck &ldquo;Same as shipping address&rdquo; to provide a different installation site.
                   </div>
                 ) : (
                   <div className="mt-2">
@@ -1109,16 +605,17 @@ export function CheckoutPage() {
         />
       </form>
 
-      {isMapPickerOpen && (
-        <Suspense fallback={null}>
-          <DeliveryMapPicker
-            open={isMapPickerOpen}
-            onOpenChange={setIsMapPickerOpen}
-            initialCenter={mapPickerCenter}
-            onConfirm={setConfirmedPin}
-          />
-        </Suspense>
-      )}
+      <AddressDialog
+        open={isAddressDialogOpen}
+        onOpenChange={setIsAddressDialogOpen}
+        address={null}
+        isFirstAddress={(addresses?.length ?? 0) === 0}
+        onSaved={(saved) => {
+          // Back to checkout with the new address already chosen.
+          void loadAddresses(saved.id)
+          selectAddress(saved.id)
+        }}
+      />
     </Container>
   )
 }

@@ -296,7 +296,8 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onUpdated }: { de
               </p>
             )}
 
-            {isModerator && (
+            {/* Orders placed with a saved address carry the customer's own map pin - manual entry is only for older orders without one. */}
+            {isModerator && !(location?.geocodingProvider === "customer-pin" && location.latitude != null && location.longitude != null) && (
               <div className="space-y-2 rounded-md border border-border bg-card p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Set delivery coordinates</p>
                 <div className="grid grid-cols-2 gap-2">

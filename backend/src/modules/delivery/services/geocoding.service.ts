@@ -54,6 +54,41 @@ interface MapboxGeocodeResponse {
   message?: string; // present on error responses (e.g. bad token, bad params)
 }
 
+/**
+ * Place names Mapbox reports for one map point, as-is. In the Philippines
+ * `place` is the city/municipality, `locality` (or `neighborhood`) the
+ * barangay, and `region` the province - or, in Metro Manila, the city again.
+ * Every field is optional: Mapbox omits whatever it doesn't know there.
+ */
+export interface ReverseGeocodeResult {
+  status: 'ok' | 'not_configured' | 'failed';
+  fullAddress: string | null;
+  streetLine: string | null;
+  barangay: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  district: string | null;
+  province: string | null;
+  postalCode: string | null;
+}
+
+interface MapboxContextEntry {
+  name?: string;
+  address_number?: string;
+  street_name?: string;
+}
+
+interface MapboxReverseFeature {
+  properties?: {
+    feature_type?: string;
+    name?: string;
+    full_address?: string;
+    context?: Record<string, MapboxContextEntry | undefined>;
+  };
+}
+
+const EMPTY_REVERSE: Omit<ReverseGeocodeResult, 'status'> = { fullAddress: null, streetLine: null, barangay: null, neighborhood: null, city: null, district: null, province: null, postalCode: null };
+
 const NOT_CONFIGURED: GeocodingResult = { latitude: null, longitude: null, geocodingStatus: 'pending', geocodingProvider: null, geocodingPlaceId: null };
 const failed = (placeId: string | null = null): GeocodingResult => ({ latitude: null, longitude: null, geocodingStatus: 'failed', geocodingProvider: 'mapbox', geocodingPlaceId: placeId });
 
@@ -127,6 +162,65 @@ export class GeocodingService {
     }
 
     return { latitude: lat, longitude: lng, geocodingStatus: 'completed', geocodingProvider: 'mapbox', geocodingPlaceId: placeId };
+  }
+
+  /**
+   * The readable address at a customer's map pin - used only to PRE-FILL the
+   * saved-address form. The pin's own coordinates are always what gets
+   * stored; nothing here can move or replace them. Never throws: any
+   * failure is `status: 'failed'` and the customer completes the fields.
+   */
+  async reverseGeocode(latitude: number, longitude: number): Promise<ReverseGeocodeResult> {
+    if (!env.MAPBOX_ACCESS_TOKEN) {
+      return { status: 'not_configured', ...EMPTY_REVERSE };
+    }
+
+    const params = new URLSearchParams({
+      longitude: String(longitude),
+      latitude: String(latitude),
+      access_token: env.MAPBOX_ACCESS_TOKEN,
+      country: 'ph',
+      language: 'en',
+      permanent: 'true', // the resulting address is stored on the customer's saved address - see file header
+    });
+
+    let body: { features?: MapboxReverseFeature[]; message?: string };
+    try {
+      const response = await fetch(`https://api.mapbox.com/search/geocode/v6/reverse?${params.toString()}`, { signal: AbortSignal.timeout(8000) });
+      body = (await response.json()) as typeof body;
+      if (!response.ok) {
+        console.error(`[geocoding] Mapbox reverse geocoding returned HTTP ${response.status}${body.message ? `: ${body.message}` : ''}`);
+        return { status: 'failed', ...EMPTY_REVERSE };
+      }
+    } catch (error) {
+      console.error('[geocoding] Mapbox reverse geocoding failed:', error);
+      return { status: 'failed', ...EMPTY_REVERSE };
+    }
+
+    // Features come most-specific first (address/street, then postcode, locality, place, region...).
+    const feature = body.features?.[0]?.properties;
+    if (!feature) return { status: 'failed', ...EMPTY_REVERSE };
+
+    const context = feature.context ?? {};
+    const address = context.address;
+    const streetLine =
+      (feature.feature_type === 'address' ? feature.name : undefined) ??
+      (address?.address_number && address.street_name ? `${address.address_number} ${address.street_name}` : address?.name) ??
+      (feature.feature_type === 'street' ? feature.name : undefined) ??
+      context.street?.name ??
+      null;
+
+    return {
+      status: 'ok',
+      fullAddress: feature.full_address ?? null,
+      streetLine,
+      barangay: context.locality?.name ?? null,
+      neighborhood: context.neighborhood?.name ?? null,
+      city: context.place?.name ?? null,
+      district: context.district?.name ?? null,
+      province: context.region?.name ?? null,
+      postalCode: context.postcode?.name ?? null,
+    };
   }
 }
 

@@ -23,6 +23,7 @@ import { upsertBackupRow } from '../src/utils/backupSync';
 // prisma/schema.prisma.
 const SYNC_ORDER = [
   'user',
+  'customerAddress',
   'category',
   'product',
   'productImage',

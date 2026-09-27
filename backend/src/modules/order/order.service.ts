@@ -74,7 +74,9 @@ export class OrderService {
     // otherwise stall or abort checkout, when a geocoding failure should
     // never do either (coordinates just stay null/"pending", exactly as
     // before a geocoder existed at all - see geocoding.service.ts).
-    const { finalShippingAddress, deliveryLocationSnapshot } = await this.resolveDeliveryLocation(input);
+    const { finalShippingAddress, deliveryLocationSnapshot } = input.addressId
+      ? await this.snapshotSavedAddress(customerId, input.addressId)
+      : await this.resolveDeliveryLocation(input);
     let stockChanges: StockChange[] = [];
 
     const order = await prisma.$transaction(async (tx) => {
@@ -297,6 +299,54 @@ export class OrderService {
     }
 
     return order;
+  }
+
+  /**
+   * The order's delivery destination from one of the customer's saved
+   * addresses. Everything - recipient, PSGC-coded address, and the
+   * customer's own pinned coordinates - is COPIED into the order's
+   * deliveryLocation JSON, so the order never depends on the saved address
+   * afterwards: editing or deleting it later can't change this order.
+   * Re-checks coverage in case it has changed since the address was saved.
+   */
+  private async snapshotSavedAddress(
+    customerId: string,
+    addressId: string,
+  ): Promise<{ finalShippingAddress: string; deliveryLocationSnapshot: Prisma.InputJsonValue }> {
+    const address = await prisma.customerAddress.findUnique({ where: { id: addressId } });
+    if (!address || address.customerId !== customerId) {
+      throw new AppError('The selected shipping address could not be found. Choose another address.', 400);
+    }
+    if (!isLocationInPanelScanCoverage(address.regionCode, address.provinceCode)) {
+      throw new AppError('The selected address is outside PanelScan delivery coverage.', 400);
+    }
+
+    return {
+      finalShippingAddress: address.formattedAddress,
+      deliveryLocationSnapshot: {
+        addressLine1: address.addressLine1,
+        regionCode: address.regionCode,
+        regionName: address.regionName,
+        provinceCode: address.provinceCode,
+        provinceName: address.provinceName,
+        cityMunicipalityCode: address.cityMunicipalityCode,
+        cityMunicipalityName: address.cityMunicipalityName,
+        barangayCode: address.barangayCode,
+        barangayName: address.barangayName,
+        postalCode: address.postalCode,
+        formattedAddress: address.formattedAddress,
+        recipientName: address.recipientName,
+        recipientPhone: address.recipientPhone,
+        latitude: address.latitude,
+        longitude: address.longitude,
+        geocodingStatus: 'completed',
+        geocodingProvider: 'customer-pin',
+        geocodingPlaceId: null,
+        // Provenance only - which saved address this was copied from, and its label at the time.
+        savedAddressId: address.id,
+        savedAddressLabel: address.label,
+      },
+    };
   }
 
   /**

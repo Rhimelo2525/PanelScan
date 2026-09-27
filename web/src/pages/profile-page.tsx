@@ -9,6 +9,7 @@ import { CustomerAvatar } from "@/components/profile/customer-avatar"
 import { EmailVerificationCard } from "@/components/profile/email-verification-card"
 import { PersonalInformationForm } from "@/components/profile/personal-information-form"
 import { ProfilePictureSection } from "@/components/profile/profile-picture-section"
+import { ShippingAddressesSection } from "@/components/profile/shipping-addresses-section"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useDocumentTitle } from "@/hooks/use-document-title"
@@ -21,7 +22,7 @@ function signInMethod(user: AuthUser): string {
   return "Email and password"
 }
 
-/** The customer's own account: personal details, read-only account facts, and security (email verification, password). */
+/** The customer's own account: personal details, saved shipping addresses, read-only account facts, and security (email verification, password). */
 export function ProfilePage() {
   useDocumentTitle("Your profile | PanelScan")
   const { user } = useAuth()
@@ -38,7 +39,7 @@ export function ProfilePage() {
               <div>
                 <p className="section-eyebrow">Your PanelScan</p>
                 <h1 className="type-h2 mt-2">Profile</h1>
-                <p className="mt-2 text-sm text-muted-foreground">Manage your personal information and account security.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Manage your personal information, shipping addresses, and account security.</p>
               </div>
             </div>
             <Button variant="outline" asChild><Link to="/dashboard"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Back to dashboard</Link></Button>
@@ -56,6 +57,8 @@ export function ProfilePage() {
               <p className="mt-2 mb-6 text-sm leading-6 text-muted-foreground">Keep your details up to date so the team can reach you about orders and installations.</p>
               <PersonalInformationForm user={user} />
             </section>
+
+            <ShippingAddressesSection />
 
             <section className="surface-card p-6 sm:p-8" aria-labelledby="account-details-title">
               <h2 id="account-details-title" className="text-xl font-semibold tracking-[-0.025em]">Account details</h2>

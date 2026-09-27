@@ -73,3 +73,30 @@ export async function syncRecordToBackup(modelName: string, row: Record<string, 
 
   return upsertBackupRow(backupDelegate, row);
 }
+
+/**
+ * Real-time delete of one row from a backup-database table, following the
+ * same contract as syncRecordToBackup(): call only after the main-database
+ * delete has committed, never throws, returns false on failure. Needed
+ * because the batch job only upserts - without this a row deleted from the
+ * main database would live on in the backup forever. `table` is the SQL
+ * table name (e.g. "customer_addresses"), never user input.
+ */
+export async function deleteRecordFromBackup(table: string, id: string): Promise<boolean> {
+  const backupPrisma = getBackupPrisma();
+  if (!backupPrisma) return false;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await backupPrisma.$executeRawUnsafe(`DELETE FROM "${table}" WHERE id = $1::uuid`, id);
+      return true;
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`[backup-sync] Delete failed for ${table} id=${id}: ${(err as Error).message}`);
+        return false;
+      }
+      await sleep(RETRY_DELAY_MS * attempt);
+    }
+  }
+  return false;
+}

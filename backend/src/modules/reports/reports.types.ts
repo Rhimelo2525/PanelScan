@@ -51,6 +51,11 @@ export interface OrderReportRow {
   isPaid?: boolean;
   paymentStatus?: PaymentStatus;
   shippingAddress: string;
+  /** From the order's own delivery-location snapshot (the customer's pinned saved address) - null for orders placed without a pin. */
+  deliveryLatitude: number | null;
+  deliveryLongitude: number | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
   deliveryStatus?: string | null;
   deliveryApprovalStatus?: DeliveryApprovalStatus;
   deliveryRequestedAt?: Date | null;

@@ -68,6 +68,8 @@ export interface CreateOrderDirectItemInput {
 
 export interface CreateOrderInput {
   shippingAddress: string
+  /** A saved address (profile "Shipping addresses"). The backend snapshots it - pinned coordinates included - into the order. */
+  addressId?: string
   deliveryLocation?: DeliveryLocation
   notes?: string
   installation?: CreateOrderInstallationInput

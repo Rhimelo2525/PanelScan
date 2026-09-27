@@ -145,6 +145,7 @@ model User {
 
   // Customer-side relations
   cart               Cart?
+  addresses          CustomerAddress[]
   orders             Order[]
   bookings           Booking[]
   measurements       Measurement[]
@@ -260,6 +261,47 @@ model Inventory {
 
   @@index([quantity])
   @@map("inventory")
+}
+
+// ================================================================
+// SAVED SHIPPING ADDRESSES
+// ================================================================
+
+// A customer's saved delivery destinations, managed from their profile and
+// chosen at checkout. The coordinates are always the customer's own
+// confirmed map pin - never a geocoded guess - and the PSGC codes are the
+// same official Region -> Province -> City -> Barangay codes an order's
+// `deliveryLocation` uses. An order never points at this row: checkout copies
+// it into Order.deliveryLocation as a snapshot, so editing or deleting a
+// saved address can never rewrite an order's history.
+model CustomerAddress {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId           String   @map("customer_id") @db.Uuid
+  // Optional short name the customer picks it by at checkout ("Home", "Office"...).
+  label                String?
+  recipientName        String   @map("recipient_name")
+  recipientPhone       String   @map("recipient_phone")
+  addressLine1         String   @map("address_line1")
+  regionCode           String   @map("region_code")
+  regionName           String   @map("region_name")
+  provinceCode         String?  @map("province_code") // null for NCR
+  provinceName         String?  @map("province_name")
+  cityMunicipalityCode String   @map("city_municipality_code")
+  cityMunicipalityName String   @map("city_municipality_name")
+  barangayCode         String   @map("barangay_code")
+  barangayName         String   @map("barangay_name")
+  postalCode           String   @map("postal_code")
+  formattedAddress     String   @map("formatted_address")
+  latitude             Float
+  longitude            Float
+  isDefault            Boolean  @default(false) @map("is_default")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_addresses")
 }
 
 // ================================================================

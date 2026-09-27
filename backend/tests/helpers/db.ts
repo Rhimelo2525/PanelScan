@@ -32,6 +32,7 @@ export const cleanDatabase = async (): Promise<void> => {
     prisma.delivery.deleteMany(),
     prisma.orderItem.deleteMany(),
     prisma.order.deleteMany(),
+    prisma.customerAddress.deleteMany(),
     prisma.cartItem.deleteMany(),
     prisma.cart.deleteMany(),
     prisma.booking.deleteMany(),

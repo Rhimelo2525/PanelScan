@@ -43,6 +43,9 @@ const TABLES = [
   'projects',
   'requests',
   'refresh_tokens',
+  'customer_addresses',
+  'delivery_payments',
+  'activity_logs',
 ];
 
 const main = async () => {

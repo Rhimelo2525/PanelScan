@@ -52,14 +52,18 @@ export const createOrderSchema = z.object({
         .max(500, 'Shipping address is too long.')
         .optional(),
       deliveryLocation: deliveryLocationSchema.optional(),
+      // A saved address (see modules/address). When given, it is the order's
+      // delivery destination - pinned coordinates included - and is copied
+      // into the order as a snapshot; shippingAddress/deliveryLocation are ignored.
+      addressId: z.string().uuid('Invalid address id.').optional(),
       notes: z.string().trim().max(1000, 'Notes are too long.').optional(),
       installation: orderInstallationSchema.optional(),
       selectedItemIds: z.array(z.string().uuid('Invalid item id.')).min(1).optional(),
       selectedProductIds: z.array(z.string().uuid('Invalid product id.')).min(1).optional(),
       directItem: directOrderItemSchema.optional(),
     })
-    .refine((data) => Boolean(data.shippingAddress || data.deliveryLocation), {
-      message: 'Either shippingAddress or deliveryLocation must be provided.',
+    .refine((data) => Boolean(data.addressId || data.shippingAddress || data.deliveryLocation), {
+      message: 'Choose a saved shipping address.',
       path: ['shippingAddress'],
     }),
 });

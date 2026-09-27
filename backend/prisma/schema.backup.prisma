@@ -131,6 +131,7 @@ model User {
 
   // Customer-side relations
   cart               Cart?
+  addresses          CustomerAddress[]
   orders             Order[]
   bookings           Booking[]
   measurements       Measurement[]
@@ -235,6 +236,39 @@ model Inventory {
 
   @@index([quantity])
   @@map("inventory")
+}
+
+// ================================================================
+// SAVED SHIPPING ADDRESSES
+// ================================================================
+
+model CustomerAddress {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId           String   @map("customer_id") @db.Uuid
+  label                String?
+  recipientName        String   @map("recipient_name")
+  recipientPhone       String   @map("recipient_phone")
+  addressLine1         String   @map("address_line1")
+  regionCode           String   @map("region_code")
+  regionName           String   @map("region_name")
+  provinceCode         String?  @map("province_code")
+  provinceName         String?  @map("province_name")
+  cityMunicipalityCode String   @map("city_municipality_code")
+  cityMunicipalityName String   @map("city_municipality_name")
+  barangayCode         String   @map("barangay_code")
+  barangayName         String   @map("barangay_name")
+  postalCode           String   @map("postal_code")
+  formattedAddress     String   @map("formatted_address")
+  latitude             Float
+  longitude            Float
+  isDefault            Boolean  @default(false) @map("is_default")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_addresses")
 }
 
 // ================================================================

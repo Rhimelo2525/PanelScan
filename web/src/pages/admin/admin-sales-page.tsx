@@ -1,4 +1,4 @@
-import { Eye, Loader2, PackageSearch } from "lucide-react"
+import { ExternalLink, Eye, Loader2, MapPin, PackageSearch } from "lucide-react"
 import { useState } from "react"
 import type { ReactNode } from "react"
 import { toast } from "sonner"
@@ -38,6 +38,7 @@ import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
 import type { OrderReportRow } from "@/types/admin"
 
 const ORDER_STATUSES = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]
@@ -373,6 +374,27 @@ export function AdminSalesPage() {
                   <div className="flex items-center justify-between text-sm font-semibold">
                     <span>Order total</span>
                     <span className="tabular-nums">{formatMoney(detailsOrder.totalAmount)}</span>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Delivery address</h3>
+                  <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-sm">
+                    <p><span className="text-muted-foreground">Customer:</span> {detailsOrder.customerName}</p>
+                    {detailsOrder.recipientName && (
+                      <p><span className="text-muted-foreground">Recipient:</span> {detailsOrder.recipientName}{detailsOrder.recipientPhone ? ` · ${formatPhoneForDisplay(detailsOrder.recipientPhone)}` : ""}</p>
+                    )}
+                    <p className="flex items-start gap-1.5"><MapPin className="mt-1 size-3.5 shrink-0 text-primary" aria-hidden="true" />{detailsOrder.shippingAddress || "—"}</p>
+                    {detailsOrder.deliveryLatitude != null && detailsOrder.deliveryLongitude != null ? (
+                      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>Coordinates: {detailsOrder.deliveryLatitude.toFixed(7)}, {detailsOrder.deliveryLongitude.toFixed(7)}</span>
+                        <a href={`https://www.google.com/maps?q=${detailsOrder.deliveryLatitude},${detailsOrder.deliveryLongitude}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                          View on map <ExternalLink className="size-3" aria-hidden="true" />
+                        </a>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No map pin on this order (placed before saved addresses). Coordinates can be set from Deliveries.</p>
+                    )}
                   </div>
                 </section>
 

@@ -202,6 +202,7 @@ export class ReportsService {
 
   private toOrderRow(order: OrderWithRelations, includeAmount: boolean): OrderReportRow {
     const paymentStatus = order.payment?.status ?? PaymentStatus.PENDING;
+    const location = order.deliveryLocation as Record<string, unknown> | null;
     const row: OrderReportRow = {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -212,6 +213,10 @@ export class ReportsService {
       isPaid: paymentStatus === PaymentStatus.PAID,
       paymentStatus,
       shippingAddress: order.shippingAddress,
+      deliveryLatitude: typeof location?.latitude === 'number' ? location.latitude : null,
+      deliveryLongitude: typeof location?.longitude === 'number' ? location.longitude : null,
+      recipientName: typeof location?.recipientName === 'string' ? location.recipientName : null,
+      recipientPhone: typeof location?.recipientPhone === 'string' ? location.recipientPhone : null,
       deliveryStatus: order.delivery?.deliveryStatus ?? null,
       deliveryApprovalStatus: order.delivery?.approvalStatus ?? 'NOT_REQUESTED',
       deliveryRequestedAt: order.delivery?.requestedAt ?? null,

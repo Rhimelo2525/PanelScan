@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import addressRoutes from '../modules/address/address.routes';
 import analyticsRoutes from '../modules/analytics/analytics.routes';
 import arRoutes from '../modules/ar/ar.routes';
 import authRoutes from '../modules/auth/auth.routes';
@@ -35,6 +36,7 @@ router.use('/categories', categoryRoutes);
 router.use('/products', productRoutes);
 router.use('/inventory', inventoryRoutes);
 router.use('/cart', cartRoutes);
+router.use('/addresses', addressRoutes);
 router.use('/orders', orderRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/bookings', bookingRoutes);

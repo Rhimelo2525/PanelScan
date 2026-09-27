@@ -128,6 +128,11 @@ export interface OrderReportRow {
   isPaid?: boolean
   paymentStatus?: string | null
   shippingAddress?: string
+  /** The order's own snapshot of the customer's pinned address - null for orders placed without a pin. */
+  deliveryLatitude?: number | null
+  deliveryLongitude?: number | null
+  recipientName?: string | null
+  recipientPhone?: string | null
   deliveryStatus?: string | null
   deliveryApprovalStatus?: DeliveryApprovalStatus
   deliveryRequestedAt?: string | null

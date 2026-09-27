@@ -69,3 +69,9 @@ export function normalizePhilippinePhone(phone: string | null | undefined): stri
 
   return cleaned
 }
+
+/** +639171234567 -> "+63 917 123 4567"; anything else is shown as stored. */
+export function formatPhoneForDisplay(phone: string): string {
+  const match = /^\+63(\d{3})(\d{3})(\d{4})$/.exec(phone)
+  return match ? `+63 ${match[1]} ${match[2]} ${match[3]}` : phone
+}
