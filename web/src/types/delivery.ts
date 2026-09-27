@@ -65,6 +65,8 @@ export interface DeliveryProviderMetadata {
   driverPlateNumber?: string
   driverPhotoUrl?: string
   vehicleType?: string
+  /** Display name derived from Lalamove's vehicle key + capacity when the moderator selected it, e.g. "1000 kg Van". */
+  vehicleLabel?: string
   trackingUrl?: string
   estimatedDelivery?: string
   arrangedBy?: string
@@ -115,6 +117,23 @@ export interface DeliveryFeePayment {
   updatedAt: string
 }
 
+/** The order fields every delivery read carries - enough for the moderator to act from the Deliveries page alone. */
+export interface DeliveryOrderSummary {
+  id: string
+  orderNumber: string
+  customerId: string
+  status: string
+  deliveryLocation?: DeliveryLocation | null
+  shippingAddress?: string
+  subtotal?: string
+  totalAmount?: string
+  moderatorApproved?: boolean
+  createdAt?: string
+  customer?: { id: string; firstName: string; lastName: string; email: string; phone: string | null }
+  items?: { id: string; productName: string; quantity: number; unitPrice: string; lineTotal: string }[]
+  payment?: { status: DeliveryPaymentStatus; method: string; amount: string; paidAt: string | null } | null
+}
+
 export interface DeliveryRecord {
   id: string
   orderId: string
@@ -130,12 +149,23 @@ export interface DeliveryRecord {
   deliveryProvider: string | null
   deliveryStatus: string | null
   lalamoveOrderId: string | null
+  /** Lalamove vehicle key the moderator selected (e.g. "VAN"). */
+  vehicleType?: string | null
+  /** The fee Lalamove returned for the booking (decimal string); null until booked. Separate from the product payment. */
+  shippingFee?: string | null
+  /** Lalamove's real share link; may arrive a little after the booking. */
+  trackingUrl?: string | null
+  bookedAt?: string | null
+  bookedById?: string | null
+  /** Last failed booking attempt, cleared on success. */
+  bookingError?: string | null
+  bookingFailedAt?: string | null
   providerMetadata: DeliveryProviderMetadata | null
   scheduledDate: string | null
   deliveredAt: string | null
   createdAt: string
   updatedAt: string
-  order?: { id: string; orderNumber: string; customerId: string; status: string; deliveryLocation?: DeliveryLocation | null }
+  order?: DeliveryOrderSummary
   deliveryPayment?: DeliveryFeePayment | null
 }
 

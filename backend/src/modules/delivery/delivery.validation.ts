@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { DELIVERY_STATE_FILTERS } from './delivery.types';
+
 const NUMERIC_STRING = /^\d+$/;
 
 export const createDeliverySchema = z.object({
@@ -45,7 +47,7 @@ export const listDeliveriesSchema = z.object({
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     search: z.string().trim().min(1, 'Search query cannot be empty.').max(150, 'Search query is too long.').optional(),
     status: z.enum(['scheduled', 'delivered'], { errorMap: () => ({ message: 'status must be "scheduled" or "delivered".' }) }).optional(),
-    deliveryState: z.enum(['active', 'completed', 'cancelled'], { errorMap: () => ({ message: 'deliveryState must be "active", "completed", or "cancelled".' }) }).optional(),
+    deliveryState: z.enum(DELIVERY_STATE_FILTERS, { errorMap: () => ({ message: `deliveryState must be one of: ${DELIVERY_STATE_FILTERS.join(', ')}.` }) }).optional(),
     sortBy: z.enum(['scheduledDate', 'createdAt']).optional(),
     sortOrder: z.enum(['asc', 'desc']).optional(),
   }),
@@ -65,14 +67,15 @@ export const declineDeliverySchema = z.object({
 
 export type DeclineDeliveryInput = z.infer<typeof declineDeliverySchema>['body'];
 
-export const requestQuotationSchema = z.object({
+/** MODERATOR vehicle selection - serviceType is a Lalamove vehicle key from GET /vehicle-types. */
+export const selectVehicleSchema = z.object({
   params: z.object({ orderId: z.string().uuid('Invalid order id.') }),
   body: z.object({
     serviceType: z.string().trim().min(1, 'A vehicle type is required.').max(50),
   }),
 });
 
-export type RequestQuotationInput = z.infer<typeof requestQuotationSchema>['body'];
+export type SelectVehicleInput = z.infer<typeof selectVehicleSchema>['body'];
 
 // Loose Philippines bounding box (roughly 4.5-21.5 N, 116-127 E) - not a
 // precise border, just a sanity check against an obviously wrong value

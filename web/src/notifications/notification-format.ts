@@ -62,7 +62,8 @@ export function notificationHref(notification: AppNotification, role: UserRole):
     if (meta.chatRoomId) return "/admin/chat"
     if (meta.productId) return "/admin/inventory"
     if (meta.bookingId) return "/admin/installation-requests"
-    if (meta.deliveryId || event.startsWith("DELIVERY")) return "/admin/deliveries"
+    if (meta.deliveryId) return `/admin/deliveries?delivery=${meta.deliveryId}`
+    if (event.startsWith("DELIVERY")) return "/admin/deliveries"
     if (meta.projectId) return "/admin/projects"
     if (event === "CUSTOMER_REGISTERED") return role === "OWNER" ? "/admin/team" : null
     if (meta.orderId) return "/admin/sales"

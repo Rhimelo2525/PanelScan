@@ -1,393 +1,153 @@
-import { ArrowRight, Banknote, Bike, CalendarDays, Car, CheckCircle2, ChevronDown, ExternalLink, Loader2, RefreshCw, Smartphone, Truck } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Banknote, CheckCircle2, ExternalLink, Loader2, RefreshCw, Smartphone, Truck } from "lucide-react"
+import { useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
+import { ApiRequestError } from "@/api/client"
+import { getDeliveryById, refreshDeliveryStatus, requestDelivery, selectDeliveryFeeCash } from "@/api/delivery"
 import { StatusBadge } from "@/components/admin/status-badge"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { formatOrderDate } from "@/orders/order-format"
-import { confirmDeliveryBooking, getDeliveryById, getVehicleTypes, refreshDeliveryStatus, requestDelivery, requestQuotation, selectDeliveryFeeCash } from "@/api/delivery"
-import { ApiRequestError } from "@/api/client"
-import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
+import { deliveryVehicleName } from "@/lib/delivery/vehicle-label"
 import { formatProductPrice } from "@/lib/format-price"
-import { cn } from "@/lib/utils"
 import { useStartDeliveryFeePayment } from "@/payments/use-start-delivery-fee-payment"
-import type { DeliveryFeePayment, DeliveryQuotation, DeliveryRecord, LalamoveServiceType } from "@/types/delivery"
+import type { DeliveryRecord } from "@/types/delivery"
 import type { Order } from "@/types/order"
+import type { PaymentListItem } from "@/types/payment"
 
 /**
- * Lalamove's `description` field is a long raw marketing blurb (e.g. "Ex.
- * Kolong-kolong/Cargo tricycle - For local cargo, market goods & bulky
- * items") unsuited to a compact picker card. Rather than hand-write a name
- * for every possible vehicle key (which would eventually go stale or be
- * wrong for a key this account doesn't have yet), the short label is
- * DERIVED from the real key + maxWeightKg fields already on the record -
- * e.g. "800KG_PICK_UP_TRUCK" + 800 -> "800 kg Pick Up Truck".
+ * The customer's "Delivery coordination" card. The customer only requests
+ * delivery (once the order is approved and the product is paid) and then
+ * waits: PanelScan staff approve the request, choose the Lalamove vehicle
+ * and book it. Once booked, the card shows the vehicle, the fee Lalamove
+ * charged, the live status and Lalamove's own tracking link. Every gate
+ * here is also enforced by the backend (see delivery.routes.ts).
  */
-function vehicleLabel(vehicle: LalamoveServiceType): string {
-  const name = vehicle.key
-    .replace(/^\d+KG_/, "") // weight is shown separately via maxWeightKg, so it'd otherwise repeat
-    .split("_")
-    .filter(Boolean)
-    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
-    .join(" ")
-  return vehicle.maxWeightKg ? `${vehicle.maxWeightKg} kg ${name}` : name || vehicle.key
-}
-
-function VehicleIcon({ vehicleKey, className }: { vehicleKey: string; className?: string }) {
-  if (vehicleKey.includes("MOTORCYCLE") || vehicleKey.includes("SIDECAR")) return <Bike className={className} aria-hidden="true" />
-  if (vehicleKey.includes("SEDAN") || vehicleKey.includes("MPV")) return <Car className={className} aria-hidden="true" />
-  return <Truck className={className} aria-hidden="true" />
-}
-
-/**
- * Smallest/everyday vehicles first, "10HR_RENTAL" variants grouped last
- * (they're a different booking type, not just a bigger vehicle) - driven by
- * each vehicle's real maxWeightKg rather than a hardcoded key order, so it
- * stays correct if Lalamove adds or removes a vehicle type.
- */
-function sortVehicleTypes(vehicles: LalamoveServiceType[]): LalamoveServiceType[] {
-  return [...vehicles].sort((a, b) => {
-    const aIsRental = a.key.includes("RENTAL") ? 1 : 0
-    const bIsRental = b.key.includes("RENTAL") ? 1 : 0
-    if (aIsRental !== bIsRental) return aIsRental - bIsRental
-    return (a.maxWeightKg ?? 0) - (b.maxWeightKg ?? 0)
-  })
-}
 
 interface OrderDeliveryPanelProps {
   order: Order
+  /** The product payment - delivery can only be requested once it is PAID. */
+  payment: PaymentListItem | null
   onDeliveryUpdated: (delivery: DeliveryRecord) => void
 }
 
-export function OrderDeliveryPanel({ order, onDeliveryUpdated }: OrderDeliveryPanelProps) {
+const IN_PROGRESS_STATUSES = new Set(["ASSIGNING_DRIVER", "ON_GOING", "PICKED_UP"])
+
+export function OrderDeliveryPanel({ order, payment, onDeliveryUpdated }: OrderDeliveryPanelProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const delivery = order.delivery
   const approvalStatus = delivery?.approvalStatus ?? "NOT_REQUESTED"
-  const deliveryStatus = delivery?.deliveryStatus ?? "NOT_SCHEDULED"
+  const canRequest = order.status !== "CANCELLED" && order.moderatorApproved && payment?.status === "PAID"
 
   async function handleRequest() {
     setIsSubmitting(true)
     try {
       const response = await requestDelivery(order.id)
       onDeliveryUpdated(response.delivery)
-      toast.success("Delivery request submitted", {
-        description: "PanelScan staff will review your request shortly.",
-      })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to submit delivery request"
-      toast.error("Could not request delivery", { description: message })
+      toast.success("Delivery request submitted", { description: "Waiting for PanelScan staff to approve your delivery request." })
+    } catch (err) {
+      toast.error("Could not request delivery", { description: getDeliveryErrorMessage(err, "Failed to submit delivery request.") })
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  // State: a real Lalamove booking exists - live tracking
-  if (delivery?.lalamoveOrderId) {
-    return <LiveTrackingCard delivery={delivery} orderNumber={order.orderNumber} onDeliveryUpdated={onDeliveryUpdated} />
-  }
-
-  // State E (legacy): staff prepared delivery via the old "arrange" flow, before a real booking exists yet
-  if (delivery && deliveryStatus === "PREPARING") {
-    return (
-      <section className="surface-card p-6" aria-labelledby="delivery-coordination-title">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Truck className="size-4 text-primary" aria-hidden="true" />
-            <h2 id="delivery-coordination-title" className="font-semibold">Delivery coordination</h2>
-          </div>
-          <StatusBadge status="PREPARING" label="Preparing delivery" />
-        </div>
-        <div className="mt-4">
-          <p className="font-medium text-sm text-foreground">Preparing delivery</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Your order is being prepared for courier booking.
-          </p>
-        </div>
-      </section>
-    )
-  }
-
-  // State B: Waiting for Moderator approval
-  if (approvalStatus === "PENDING_APPROVAL") {
-    return (
-      <section className="surface-card p-6" aria-labelledby="delivery-coordination-title">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Truck className="size-4 text-primary" aria-hidden="true" />
-            <h2 id="delivery-coordination-title" className="font-semibold">Delivery coordination</h2>
-          </div>
-          <StatusBadge status="PENDING" label="Awaiting approval" />
-        </div>
-        <div className="mt-4">
-          <p className="font-medium text-sm text-foreground">Delivery request submitted</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Your delivery request is waiting for approval from PanelScan.
-          </p>
-        </div>
-        <div className="mt-6 border-t border-border pt-5">
-          <Button className="w-full" disabled>
-            Get a delivery quote
-          </Button>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            Moderator approval is required before you can request a quote.
-          </p>
-        </div>
-      </section>
-    )
-  }
-
-  // State C: Moderator approved - request a live quote, then confirm booking
-  if (approvalStatus === "APPROVED") {
-    return <QuotationCard order={order} delivery={delivery ?? null} onDeliveryUpdated={onDeliveryUpdated} />
-  }
-
-  // State D: Declined
-  if (approvalStatus === "DECLINED") {
-    return (
-      <section className="surface-card p-6" aria-labelledby="delivery-coordination-title">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Truck className="size-4 text-primary" aria-hidden="true" />
-            <h2 id="delivery-coordination-title" className="font-semibold">Delivery coordination</h2>
-          </div>
-          <StatusBadge status="CANCELLED" label="Declined" />
-        </div>
-        <div className="mt-4">
-          <p className="font-medium text-sm text-foreground">Delivery request declined</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Your delivery request was not approved.
-          </p>
-          {delivery?.declineReason && (
-            <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs leading-5 text-destructive">
-              <span className="font-semibold">Reason:</span> {delivery.declineReason}
-            </div>
-          )}
-        </div>
-        <div className="mt-6 border-t border-border pt-5">
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => void handleRequest()}
-            disabled={isSubmitting || order.status === "CANCELLED"}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="animate-spin" aria-hidden="true" />
-                Submitting request...
-              </>
-            ) : (
-              "Request again"
-            )}
-          </Button>
-        </div>
-      </section>
-    )
-  }
-
-  // State A: No delivery request yet (default)
-  return (
-    <section className="surface-card p-6" aria-labelledby="delivery-coordination-title">
-      <div className="flex items-center gap-2">
-        <Truck className="size-4 text-primary" aria-hidden="true" />
-        <h2 id="delivery-coordination-title" className="font-semibold">Delivery coordination</h2>
-      </div>
-      <div className="mt-4">
-        <p className="font-medium text-sm text-foreground">Delivery is not yet scheduled.</p>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          Request delivery when you're ready. PanelScan staff must approve your request before you can get a quote.
-        </p>
-      </div>
-      {order.status !== "CANCELLED" && (
-        <div className="mt-6 border-t border-border pt-5">
-          <Button
-            className="w-full"
-            onClick={() => void handleRequest()}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="animate-spin" aria-hidden="true" />
-                Submitting request...
-              </>
-            ) : (
-              "Request delivery"
-            )}
-          </Button>
-        </div>
-      )}
-      {order.status === "CANCELLED" && (
-        <p className="mt-4 border-t border-border pt-4 text-xs text-muted-foreground">
-          This order is cancelled, so delivery cannot be requested.
-        </p>
-      )}
-    </section>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Quotation + booking (APPROVED state)
-// ---------------------------------------------------------------------------
-
-function initialQuotationFromMetadata(delivery: DeliveryRecord | null): DeliveryQuotation | null {
-  const pending = delivery?.providerMetadata?.pendingQuotation
-  if (!pending || new Date(pending.expiresAt).getTime() <= Date.now()) return null
-  return pending
-}
-
-/**
- * A stored DeliveryPayment is only meaningful for the quotation it was paid
- * against - see delivery.service.ts#confirmBooking's own amount-match gate.
- * If the customer requested a NEW quote (a different/pricier vehicle) after
- * already paying or selecting Cash for an OLDER one, that old fee choice is
- * stale and must not be shown as "ready to book" here.
- */
-function isFeePaymentCurrent(delivery: DeliveryRecord | null, quotation: DeliveryQuotation): boolean {
-  const feePayment = delivery?.deliveryPayment
-  if (!feePayment) return false
-  return Math.abs(Number(feePayment.amount) - quotation.amount) < 0.01
-}
-
-/**
- * The Cash/GCash choice for the delivery fee (spec: "the vehicle must NOT be
- * booked before the required payment step"). Once a choice resolves to
- * "ready" (Cash selected, or GCash confirmed PAID), it collapses to a single
- * explicit "Book vehicle" button - booking itself is never automatic.
- */
-function DeliveryFeeChoice({
-  feePayment,
-  isBooking,
-  isStartingGcash,
-  isSelectingCash,
-  onPayWithGcash,
-  onSelectCash,
-  onConfirmBooking,
-}: {
-  feePayment: DeliveryFeePayment | null
-  isBooking: boolean
-  isStartingGcash: boolean
-  isSelectingCash: boolean
-  onPayWithGcash: () => void
-  onSelectCash: () => void
-  onConfirmBooking: () => void
-}) {
-  const isReadyToBook = feePayment?.method === "Cash" || (feePayment?.method === "PayMongo" && feePayment.status === "PAID")
-
-  if (isReadyToBook) {
-    return (
-      <div className="mt-4">
-        <p className="mb-2 text-xs text-muted-foreground">
-          {feePayment?.method === "Cash" ? "Cash on Delivery selected - the rider will collect the delivery fee at drop-off." : "GCash payment confirmed for the delivery fee."}
-        </p>
-        <Button className="w-full" onClick={onConfirmBooking} disabled={isBooking}>
-          {isBooking ? <><Loader2 className="animate-spin" aria-hidden="true" />Booking…</> : <>Book vehicle<ArrowRight data-icon="inline-end" aria-hidden="true" /></>}
-        </Button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="mt-4 space-y-2">
-      {feePayment?.status === "FAILED" && (
-        <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 p-2 text-xs leading-5 text-destructive">
-          Your last GCash attempt did not go through. Try again, or choose Cash on Delivery.
-        </p>
-      )}
-      {feePayment?.status === "PENDING" && feePayment.method === "PayMongo" && (
-        <p className="rounded-lg border border-border bg-secondary/35 p-2 text-xs leading-5 text-muted-foreground">
-          Waiting for GCash confirmation. If you already paid, this will update shortly - you can also try again below.
-        </p>
-      )}
-      <p className="text-xs font-medium text-foreground">How would you like to pay the delivery fee?</p>
-      <Button className="w-full" onClick={onPayWithGcash} disabled={isStartingGcash || isSelectingCash}>
-        {isStartingGcash ? <><Loader2 className="animate-spin" aria-hidden="true" />Opening secure checkout…</> : <><Smartphone data-icon="inline-start" aria-hidden="true" />Pay with GCash</>}
-      </Button>
-      <Button variant="outline" className="w-full" onClick={onSelectCash} disabled={isStartingGcash || isSelectingCash}>
-        {isSelectingCash ? <><Loader2 className="animate-spin" aria-hidden="true" />Selecting…</> : <><Banknote data-icon="inline-start" aria-hidden="true" />Cash on Delivery</>}
+  const requestButton = (label: string, variant: "default" | "outline" = "default") => (
+    <div className="mt-6 border-t border-border pt-5">
+      <Button className="w-full" variant={variant} onClick={() => void handleRequest()} disabled={isSubmitting || !canRequest}>
+        {isSubmitting ? <><Loader2 className="animate-spin" aria-hidden="true" />Submitting request...</> : label}
       </Button>
     </div>
   )
+
+  // Booked with Lalamove: fee, live status and tracking.
+  if (delivery?.lalamoveOrderId) {
+    return <BookedDeliveryCard delivery={delivery} order={order} onDeliveryUpdated={onDeliveryUpdated} />
+  }
+
+  if (approvalStatus === "PENDING_APPROVAL") {
+    return (
+      <DeliveryCard badge={<StatusBadge status="PENDING" label="Pending approval" />}>
+        <p className="font-medium text-sm text-foreground">Delivery request submitted.</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">Waiting for PanelScan staff to approve your delivery request.</p>
+        <StatusLine label="Pending approval" />
+      </DeliveryCard>
+    )
+  }
+
+  if (approvalStatus === "APPROVED") {
+    const status = delivery?.deliveryStatus
+    if (status === "BOOKING") {
+      return (
+        <DeliveryCard badge={<StatusBadge status="BOOKING" label="Booking" />}>
+          <p className="font-medium text-sm text-foreground">Delivery request approved.</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">Delivery booking is being processed.</p>
+          <StatusLine label="Booking in progress" />
+        </DeliveryCard>
+      )
+    }
+    if (status === "BOOKING_FAILED") {
+      return (
+        <DeliveryCard badge={<StatusBadge status="PREPARING" label="Preparing delivery" />}>
+          <p className="font-medium text-sm text-foreground">Delivery request approved.</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">Delivery booking could not be completed. PanelScan staff will retry.</p>
+          <StatusLine label="Preparing delivery" />
+        </DeliveryCard>
+      )
+    }
+    return (
+      <DeliveryCard badge={<StatusBadge status="APPROVED" label="Approved" />}>
+        <p className="font-medium text-sm text-foreground">Delivery request approved.</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">PanelScan staff is arranging your delivery.</p>
+        <StatusLine label="Preparing delivery" />
+      </DeliveryCard>
+    )
+  }
+
+  if (approvalStatus === "DECLINED") {
+    return (
+      <DeliveryCard badge={<StatusBadge status="CANCELLED" label="Declined" />}>
+        <p className="font-medium text-sm text-foreground">Delivery request declined</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">Your delivery request was not approved.</p>
+        {delivery?.declineReason && (
+          <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs leading-5 text-destructive">
+            <span className="font-semibold">Reason:</span> {delivery.declineReason}
+          </div>
+        )}
+        {requestButton("Request again", "outline")}
+      </DeliveryCard>
+    )
+  }
+
+  // Not requested yet.
+  if (order.status === "CANCELLED") {
+    return (
+      <DeliveryCard>
+        <p className="font-medium text-sm text-foreground">Delivery is not available.</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">This order is cancelled, so delivery cannot be requested.</p>
+      </DeliveryCard>
+    )
+  }
+
+  if (!canRequest) {
+    return (
+      <DeliveryCard>
+        <p className="font-medium text-sm text-foreground">Delivery is not yet scheduled.</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">Delivery can be requested after your order has been approved and payment has been completed.</p>
+        {requestButton("Request delivery")}
+      </DeliveryCard>
+    )
+  }
+
+  return (
+    <DeliveryCard>
+      <p className="font-medium text-sm text-foreground">Your order has been paid and is ready for delivery.</p>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">Request delivery when you're ready. PanelScan staff will choose the vehicle and book it for you.</p>
+      {requestButton("Request delivery")}
+    </DeliveryCard>
+  )
 }
 
-function QuotationCard({ order, delivery, onDeliveryUpdated }: { order: Order; delivery: DeliveryRecord | null; onDeliveryUpdated: (delivery: DeliveryRecord) => void }) {
-  const [vehicleTypes, setVehicleTypes] = useState<LalamoveServiceType[]>([])
-  const [isLoadingVehicles, setIsLoadingVehicles] = useState(true)
-  const [selectedVehicle, setSelectedVehicle] = useState("")
-  const [isVehiclePickerOpen, setIsVehiclePickerOpen] = useState(false)
-  const [quotation, setQuotation] = useState<DeliveryQuotation | null>(() => initialQuotationFromMetadata(delivery))
-  const [isRequestingQuote, setIsRequestingQuote] = useState(false)
-  const [isBooking, setIsBooking] = useState(false)
-  const [isSelectingCash, setIsSelectingCash] = useState(false)
-  const [error, setError] = useState("")
-  const { startPayment: startFeeGcashPayment, isStarting: isStartingFeeGcash } = useStartDeliveryFeePayment()
-
-  useEffect(() => {
-    const controller = new AbortController()
-    getVehicleTypes(controller.signal)
-      .then((services) => {
-        setVehicleTypes(services)
-        setSelectedVehicle((current) => current || services[0]?.key || "")
-      })
-      .catch(() => setError("We couldn't load available vehicle types. Please try again."))
-      .finally(() => setIsLoadingVehicles(false))
-    return () => controller.abort()
-  }, [])
-
-  const hasCoordinates = typeof order.deliveryLocation?.latitude === "number" && typeof order.deliveryLocation?.longitude === "number"
-  const selectedVehicleType = vehicleTypes.find((vehicle) => vehicle.key === selectedVehicle) ?? null
-
-  async function handleGetQuote() {
-    setIsRequestingQuote(true)
-    setError("")
-    try {
-      const response = await requestQuotation(order.id, selectedVehicle)
-      setQuotation(response.quotation)
-    } catch (err) {
-      setError(getDeliveryErrorMessage(err, "We couldn't get a delivery quote right now."))
-    } finally {
-      setIsRequestingQuote(false)
-    }
-  }
-
-  async function handleConfirmBooking() {
-    setIsBooking(true)
-    setError("")
-    try {
-      const response = await confirmDeliveryBooking(order.id)
-      onDeliveryUpdated(response.delivery)
-      toast.success("Delivery booked", { description: "Your order has been booked with Lalamove." })
-    } catch (err) {
-      // The quotation may have just expired server-side - clear it so the customer requests a fresh one.
-      setQuotation(null)
-      setError(getDeliveryErrorMessage(err, "We couldn't confirm your booking. Please request a new quote."))
-    } finally {
-      setIsBooking(false)
-    }
-  }
-
-  async function handlePayFeeWithGcash() {
-    if (!delivery) return
-    setError("")
-    await startFeeGcashPayment({ deliveryId: delivery.id, orderId: order.id, orderNumber: order.orderNumber })
-    // On success the browser navigates away to PayMongo; on failure the hook shows its own toast.
-  }
-
-  async function handleSelectCash() {
-    if (!delivery) return
-    setIsSelectingCash(true)
-    setError("")
-    try {
-      await selectDeliveryFeeCash(order.id)
-      const refreshed = await getDeliveryById(delivery.id)
-      onDeliveryUpdated(refreshed.delivery)
-    } catch (err) {
-      setError(getDeliveryErrorMessage(err, "We couldn't select Cash on Delivery right now."))
-    } finally {
-      setIsSelectingCash(false)
-    }
-  }
-
+function DeliveryCard({ badge, children }: { badge?: ReactNode; children: ReactNode }) {
   return (
     <section className="surface-card p-6" aria-labelledby="delivery-coordination-title">
       <div className="flex items-center justify-between gap-2">
@@ -395,118 +155,53 @@ function QuotationCard({ order, delivery, onDeliveryUpdated }: { order: Order; d
           <Truck className="size-4 text-primary" aria-hidden="true" />
           <h2 id="delivery-coordination-title" className="font-semibold">Delivery coordination</h2>
         </div>
-        <StatusBadge status="APPROVED" label="Approved" />
+        {badge}
       </div>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">
-        Your delivery request has been approved. Choose a vehicle to see the delivery fee before booking.
-      </p>
-
-      {error && <p role="alert" className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs leading-5 text-destructive">{error}</p>}
-
-      {!hasCoordinates ? (
-        <p className="mt-4 rounded-lg border border-border bg-secondary/35 p-3 text-xs leading-5 text-muted-foreground">
-          PanelScan staff still need to confirm the exact map location for your delivery address before a quote can be requested. This usually takes a short while - check back soon.
-        </p>
-      ) : (
-        <div className="mt-5 space-y-4 border-t border-border pt-5">
-          <div>
-            <Label id="delivery-vehicle-type-label">Vehicle type</Label>
-            {isLoadingVehicles ? (
-              <p className="mt-2 text-xs text-muted-foreground">Loading available vehicles…</p>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  aria-labelledby="delivery-vehicle-type-label"
-                  aria-expanded={isVehiclePickerOpen}
-                  disabled={quotation !== null}
-                  onClick={() => setIsVehiclePickerOpen((open) => !open)}
-                  className="mt-2 flex h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-card px-3 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {selectedVehicleType ? (
-                    <span className="flex items-center gap-2 font-medium text-foreground">
-                      <VehicleIcon vehicleKey={selectedVehicleType.key} className="size-4 shrink-0 text-primary" />
-                      {vehicleLabel(selectedVehicleType)}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">Choose a vehicle</span>
-                  )}
-                  <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isVehiclePickerOpen && "rotate-180")} aria-hidden="true" />
-                </button>
-
-                {isVehiclePickerOpen && (
-                  <div role="radiogroup" aria-labelledby="delivery-vehicle-type-label" className="mt-2 grid grid-cols-2 gap-2">
-                    {sortVehicleTypes(vehicleTypes).map((vehicle) => {
-                      const isSelected = selectedVehicle === vehicle.key
-                      return (
-                        <button
-                          key={vehicle.key}
-                          type="button"
-                          role="radio"
-                          aria-checked={isSelected}
-                          onClick={() => {
-                            setSelectedVehicle(vehicle.key)
-                            setIsVehiclePickerOpen(false)
-                          }}
-                          className={cn(
-                            "flex items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors",
-                            isSelected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-card hover:bg-muted",
-                          )}
-                        >
-                          <VehicleIcon vehicleKey={vehicle.key} className="size-5 shrink-0 text-primary" />
-                          <span className="text-xs leading-tight font-medium text-foreground">{vehicleLabel(vehicle)}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {quotation ? (
-            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-sm text-muted-foreground">Delivery fee</span>
-                <span className="text-xl font-semibold text-foreground">{formatProductPrice(quotation.amount.toFixed(2))}</span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">Quote valid until {new Date(quotation.expiresAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}. Vehicle: {quotation.serviceType}.</p>
-
-              <DeliveryFeeChoice
-                feePayment={isFeePaymentCurrent(delivery, quotation) ? (delivery?.deliveryPayment ?? null) : null}
-                isBooking={isBooking}
-                isStartingGcash={isStartingFeeGcash}
-                isSelectingCash={isSelectingCash}
-                onPayWithGcash={() => void handlePayFeeWithGcash()}
-                onSelectCash={() => void handleSelectCash()}
-                onConfirmBooking={() => void handleConfirmBooking()}
-              />
-
-              <Button variant="outline" className="mt-2 w-full" onClick={() => setQuotation(null)} disabled={isBooking || isStartingFeeGcash || isSelectingCash}>Choose a different vehicle</Button>
-            </div>
-          ) : (
-            <Button className="w-full" onClick={() => void handleGetQuote()} disabled={isRequestingQuote || isLoadingVehicles || !selectedVehicle}>
-              {isRequestingQuote ? <><Loader2 className="animate-spin" aria-hidden="true" />Getting quote…</> : "Get a delivery quote"}
-            </Button>
-          )}
-          <p className="text-center text-xs text-muted-foreground">Requesting a quote is free and does not book anything.</p>
-        </div>
-      )}
+      <div className="mt-4">{children}</div>
     </section>
   )
 }
 
+function StatusLine({ label }: { label: string }) {
+  return (
+    <dl className="mt-4 text-sm">
+      <dt className="text-xs font-semibold uppercase text-muted-foreground">Status</dt>
+      <dd className="mt-1 font-medium text-foreground">{label}</dd>
+    </dl>
+  )
+}
+
 // ---------------------------------------------------------------------------
-// Live tracking (booked with Lalamove)
+// Booked with Lalamove
 // ---------------------------------------------------------------------------
 
-function LiveTrackingCard({ delivery, orderNumber, onDeliveryUpdated }: { delivery: DeliveryRecord; orderNumber: string; onDeliveryUpdated: (delivery: DeliveryRecord) => void }) {
+function bookedHeadline(status: string | null): { title: string; statusLabel: string } {
+  switch (status) {
+    case "ON_GOING":
+      return { title: "Delivery booked. A driver has been assigned.", statusLabel: "Driver assigned" }
+    case "PICKED_UP":
+      return { title: "Your delivery is on the way.", statusLabel: "In transit" }
+    case "COMPLETED":
+      return { title: "Delivery completed.", statusLabel: "Delivered" }
+    case "CANCELED":
+    case "CANCELLED":
+      return { title: "This delivery booking was cancelled.", statusLabel: "Cancelled" }
+    case "REJECTED":
+    case "EXPIRED":
+      return { title: "Lalamove could not complete this booking. PanelScan staff will follow up.", statusLabel: status === "EXPIRED" ? "Expired" : "Rejected" }
+    default:
+      return { title: "Delivery booked.", statusLabel: "Booked" }
+  }
+}
+
+function BookedDeliveryCard({ delivery, order, onDeliveryUpdated }: { delivery: DeliveryRecord; order: Order; onDeliveryUpdated: (delivery: DeliveryRecord) => void }) {
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const status = delivery.deliveryStatus
+  const { title, statusLabel } = bookedHeadline(status)
   const meta = delivery.providerMetadata
-  const driverName = meta?.driverName
-  const vehicleType = meta?.vehicleType
-  const trackingUrl = meta?.trackingUrl
-  const estimatedDelivery = delivery.scheduledDate ? formatOrderDate(delivery.scheduledDate) : meta?.estimatedDelivery
+  const vehicle = deliveryVehicleName(delivery)
+  const isCompleted = status === "COMPLETED"
+  const isInProgress = IN_PROGRESS_STATUSES.has(status ?? "")
 
   async function handleRefresh() {
     setIsRefreshing(true)
@@ -521,73 +216,113 @@ function LiveTrackingCard({ delivery, orderNumber, onDeliveryUpdated }: { delive
   }
 
   return (
-    <section className="surface-card p-6" aria-labelledby="delivery-coordination-title">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Truck className="size-4 text-primary" aria-hidden="true" />
-          <h2 id="delivery-coordination-title" className="font-semibold">Delivery coordination</h2>
-        </div>
-        <StatusBadge status={delivery.deliveryStatus ?? "ASSIGNING_DRIVER"} label={getDeliveryStatusLabel(delivery.deliveryStatus)} />
-      </div>
+    <DeliveryCard badge={<StatusBadge status={status ?? "ASSIGNING_DRIVER"} label={statusLabel} />}>
+      <p className="font-medium text-sm text-foreground">{title}</p>
       <dl className="mt-4 space-y-3 text-sm">
-        <div>
-          <dt className="text-xs font-semibold uppercase text-muted-foreground">Courier</dt>
-          <dd className="mt-1 text-sm font-medium text-foreground">
-            {delivery.courierName || "Lalamove"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs font-semibold uppercase text-muted-foreground">Booking ID</dt>
-          <dd className="mt-1 text-sm font-mono text-foreground">{delivery.lalamoveOrderId}</dd>
-        </div>
-        {driverName && (
-          <div>
-            <dt className="text-xs font-semibold uppercase text-muted-foreground">Driver</dt>
-            <dd className="mt-1 text-sm text-foreground">{driverName}{meta?.driverPhone ? ` · ${meta.driverPhone}` : ""}</dd>
-          </div>
-        )}
-        {vehicleType && (
-          <div>
-            <dt className="text-xs font-semibold uppercase text-muted-foreground">Vehicle</dt>
-            <dd className="mt-1 text-sm text-foreground">{vehicleType}{meta?.driverPlateNumber ? ` · ${meta.driverPlateNumber}` : ""}</dd>
-          </div>
-        )}
-        {estimatedDelivery && (
-          <div>
-            <dt className="text-xs font-semibold uppercase text-muted-foreground">Estimated delivery</dt>
-            <dd className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
-              <CalendarDays className="size-3.5 text-primary" aria-hidden="true" />
-              {estimatedDelivery}
-            </dd>
-          </div>
-        )}
-        {delivery.deliveryStatus === "COMPLETED" && (
-          <div className="flex items-center gap-2 rounded-lg bg-primary/10 p-3 text-xs text-primary">
-            <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
-            <span>Delivered for order {orderNumber}.</span>
-          </div>
-        )}
-        {trackingUrl && (
-          <div className="border-t border-border pt-3">
-            <a
-              href={trackingUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-            >
-              Track live delivery
-              <ExternalLink className="size-3" aria-hidden="true" />
-            </a>
-          </div>
-        )}
+        {vehicle && !isCompleted && <Detail label="Vehicle">{vehicle}{meta?.driverPlateNumber ? ` · ${meta.driverPlateNumber}` : ""}</Detail>}
+        {delivery.shippingFee != null && <Detail label="Shipping fee"><span className="font-medium">{formatProductPrice(delivery.shippingFee)}</span></Detail>}
+        <Detail label="Status">{statusLabel}</Detail>
+        {meta?.driverName && !isCompleted && <Detail label="Driver">{meta.driverName}{meta.driverPhone ? ` · ${meta.driverPhone}` : ""}</Detail>}
+        <Detail label="Booking ID"><span className="font-mono">{delivery.lalamoveOrderId}</span></Detail>
       </dl>
-      {delivery.deliveryStatus !== "COMPLETED" && delivery.deliveryStatus !== "CANCELED" && (
-        <Button variant="outline" size="sm" className="mt-4 w-full" onClick={() => void handleRefresh()} disabled={isRefreshing}>
-          {isRefreshing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}
-          {isRefreshing ? "Refreshing…" : "Refresh status"}
-        </Button>
+
+      {isCompleted && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg bg-primary/10 p-3 text-xs text-primary">
+          <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
+          <span>Delivered for order {order.orderNumber}.</span>
+        </div>
       )}
-    </section>
+
+      {delivery.shippingFee != null && <ShippingFeePayment delivery={delivery} order={order} onDeliveryUpdated={onDeliveryUpdated} />}
+
+      {(isInProgress || isCompleted) && (
+        <div className="mt-5 border-t border-border pt-5">
+          {delivery.trackingUrl ? (
+            <Button className="w-full" variant={isCompleted ? "outline" : "default"} asChild>
+              <a href={delivery.trackingUrl} target="_blank" rel="noopener noreferrer">
+                Track delivery
+                <ExternalLink data-icon="inline-end" aria-hidden="true" />
+              </a>
+            </Button>
+          ) : (
+            <p className="text-xs leading-5 text-muted-foreground">Delivery booked. Tracking information will be available shortly.</p>
+          )}
+          {isInProgress && (
+            <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => void handleRefresh()} disabled={isRefreshing}>
+              {isRefreshing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}
+              {isRefreshing ? "Refreshing…" : "Refresh status"}
+            </Button>
+          )}
+        </div>
+      )}
+    </DeliveryCard>
+  )
+}
+
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs font-semibold uppercase text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-sm text-foreground">{children}</dd>
+    </div>
+  )
+}
+
+/**
+ * The shipping fee is a separate charge from the product payment and is
+ * never marked paid just because the product was. The customer settles it
+ * with GCash (PayMongo) or chooses to pay it in cash on delivery.
+ */
+function ShippingFeePayment({ delivery, order, onDeliveryUpdated }: { delivery: DeliveryRecord; order: Order; onDeliveryUpdated: (delivery: DeliveryRecord) => void }) {
+  const [isSelectingCash, setIsSelectingCash] = useState(false)
+  const { startPayment, isStarting } = useStartDeliveryFeePayment()
+  const feePayment = delivery.deliveryPayment ?? null
+  const status = delivery.deliveryStatus
+  const isClosed = status === "CANCELED" || status === "CANCELLED" || status === "REJECTED" || status === "EXPIRED"
+
+  if (feePayment?.status === "PAID") {
+    return <p className="mt-4 text-xs text-muted-foreground">Shipping fee paid{feePayment.method === "PayMongo" ? " via GCash" : ""}.</p>
+  }
+  if (feePayment?.method === "Cash") {
+    return <p className="mt-4 text-xs text-muted-foreground">Shipping fee to be paid in cash on delivery.</p>
+  }
+  if (isClosed || status === "COMPLETED") {
+    return <p className="mt-4 text-xs text-muted-foreground">Shipping fee not yet paid.</p>
+  }
+
+  async function handleSelectCash() {
+    setIsSelectingCash(true)
+    try {
+      await selectDeliveryFeeCash(order.id)
+      const refreshed = await getDeliveryById(delivery.id)
+      onDeliveryUpdated(refreshed.delivery)
+    } catch (err) {
+      toast.error("Could not select cash on delivery", { description: getDeliveryErrorMessage(err, "Please try again.") })
+    } finally {
+      setIsSelectingCash(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      {feePayment?.status === "FAILED" && (
+        <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 p-2 text-xs leading-5 text-destructive">
+          Your last GCash attempt did not go through. Try again, or pay in cash on delivery.
+        </p>
+      )}
+      {feePayment?.status === "PENDING" && feePayment.method === "PayMongo" && (
+        <p className="rounded-lg border border-border bg-secondary/35 p-2 text-xs leading-5 text-muted-foreground">
+          Waiting for GCash confirmation. If you already paid, this will update shortly.
+        </p>
+      )}
+      <p className="text-xs font-medium text-foreground">Shipping fee not yet paid. How would you like to pay it?</p>
+      <Button className="w-full" onClick={() => void startPayment({ deliveryId: delivery.id, orderId: order.id, orderNumber: order.orderNumber })} disabled={isStarting || isSelectingCash}>
+        {isStarting ? <><Loader2 className="animate-spin" aria-hidden="true" />Opening secure checkout…</> : <><Smartphone data-icon="inline-start" aria-hidden="true" />Pay with GCash</>}
+      </Button>
+      <Button variant="outline" className="w-full" onClick={() => void handleSelectCash()} disabled={isStarting || isSelectingCash}>
+        {isSelectingCash ? <><Loader2 className="animate-spin" aria-hidden="true" />Selecting…</> : <><Banknote data-icon="inline-start" aria-hidden="true" />Pay cash on delivery</>}
+      </Button>
+    </div>
   )
 }
 

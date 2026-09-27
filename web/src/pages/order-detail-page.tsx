@@ -18,7 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { formatProductPrice } from "@/lib/format-price"
+import { formatMinorUnits, formatProductPrice, parsePriceToMinorUnits } from "@/lib/format-price"
 import { getOrderErrorMessage } from "@/orders/order-errors"
 import { formatOrderDate } from "@/orders/order-format"
 import { getPaymentErrorMessage } from "@/payments/payment-errors"
@@ -155,7 +155,7 @@ export function OrderDetailPage() {
           )}
         </div>
         <aside className="space-y-5">
-          <section className="rounded-xl border border-border bg-secondary/42 p-6" aria-labelledby="order-total-title"><h2 id="order-total-title" className="text-lg font-semibold">Order total</h2><dl className="mt-5 space-y-3 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd>{formatProductPrice(order.subtotal)}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-foreground">Shipping fee</dt><dd>{formatProductPrice(order.shippingFee)}</dd></div><div className="flex items-end justify-between gap-4 border-t border-border pt-4"><dt className="font-semibold">Total</dt><dd className="text-xl font-semibold">{formatProductPrice(order.totalAmount)}</dd></div></dl></section>
+          <OrderTotalCard order={order} />
           <OrderPaymentPanel order={order} payment={payment} isLoading={isPaymentLoading} error={paymentError} onRetryLoad={reloadPayment} />
           <section className="surface-card p-6" aria-labelledby="shipping-address-title"><div className="flex items-center gap-2"><MapPin className="size-4 text-primary" aria-hidden="true" /><h2 id="shipping-address-title" className="font-semibold">Shipping address</h2></div><address className="mt-4 whitespace-pre-line text-sm leading-6 text-muted-foreground not-italic">{order.shippingAddress}</address>{order.notes && <><h3 className="mt-5 text-xs font-semibold uppercase">Order notes</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{order.notes}</p></>}</section>
           {order.booking && (
@@ -207,6 +207,7 @@ export function OrderDetailPage() {
           {/* Delivery coordination card */}
           <OrderDeliveryPanel
             order={order}
+            payment={payment}
             onDeliveryUpdated={(delivery) => {
               setOrder((prev) => (prev ? { ...prev, delivery } : prev))
             }}
@@ -214,6 +215,33 @@ export function OrderDetailPage() {
         </aside>
       </div>
     </Container>
+  )
+}
+
+/**
+ * The Lalamove shipping fee is only known once PanelScan staff book the
+ * delivery, and it is charged separately from the product payment - so the
+ * total adds it on top of the product total rather than folding it in.
+ */
+function OrderTotalCard({ order }: { order: Order }) {
+  const bookedFee = order.delivery?.lalamoveOrderId ? order.delivery.shippingFee ?? null : null
+  const productTotal = parsePriceToMinorUnits(order.totalAmount)
+  const feeMinor = parsePriceToMinorUnits(bookedFee)
+  const grandTotal = productTotal !== null && feeMinor !== null ? formatMinorUnits(productTotal + feeMinor) : formatProductPrice(order.totalAmount)
+
+  return (
+    <section className="rounded-xl border border-border bg-secondary/42 p-6" aria-labelledby="order-total-title">
+      <h2 id="order-total-title" className="text-lg font-semibold">Order total</h2>
+      <dl className="mt-5 space-y-3 text-sm">
+        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd>{formatProductPrice(order.subtotal)}</dd></div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">Shipping fee</dt>
+          <dd className="text-right">{bookedFee ? formatProductPrice(bookedFee) : <span className="text-muted-foreground">Set when delivery is booked</span>}</dd>
+        </div>
+        {bookedFee && <p className="text-xs leading-5 text-muted-foreground">Charged by Lalamove for your delivery, separately from the product payment.</p>}
+        <div className="flex items-end justify-between gap-4 border-t border-border pt-4"><dt className="font-semibold">Total</dt><dd className="text-xl font-semibold">{grandTotal}</dd></div>
+      </dl>
+    </section>
   )
 }
 

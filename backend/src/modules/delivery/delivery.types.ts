@@ -2,10 +2,26 @@ import type { Prisma } from '@prisma/client';
 export { DeliveryApprovalStatus } from '@prisma/client';
 
 export const deliveryInclude = {
-  // deliveryLocation carries the geocoding outcome (coordinates/status) the
-  // admin deliveries UI needs to show staff whether a manual coordinate fix
-  // is required - see setDeliveryCoordinates in delivery.service.ts.
-  order: { select: { id: true, orderNumber: true, customerId: true, status: true, deliveryLocation: true } },
+  // Everything the moderator needs to act on a delivery request from the
+  // Deliveries page alone: customer contact, items, the product payment's
+  // status, and deliveryLocation (address snapshot + map-pin coordinates).
+  order: {
+    select: {
+      id: true,
+      orderNumber: true,
+      customerId: true,
+      status: true,
+      deliveryLocation: true,
+      shippingAddress: true,
+      subtotal: true,
+      totalAmount: true,
+      moderatorApproved: true,
+      createdAt: true,
+      customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+      items: { select: { id: true, productName: true, quantity: true, unitPrice: true, lineTotal: true }, orderBy: { createdAt: 'asc' } },
+      payment: { select: { status: true, method: true, amount: true, paidAt: true } },
+    },
+  },
   // The delivery-fee charge (separate from the product Payment) - carried on
   // every Delivery read so the frontend can gate its own "Book vehicle"
   // button on deliveryPayment.status without a second round trip. See
@@ -22,16 +38,20 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
+export const DELIVERY_STATE_FILTERS = ['requested', 'to_book', 'active', 'completed', 'cancelled'] as const;
+export type DeliveryStateFilter = (typeof DELIVERY_STATE_FILTERS)[number];
+
 export interface DeliveryFilters {
   page?: number;
   limit?: number;
   customerId?: string;
   search?: string;
   status?: 'scheduled' | 'delivered';
-  // Admin dashboard grouping, based on the live Lalamove deliveryStatus
-  // rather than deliveredAt (see utils/lalamove-status.ts) - independent of
+  // Admin dashboard grouping (see utils/lalamove-status.ts) - independent of
   // `status` above so existing scheduled/delivered filtering is unaffected.
-  deliveryState?: 'active' | 'completed' | 'cancelled';
+  // "requested" and "to_book" are the moderator's own work queues: requests
+  // awaiting approval, and approved requests not yet booked with Lalamove.
+  deliveryState?: DeliveryStateFilter;
   sortBy?: 'scheduledDate' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
 }

@@ -9,7 +9,8 @@ import type { OrderStatus, Prisma } from '@prisma/client';
 export const orderInclude = {
   items: { orderBy: { createdAt: 'asc' } },
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-  delivery: true,
+  // deliveryPayment: whether the customer has paid the booked shipping fee.
+  delivery: { include: { deliveryPayment: true } },
   booking: {
     include: {
       installer: { select: { id: true, firstName: true, lastName: true, phone: true, specialty: true } },

@@ -10,12 +10,11 @@ import { authHeader, createCustomer, createModerator, createTestOrder } from '..
 import app from '../helpers/testApp';
 
 /**
- * Covers the delivery-fee payment flow added on top of the live Lalamove
- * quotation/booking flow (see lalamove-integration.test.ts for that half):
- * paying the DELIVERY fee itself (GCash via PayMongo, or Cash on Delivery)
- * as its own separate charge from the product Payment, and the hard
- * server-side gate on POST /book that refuses to place a real Lalamove
- * order until one of those has actually happened.
+ * Covers paying the SHIPPING fee (GCash via PayMongo, or cash on delivery)
+ * as its own charge, separate from the product Payment. In the moderator-
+ * driven flow the fee only exists once the moderator has booked Lalamove
+ * (see delivery-approval.test.ts) - it is the total Lalamove returned for
+ * that booking, and paying the product never marks it paid.
  */
 
 vi.mock('../../src/modules/delivery/providers/lalamove.provider', () => ({
@@ -44,22 +43,10 @@ const DROPOFF_LOCATION = {
   geocodingStatus: 'completed',
 };
 
-const QUOTATION = {
-  quotationId: 'quo_fee_test_1',
-  quotedAt: new Date().toISOString(),
-  expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-  amount: 189,
-  currency: 'PHP',
-  serviceType: 'MOTORCYCLE',
-  distanceMeters: 5000,
-  stops: [
-    { stopId: 'stop_pickup', coordinates: { lat: '14.8136', lng: '121.0450' }, address: 'Warehouse' },
-    { stopId: 'stop_dropoff', coordinates: { lat: '14.8123', lng: '121.0456' }, address: 'Customer' },
-  ],
-};
+const SHIPPING_FEE = 250;
 
-/** Order + APPROVED delivery + a still-valid stored quotation - the exact prerequisite both fee endpoints and the booking gate enforce. */
-async function withQuotation(customerId: string, moderatorId: string, quotationOverrides: Partial<typeof QUOTATION> = {}) {
+/** Order + a delivery the moderator has already booked with Lalamove, carrying the fee Lalamove returned. */
+async function bookedDelivery(customerId: string, moderatorId: string, overrides: { lalamoveOrderId?: string | null; shippingFee?: number | null; deliveryStatus?: string } = {}) {
   const order = await createTestOrder({ customerId, status: OrderStatus.PROCESSING });
   await prisma.order.update({ where: { id: order.id }, data: { deliveryLocation: DROPOFF_LOCATION } });
   const delivery = await prisma.delivery.create({
@@ -69,8 +56,12 @@ async function withQuotation(customerId: string, moderatorId: string, quotationO
       approvalStatus: DeliveryApprovalStatus.APPROVED,
       approvedAt: new Date(),
       approvedById: moderatorId,
-      deliveryStatus: 'NOT_SCHEDULED',
-      providerMetadata: { pendingQuotation: { ...QUOTATION, ...quotationOverrides } },
+      vehicleType: 'VAN',
+      deliveryStatus: overrides.deliveryStatus ?? 'ASSIGNING_DRIVER',
+      lalamoveOrderId: overrides.lalamoveOrderId === undefined ? `llm_fee_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : overrides.lalamoveOrderId,
+      shippingFee: overrides.shippingFee === undefined ? SHIPPING_FEE : overrides.shippingFee,
+      bookedAt: new Date(),
+      bookedById: moderatorId,
     },
   });
   return { order, delivery };
@@ -136,10 +127,10 @@ describe('Delivery-fee payment (separate from the product Payment)', () => {
   // ---------------------------------------------------------------- GCash checkout
 
   describe('POST /api/delivery/orders/:orderId/fee/gcash', () => {
-    it('opens a PayMongo checkout for exactly the quotation amount, never the product price', async () => {
+    it('opens a PayMongo checkout for exactly the booked Lalamove fee, never the product price', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
+      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
       mockPaymongoCheckoutSuccess('cs_fee_creation_check');
 
       const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token));
@@ -148,166 +139,90 @@ describe('Delivery-fee payment (separate from the product Payment)', () => {
       expect(response.body.data.checkoutUrl).toBe('https://checkout.paymongo.com/cs_fee_creation_check');
 
       const feePayment = await prisma.deliveryPayment.findUnique({ where: { deliveryId: delivery.id } });
-      expect(feePayment).not.toBeNull();
       expect(feePayment?.method).toBe('PayMongo');
       expect(feePayment?.status).toBe(PaymentStatus.PENDING);
-      expect(Number(feePayment?.amount)).toBe(QUOTATION.amount); // the delivery fee, not order.totalAmount
+      expect(Number(feePayment?.amount)).toBe(SHIPPING_FEE); // the shipping fee, not order.totalAmount
       expect(feePayment?.transactionRef).toBe('cs_fee_creation_check');
 
       // The reference_number PayMongo was called with carries the "delivery:" prefix, not the bare order id.
       const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
       const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body);
       expect(requestBody.data.attributes.reference_number).toBe(`delivery:${delivery.id}`);
+      expect(requestBody.data.attributes.line_items[0].amount).toBe(SHIPPING_FEE * 100);
       expect(requestBody.data.attributes.payment_method_types).toEqual(['gcash']);
 
       // The product Payment table is completely untouched by this call.
-      const productPayment = await prisma.payment.findUnique({ where: { orderId: order.id } });
-      expect(productPayment).toBeNull();
+      expect(await prisma.payment.findUnique({ where: { orderId: order.id } })).toBeNull();
     });
 
-    it('rejects when no quotation is on file yet', async () => {
+    it('rejects before the moderator has booked the delivery (no fee exists yet)', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PROCESSING });
-      await prisma.delivery.create({ data: { orderId: order.id, address: order.shippingAddress, approvalStatus: DeliveryApprovalStatus.APPROVED, approvedById: moderator.user.id } });
+      const { order } = await bookedDelivery(customer.user.id, moderator.user.id, { lalamoveOrderId: null, shippingFee: null, deliveryStatus: 'VEHICLE_SELECTED' });
 
       const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token));
 
-      expectApiError(response, 400, /quotation/i);
+      expectApiError(response, 400, /once PanelScan staff have booked/i);
     });
 
-    it('rejects an expired quotation', async () => {
+    it('rejects a fee that is already paid', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order } = await withQuotation(customer.user.id, moderator.user.id, { expiresAt: new Date(Date.now() - 1000).toISOString() });
+      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PAID, method: 'PayMongo', amount: SHIPPING_FEE, transactionRef: 'cs_already_paid', paidAt: new Date() } });
 
       const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token));
 
-      expectApiError(response, 400, /expired/i);
+      expectApiError(response, 409, /already been paid/i);
     });
 
     it("rejects a different customer's order with 403", async () => {
       const owner = await createCustomer();
       const stranger = await createCustomer();
       const moderator = await createModerator();
-      const { order } = await withQuotation(owner.user.id, moderator.user.id);
+      const { order } = await bookedDelivery(owner.user.id, moderator.user.id);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(stranger.token));
+      expectApiError(await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(stranger.token)), 403);
+    });
 
-      expectApiError(response, 403);
+    it('is CUSTOMER-only: staff cannot start a fee payment', async () => {
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const { order } = await bookedDelivery(customer.user.id, moderator.user.id);
+
+      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(moderator.token))).status).toBe(403);
+      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/cash`).set(authHeader(moderator.token))).status).toBe(403);
     });
 
     it('requires authentication', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order } = await withQuotation(customer.user.id, moderator.user.id);
+      const { order } = await bookedDelivery(customer.user.id, moderator.user.id);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`);
-
-      expect(response.status).toBe(401);
+      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`)).status).toBe(401);
     });
   });
 
   // ---------------------------------------------------------------- Cash on Delivery
 
   describe('POST /api/delivery/orders/:orderId/fee/cash', () => {
-    it('records Cash on Delivery for the quotation amount, with no PayMongo call', async () => {
+    it('records cash on delivery for the booked fee, with no PayMongo call, leaving it unpaid', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
+      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
       const fetchSpy = vi.fn();
       vi.stubGlobal('fetch', fetchSpy);
 
       const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/cash`).set(authHeader(customer.token));
 
       expectApiSuccess(response, 200);
-      expect(response.body.data.amount).toBe(QUOTATION.amount);
+      expect(response.body.data.amount).toBe(SHIPPING_FEE);
       expect(fetchSpy).not.toHaveBeenCalled();
 
       const feePayment = await prisma.deliveryPayment.findUnique({ where: { deliveryId: delivery.id } });
       expect(feePayment?.method).toBe('Cash');
       expect(feePayment?.status).toBe(PaymentStatus.PENDING);
-      expect(Number(feePayment?.amount)).toBe(QUOTATION.amount);
-    });
-  });
-
-  // ---------------------------------------------------------------- booking gate
-
-  describe('POST /api/delivery/orders/:orderId/book - delivery-fee gate', () => {
-    it('rejects booking when no delivery-fee payment exists at all', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order } = await withQuotation(customer.user.id, moderator.user.id);
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
-
-      expectApiError(response, 400, /delivery fee/i);
-      expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
-    });
-
-    it('rejects booking while the GCash delivery fee is still PENDING (not yet confirmed by PayMongo)', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_pending' } });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
-
-      expectApiError(response, 400, /not been confirmed/i);
-      expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
-    });
-
-    it('allows booking once the GCash delivery fee is PAID', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PAID, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_paid', paidAt: new Date() } });
-      mockProvider.placeDeliveryOrder.mockResolvedValue({ orderId: 'llm_fee_paid_1', status: 'ASSIGNING_DRIVER', shareLink: null, priceBreakdown: { total: QUOTATION.amount, currency: 'PHP' }, driverId: null });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
-
-      expectApiSuccess(response, 200);
-      expect(response.body.data.delivery.lalamoveOrderId).toBe('llm_fee_paid_1');
-    });
-
-    it('allows booking when Cash on Delivery was selected, even though its status is only PENDING', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'Cash', amount: QUOTATION.amount } });
-      mockProvider.placeDeliveryOrder.mockResolvedValue({ orderId: 'llm_fee_cash_1', status: 'ASSIGNING_DRIVER', shareLink: null, priceBreakdown: { total: QUOTATION.amount, currency: 'PHP' }, driverId: null });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
-
-      expectApiSuccess(response, 200);
-      expect(response.body.data.delivery.lalamoveOrderId).toBe('llm_fee_cash_1');
-    });
-
-    it('rejects booking when the paid fee amount no longer matches the current quotation (e.g. vehicle changed after paying)', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      // Paid for the ORIGINAL (cheaper) quotation amount...
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PAID, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_stale_amount', paidAt: new Date() } });
-      // ...then a pricier vehicle was re-quoted, overwriting pendingQuotation, without paying again.
-      await prisma.delivery.update({ where: { id: delivery.id }, data: { providerMetadata: { pendingQuotation: { ...QUOTATION, amount: QUOTATION.amount + 300, serviceType: 'VAN' } } } });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
-
-      expectApiError(response, 400, /does not match/i);
-      expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
-    });
-
-    it('rejects booking when the GCash delivery fee FAILED', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.FAILED, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_failed' } });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
-
-      expectApiError(response, 400, /not been confirmed/i);
-      expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
+      expect(Number(feePayment?.amount)).toBe(SHIPPING_FEE);
     });
   });
 
@@ -317,8 +232,8 @@ describe('Delivery-fee payment (separate from the product Payment)', () => {
     it('marks the DeliveryPayment PAID, notifies the customer, and never touches the product Payment table', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_webhook_test' } });
+      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: SHIPPING_FEE, transactionRef: 'cs_webhook_test' } });
 
       const rawBody = buildDeliveryFeeWebhookPayload('payment.paid', delivery.id, 'pay_fee_success_1');
       const response = await postPaymentWebhook(rawBody, signWebhookPayload(rawBody, WEBHOOK_SECRET));
@@ -340,25 +255,26 @@ describe('Delivery-fee payment (separate from the product Payment)', () => {
       expect(notifications).toHaveLength(1);
     });
 
-    it('does NOT place the Lalamove booking itself - confirmBooking is still a separate, explicit call', async () => {
+    it('settles only the fee - the existing Lalamove booking is left as it was', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_no_autobook' } });
+      const { delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: SHIPPING_FEE, transactionRef: 'cs_no_rebook' } });
 
       const rawBody = buildDeliveryFeeWebhookPayload('payment.paid', delivery.id);
       await postPaymentWebhook(rawBody, signWebhookPayload(rawBody, WEBHOOK_SECRET));
 
       expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
       const stored = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } });
-      expect(stored.lalamoveOrderId).toBeNull();
+      expect(stored.lalamoveOrderId).toBe(delivery.lalamoveOrderId);
+      expect(Number(stored.shippingFee)).toBe(SHIPPING_FEE);
     });
 
     it('downgrades a PENDING delivery fee to FAILED on payment.failed', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_will_fail' } });
+      const { delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: SHIPPING_FEE, transactionRef: 'cs_will_fail' } });
 
       const rawBody = buildDeliveryFeeWebhookPayload('payment.failed', delivery.id, 'pay_fee_failed_1');
       const response = await postPaymentWebhook(rawBody, signWebhookPayload(rawBody, WEBHOOK_SECRET));
@@ -371,8 +287,8 @@ describe('Delivery-fee payment (separate from the product Payment)', () => {
     it('is idempotent - redelivering the same payment.paid event twice only updates once', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { delivery } = await withQuotation(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: QUOTATION.amount, transactionRef: 'cs_idempotent' } });
+      const { delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PENDING, method: 'PayMongo', amount: SHIPPING_FEE, transactionRef: 'cs_idempotent' } });
 
       const rawBody = buildDeliveryFeeWebhookPayload('payment.paid', delivery.id, 'pay_fee_idempotent');
       const signature = signWebhookPayload(rawBody, WEBHOOK_SECRET);

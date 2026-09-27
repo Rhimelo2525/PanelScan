@@ -43,9 +43,12 @@ const statusTones: Record<string, StatusTone> = {
   // this mirrors.
   NOT_SCHEDULED: "neutral",
   PREPARING: "warning",
-  ASSIGNING_DRIVER: "warning",
+  ASSIGNING_DRIVER: "info",
   ON_GOING: "info",
   PICKED_UP: "info",
+  VEHICLE_SELECTED: "info",
+  BOOKING: "warning",
+  BOOKING_FAILED: "critical",
   CANCELED: "critical",
   EXPIRED: "critical",
 }

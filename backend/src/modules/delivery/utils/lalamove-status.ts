@@ -14,9 +14,14 @@ const DISPLAY_LABELS: Record<string, string> = {
   NOT_REQUESTED: 'Not requested',
   NOT_SCHEDULED: 'Not scheduled',
   PREPARING: 'Preparing delivery',
-  ASSIGNING_DRIVER: 'Searching for a driver',
-  ON_GOING: 'Driver on the way',
-  PICKED_UP: 'Picked up - on delivery',
+  // PanelScan's own pre-booking steps (see delivery.service.ts): the
+  // moderator picked a vehicle, a booking call is in flight, or it failed.
+  VEHICLE_SELECTED: 'Vehicle selected',
+  BOOKING: 'Booking in progress',
+  BOOKING_FAILED: 'Booking failed',
+  ASSIGNING_DRIVER: 'Booked',
+  ON_GOING: 'Driver assigned',
+  PICKED_UP: 'In transit',
   COMPLETED: 'Delivered',
   CANCELED: 'Cancelled',
   CANCELLED: 'Cancelled', // tolerate either spelling defensively
@@ -33,6 +38,9 @@ export const ACTIVE_DELIVERY_STATUSES = ['PREPARING', 'ASSIGNING_DRIVER', 'ON_GO
 export const COMPLETED_DELIVERY_STATUSES = ['COMPLETED'];
 export const CANCELLED_DELIVERY_STATUSES = ['CANCELED', 'CANCELLED', 'REJECTED', 'EXPIRED'];
 
+/** Before a real Lalamove order exists. */
+export const PRE_BOOKING_DELIVERY_STATUSES = ['NOT_REQUESTED', 'NOT_SCHEDULED', 'VEHICLE_SELECTED', 'BOOKING', 'BOOKING_FAILED'];
+
 export type DeliveryStateGroup = 'active' | 'completed' | 'cancelled' | 'not_started';
 
 /** The deliveryStatus values belonging to one admin-dashboard group - directly usable in a Prisma `deliveryStatus: { in: [...] }` filter. */
@@ -40,7 +48,7 @@ export function deliveryStatusesForGroup(group: DeliveryStateGroup): string[] {
   if (group === 'active') return ACTIVE_DELIVERY_STATUSES;
   if (group === 'completed') return COMPLETED_DELIVERY_STATUSES;
   if (group === 'cancelled') return CANCELLED_DELIVERY_STATUSES;
-  return ['NOT_REQUESTED', 'NOT_SCHEDULED'];
+  return PRE_BOOKING_DELIVERY_STATUSES;
 }
 
 export function getDeliveryStateGroup(rawStatus: string | null | undefined): DeliveryStateGroup {
@@ -48,7 +56,7 @@ export function getDeliveryStateGroup(rawStatus: string | null | undefined): Del
   if (ACTIVE_DELIVERY_STATUSES.includes(status)) return 'active';
   if (COMPLETED_DELIVERY_STATUSES.includes(status)) return 'completed';
   if (CANCELLED_DELIVERY_STATUSES.includes(status)) return 'cancelled';
-  return 'not_started'; // NOT_REQUESTED / NOT_SCHEDULED / anything before a real Lalamove order exists
+  return 'not_started'; // PRE_BOOKING_DELIVERY_STATUSES / anything before a real Lalamove order exists
 }
 
 export { LALAMOVE_ORDER_STATUSES };

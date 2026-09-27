@@ -386,6 +386,19 @@ model Delivery {
   deliveryStatus   String?                @default("NOT_REQUESTED") @map("delivery_status")
   lalamoveOrderId  String?                @unique @map("lalamove_order_id")
   providerMetadata Json?                  @map("provider_metadata")
+  // Moderator-driven booking (see delivery.service.ts): the vehicle the
+  // moderator chose, the fee Lalamove actually charged for the booking, and
+  // the real share link. Typed columns rather than providerMetadata keys so
+  // the customer, moderator and owner views all read one authoritative value.
+  vehicleType      String?                @map("vehicle_type")
+  shippingFee      Decimal?               @map("shipping_fee") @db.Decimal(12, 2)
+  trackingUrl      String?                @map("tracking_url")
+  bookedAt         DateTime?              @map("booked_at")
+  bookedById       String?                @map("booked_by_id") @db.Uuid
+  // Last failed booking attempt, cleared on success - lets the customer see
+  // "staff will retry" instead of a fake fee or tracking link.
+  bookingError     String?                @map("booking_error")
+  bookingFailedAt  DateTime?              @map("booking_failed_at")
   scheduledDate    DateTime?              @map("scheduled_date")
   deliveredAt      DateTime?              @map("delivered_at")
   createdAt        DateTime               @default(now()) @map("created_at")

@@ -234,17 +234,13 @@ export function approveOrder(orderId: string) {
   return apiRequest<{ order: { id: string; status: string; moderatorApproved: boolean } }>(`/orders/${orderId}/approve`, { method: "PATCH", authenticated: true })
 }
 
-/** MODERATOR/OWNER staff action. Arranges delivery with Lalamove integration for eligible order. */
-export function arrangeDelivery(orderId: string) {
-  return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/arrange`, { method: "POST", authenticated: true })
-}
 
-/** MODERATOR/OWNER staff action. Approves customer delivery request. */
+/** MODERATOR only. Approves a customer delivery request. */
 export function approveDeliveryRequest(orderId: string) {
   return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/approve`, { method: "PATCH", authenticated: true })
 }
 
-/** MODERATOR/OWNER staff action. Declines customer delivery request with optional reason. */
+/** MODERATOR only. Declines a customer delivery request with an optional reason. */
 export function declineDeliveryRequest(orderId: string, reason?: string) {
   return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/decline`, { method: "PATCH", authenticated: true, body: reason ? { reason } : {} })
 }

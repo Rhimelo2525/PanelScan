@@ -1,11 +1,11 @@
-import { DeliveryApprovalStatus, OrderStatus } from '@prisma/client';
+import { DeliveryApprovalStatus, OrderStatus, PaymentStatus } from '@prisma/client';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { prisma } from '../../src/config/database';
 import { lalamoveProvider } from '../../src/modules/delivery/providers/lalamove.provider';
 import { AppError } from '../../src/utils/AppError';
-import { authHeader, createCustomer, createModerator, createOwner, createTestOrder } from '../helpers/factories';
+import { authHeader, createCustomer, createModerator, createOwner, createTestOrder, createTestPayment } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 // Hoisted by vitest above the imports above, so the static `lalamoveProvider`
@@ -67,6 +67,7 @@ const QUOTATION_RESULT = {
 async function createApprovedDeliveryOrder(customerId: string, moderatorId: string) {
   const order = await createTestOrder({ customerId, status: OrderStatus.PROCESSING });
   await prisma.order.update({ where: { id: order.id }, data: { deliveryLocation: DROPOFF_LOCATION } });
+  await createTestPayment({ orderId: order.id, status: PaymentStatus.PAID, amount: 100 });
   const delivery = await prisma.delivery.create({
     data: { orderId: order.id, address: order.shippingAddress, approvalStatus: DeliveryApprovalStatus.APPROVED, approvedAt: new Date(), approvedById: moderatorId, deliveryStatus: 'NOT_SCHEDULED' },
   });
@@ -102,24 +103,29 @@ describe('Live Lalamove integration', () => {
   // ---------------------------------------------------------------- vehicle types
 
   describe('GET /api/delivery/vehicle-types', () => {
-    it('returns the live provider list when available', async () => {
-      const customer = await createCustomer();
+    it('returns the live provider list to a MODERATOR', async () => {
+      const moderator = await createModerator();
       mockProvider.getAvailableServices.mockResolvedValue([{ key: 'VAN', description: 'Van', maxWeightKg: 700, dimensionsMeters: null }]);
 
-      const response = await request(app).get('/api/delivery/vehicle-types').set(authHeader(customer.token));
+      const response = await request(app).get('/api/delivery/vehicle-types').set(authHeader(moderator.token));
 
       expectApiSuccess(response, 200);
       expect(response.body.data.services).toEqual([{ key: 'VAN', description: 'Van', maxWeightKg: 700, dimensionsMeters: null }]);
     });
 
-    it('falls back to a static list (never errors the request) if the provider call fails', async () => {
-      const customer = await createCustomer();
+    it('reports an error instead of inventing a vehicle list when the provider call fails', async () => {
+      const moderator = await createModerator();
       mockProvider.getAvailableServices.mockRejectedValue(new Error('network down'));
 
-      const response = await request(app).get('/api/delivery/vehicle-types').set(authHeader(customer.token));
+      const response = await request(app).get('/api/delivery/vehicle-types').set(authHeader(moderator.token));
 
-      expectApiSuccess(response, 200);
-      expect(response.body.data.services.length).toBeGreaterThan(0);
+      expectApiError(response, 503, /could not be loaded/i);
+    });
+
+    it('is MODERATOR-only: the customer no longer chooses the vehicle', async () => {
+      const customer = await createCustomer();
+      const response = await request(app).get('/api/delivery/vehicle-types').set(authHeader(customer.token));
+      expect(response.status).toBe(403);
     });
 
     it('requires authentication', async () => {
@@ -130,24 +136,29 @@ describe('Live Lalamove integration', () => {
 
   // ---------------------------------------------------------------- quotation
 
-  describe('POST /api/delivery/orders/:orderId/quotation', () => {
-    it('returns a live quotation and stores it (with stop ids) for later booking', async () => {
+  describe('POST /api/delivery/orders/:orderId/vehicle', () => {
+    beforeEach(() => {
+      mockProvider.getAvailableServices.mockResolvedValue([{ key: 'MOTORCYCLE', description: 'Motorcycle', maxWeightKg: 20, dimensionsMeters: null }]);
+    });
+
+    it('saves the vehicle and a live quotation (with stop ids) for the later booking', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
       const { order, delivery } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
       mockProvider.getQuotation.mockResolvedValue(QUOTATION_RESULT);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(customer.token)).send({ serviceType: 'MOTORCYCLE' });
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
 
       expectApiSuccess(response, 200);
       expect(response.body.data.quotation).toMatchObject({ amount: 189, currency: 'PHP', serviceType: 'MOTORCYCLE', quotationId: 'quo_test_1' });
+      expect(response.body.data.delivery.vehicleType).toBe('MOTORCYCLE');
 
       const stored = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } });
       expect((stored.providerMetadata as any)?.pendingQuotation?.quotationId).toBe('quo_test_1');
       expect((stored.providerMetadata as any)?.pendingQuotation?.stops).toHaveLength(2);
 
       const logs = await prisma.activityLog.findMany({ where: { action: 'LALAMOVE_QUOTATION_REQUESTED' } });
-      expect(logs.some((log) => log.userId === customer.user.id)).toBe(true);
+      expect(logs.some((log) => log.userId === moderator.user.id)).toBe(true);
     });
 
     it('rejects a serviceType that is missing', async () => {
@@ -155,7 +166,7 @@ describe('Live Lalamove integration', () => {
       const moderator = await createModerator();
       const { order } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(customer.token)).send({});
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({});
 
       expect(response.status).toBe(400);
       expect(mockProvider.getQuotation).not.toHaveBeenCalled();
@@ -163,12 +174,13 @@ describe('Live Lalamove integration', () => {
 
     it('rejects when the delivery request has not been approved yet', async () => {
       const customer = await createCustomer();
+      const moderator = await createModerator();
       const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PROCESSING });
       await prisma.delivery.create({ data: { orderId: order.id, address: order.shippingAddress, approvalStatus: DeliveryApprovalStatus.PENDING_APPROVAL } });
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(customer.token)).send({ serviceType: 'MOTORCYCLE' });
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
 
-      expectApiError(response, 400, /approved/i);
+      expectApiError(response, 400, /approve the delivery request/i);
       expect(mockProvider.getQuotation).not.toHaveBeenCalled();
     });
 
@@ -178,32 +190,23 @@ describe('Live Lalamove integration', () => {
       const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PROCESSING });
       await prisma.delivery.create({ data: { orderId: order.id, address: order.shippingAddress, approvalStatus: DeliveryApprovalStatus.APPROVED, approvedById: moderator.user.id } });
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(customer.token)).send({ serviceType: 'MOTORCYCLE' });
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
 
       expectApiError(response, 400, /coordinates/i);
       expect(mockProvider.getQuotation).not.toHaveBeenCalled();
     });
 
-    it("rejects a different customer's order with 403", async () => {
-      const owner = await createCustomer();
-      const stranger = await createCustomer();
-      const moderator = await createModerator();
-      const { order } = await createApprovedDeliveryOrder(owner.user.id, moderator.user.id);
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(stranger.token)).send({ serviceType: 'MOTORCYCLE' });
-
-      expectApiError(response, 403);
-    });
-
-    it('lets staff request a quotation on the customer\'s behalf', async () => {
+    it('rejects the customer and the owner with 403', async () => {
       const customer = await createCustomer();
+      const owner = await createOwner();
       const moderator = await createModerator();
       const { order } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
-      mockProvider.getQuotation.mockResolvedValue(QUOTATION_RESULT);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
-
-      expectApiSuccess(response, 200);
+      for (const token of [customer.token, owner.token]) {
+        const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(token)).send({ serviceType: 'MOTORCYCLE' });
+        expectApiError(response, 403);
+      }
+      expect(mockProvider.getQuotation).not.toHaveBeenCalled();
     });
 
     it('logs a failure and propagates the provider error when the provider call fails, without storing a quotation', async () => {
@@ -212,7 +215,7 @@ describe('Live Lalamove integration', () => {
       const { order, delivery } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
       mockProvider.getQuotation.mockRejectedValue(new AppError('Invalid service type.', 400));
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(customer.token)).send({ serviceType: 'BOGUS' });
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
 
       expect(response.status).toBe(400);
       const stored = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } });
@@ -225,7 +228,7 @@ describe('Live Lalamove integration', () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
       const { order } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/quotation`).send({ serviceType: 'MOTORCYCLE' });
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).send({ serviceType: 'MOTORCYCLE' });
       expect(response.status).toBe(401);
     });
   });
@@ -233,16 +236,14 @@ describe('Live Lalamove integration', () => {
   // ---------------------------------------------------------------- booking
 
   describe('POST /api/delivery/orders/:orderId/book', () => {
-    // Booking is gated on the delivery fee itself since the delivery-fee
-    // payment feature was added (see delivery-fee-payment.test.ts for that
-    // gate's own dedicated coverage) - Cash is the simplest way to satisfy
-    // it here without pulling PayMongo into tests that are really about the
-    // quotation/booking mechanics.
+    // The moderator books after selecting a vehicle - the customer pays the
+    // shipping fee only AFTER the booking exists (see delivery-fee-payment.test.ts).
     async function withQuotation(customerId: string, moderatorId: string, quotationOverrides: Partial<typeof QUOTATION_RESULT> = {}) {
       const { order, delivery } = await createApprovedDeliveryOrder(customerId, moderatorId);
-      const amount = quotationOverrides.amount ?? QUOTATION_RESULT.amount;
-      await prisma.delivery.update({ where: { id: delivery.id }, data: { providerMetadata: { pendingQuotation: { ...QUOTATION_RESULT, ...quotationOverrides } } } });
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: 'PENDING', method: 'Cash', amount } });
+      await prisma.delivery.update({
+        where: { id: delivery.id },
+        data: { vehicleType: 'MOTORCYCLE', deliveryStatus: 'VEHICLE_SELECTED', providerMetadata: { pendingQuotation: { ...QUOTATION_RESULT, ...quotationOverrides } } },
+      });
       return { order, delivery };
     }
 
@@ -252,7 +253,7 @@ describe('Live Lalamove integration', () => {
       const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
       mockProvider.placeDeliveryOrder.mockResolvedValue({ orderId: 'llm_order_1', status: 'ASSIGNING_DRIVER', shareLink: 'https://share.lalamove.com/abc', priceBreakdown: { total: 189, currency: 'PHP' }, driverId: null });
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token));
 
       expectApiSuccess(response, 200);
       expect(response.body.data.delivery.lalamoveOrderId).toBe('llm_order_1');
@@ -268,34 +269,36 @@ describe('Live Lalamove integration', () => {
       expect((stored.providerMetadata as any)?.vehicleType).toBe('MOTORCYCLE');
       expect((stored.providerMetadata as any)?.trackingUrl).toBe('https://share.lalamove.com/abc');
       expect((stored.providerMetadata as any)?.pendingQuotation).toBeUndefined();
+      expect(stored.vehicleType).toBe('MOTORCYCLE');
+      expect(Number(stored.shippingFee)).toBe(189);
+      expect(stored.trackingUrl).toBe('https://share.lalamove.com/abc');
 
       const notifications = await prisma.notification.findMany({ where: { userId: customer.user.id, title: 'Delivery booked' } });
       expect(notifications).toHaveLength(1);
     });
 
-    it('rejects booking without a stored quotation', async () => {
+    it('rejects booking before a vehicle has been selected', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order, delivery } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
-      // The delivery-fee gate is checked first - satisfy it (Cash) so this
-      // test actually reaches the "no quotation on file" check it's testing.
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: 'PENDING', method: 'Cash', amount: 189 } });
+      const { order } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token));
 
-      expectApiError(response, 400, /quotation/i);
+      expectApiError(response, 400, /select a lalamove vehicle/i);
       expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
     });
 
-    it('rejects booking an expired quotation without touching the provider', async () => {
+    it('re-quotes the selected vehicle instead of booking an expired quotation', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
       const { order } = await withQuotation(customer.user.id, moderator.user.id, { expiresAt: new Date(Date.now() - 1000).toISOString() });
+      mockProvider.getQuotation.mockResolvedValue({ ...QUOTATION_RESULT, quotationId: 'quo_requoted' });
+      mockProvider.placeDeliveryOrder.mockResolvedValue({ orderId: 'llm_requoted', status: 'ASSIGNING_DRIVER', shareLink: null, priceBreakdown: { total: 189, currency: 'PHP' }, driverId: null });
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token));
 
-      expectApiError(response, 400, /expired/i);
-      expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
+      expectApiSuccess(response, 200);
+      expect(mockProvider.placeDeliveryOrder.mock.calls[0]![0]).toBe('quo_requoted');
     });
 
     it('rejects booking the same order twice (already has a Lalamove order id)', async () => {
@@ -304,7 +307,7 @@ describe('Live Lalamove integration', () => {
       const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
       await prisma.delivery.update({ where: { id: delivery.id }, data: { lalamoveOrderId: 'llm_already_booked' } });
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token));
 
       expectApiError(response, 409);
       expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
@@ -316,24 +319,26 @@ describe('Live Lalamove integration', () => {
       const { order, delivery } = await withQuotation(customer.user.id, moderator.user.id);
       mockProvider.placeDeliveryOrder.mockRejectedValue(new AppError('Quotation has expired upstream.', 400));
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(customer.token));
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token));
 
       expect(response.status).toBe(400);
       const stored = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id } });
       expect(stored.lalamoveOrderId).toBeNull();
+      expect(stored.deliveryStatus).toBe('BOOKING_FAILED');
       const logs = await prisma.activityLog.findMany({ where: { action: 'LALAMOVE_ORDER_PLACE_FAILED' } });
       expect(logs.length).toBeGreaterThan(0);
     });
 
-    it("rejects a different customer's order with 403", async () => {
-      const owner = await createCustomer();
-      const stranger = await createCustomer();
+    it('rejects the customer (even for their own order) and the owner with 403', async () => {
+      const customer = await createCustomer();
+      const owner = await createOwner();
       const moderator = await createModerator();
-      const { order } = await withQuotation(owner.user.id, moderator.user.id);
+      const { order } = await withQuotation(customer.user.id, moderator.user.id);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(stranger.token));
-
-      expectApiError(response, 403);
+      for (const token of [customer.token, owner.token]) {
+        expectApiError(await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(token)), 403);
+      }
+      expect(mockProvider.placeDeliveryOrder).not.toHaveBeenCalled();
     });
   });
 
@@ -590,8 +595,9 @@ describe('Live Lalamove integration', () => {
       const moderator = await createModerator();
       const owner = await createOwner();
       const { order } = await createApprovedDeliveryOrder(customer.user.id, moderator.user.id);
+      mockProvider.getAvailableServices.mockResolvedValue([{ key: 'MOTORCYCLE', description: 'Motorcycle', maxWeightKg: 20, dimensionsMeters: null }]);
       mockProvider.getQuotation.mockRejectedValue(new AppError('boom', 400));
-      await request(app).post(`/api/delivery/orders/${order.id}/quotation`).set(authHeader(customer.token)).send({ serviceType: 'MOTORCYCLE' });
+      await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
 
       const asModerator = await request(app).get('/api/delivery/failed-requests').set(authHeader(moderator.token));
       const asOwner = await request(app).get('/api/delivery/failed-requests').set(authHeader(owner.token));
@@ -664,7 +670,7 @@ describe('Live Lalamove integration', () => {
       const second = await request(app).post(`/api/delivery/webhook/${WEBHOOK_TOKEN}`).set('Content-Type', 'application/json').send(payload);
 
       expectApiSuccess(second, 200);
-      const notifications = await prisma.notification.findMany({ where: { userId: customer.user.id, title: 'Delivery status updated' } });
+      const notifications = await prisma.notification.findMany({ where: { userId: customer.user.id, title: 'Delivery on the way' } });
       expect(notifications).toHaveLength(1); // only the first delivery actually changed the status
     });
   });

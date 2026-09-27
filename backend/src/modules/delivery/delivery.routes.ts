@@ -11,7 +11,7 @@ import {
   idParamsSchema,
   listDeliveriesSchema,
   orderIdParamsSchema,
-  requestQuotationSchema,
+  selectVehicleSchema,
   setDeliveryCoordinatesSchema,
   updateDeliverySchema,
 } from './delivery.validation';
@@ -36,82 +36,83 @@ router.post('/validate-address', deliveryController.validateAddress);
 
 router.use(authenticate);
 
-// GET /api/delivery/vehicle-types - live Lalamove vehicle lineup for the quotation UI
-router.get('/vehicle-types', deliveryController.getVehicleTypes);
+// ----------------------------------------------------------------------------
+// Delivery workflow. Who does what is enforced here, not only in the UI:
+//   CUSTOMER  - requests delivery once the order is approved AND the product
+//               payment is PAID; views status, shipping fee and tracking; pays
+//               the shipping fee after the booking exists.
+//   MODERATOR - approves/declines the request, selects the Lalamove vehicle,
+//               books Lalamove, refreshes/cancels the booking.
+//   OWNER     - view-only: reads deliveries and may refresh live status
+//               (a read-only sync), but cannot approve, select, book or cancel.
+// ----------------------------------------------------------------------------
+
+// GET /api/delivery/vehicle-types - MODERATOR: live Lalamove vehicle lineup for vehicle selection
+router.get('/vehicle-types', restrictTo(UserRole.MODERATOR), deliveryController.getVehicleTypes);
 
 // GET /api/delivery/failed-requests - MODERATOR/OWNER: "Failed API requests" admin view
 router.get('/failed-requests', restrictTo(UserRole.MODERATOR, UserRole.OWNER), deliveryController.getFailedRequests);
 
-// POST /api/delivery/orders/:orderId/request - Authenticated CUSTOMER requests delivery
+// POST /api/delivery/orders/:orderId/request - CUSTOMER (own order, approved + paid)
 router.post(
   '/orders/:orderId/request',
+  restrictTo(UserRole.CUSTOMER),
   validate(orderIdParamsSchema),
   deliveryController.requestDelivery,
 );
 
-// PATCH /api/delivery/orders/:orderId/approve - MODERATOR and OWNER (Staff action to approve delivery request)
+// PATCH /api/delivery/orders/:orderId/approve - MODERATOR
 router.patch(
   '/orders/:orderId/approve',
-  restrictTo(UserRole.MODERATOR, UserRole.OWNER),
+  restrictTo(UserRole.MODERATOR),
   validate(orderIdParamsSchema),
   deliveryController.approveDeliveryRequest,
 );
 
-// PATCH /api/delivery/orders/:orderId/decline - MODERATOR and OWNER (Staff action to decline delivery request)
+// PATCH /api/delivery/orders/:orderId/decline - MODERATOR
 router.patch(
   '/orders/:orderId/decline',
-  restrictTo(UserRole.MODERATOR, UserRole.OWNER),
+  restrictTo(UserRole.MODERATOR),
   validate(declineDeliverySchema),
   deliveryController.declineDeliveryRequest,
 );
 
-// POST /api/delivery/orders/:orderId/proceed - Authenticated CUSTOMER proceeds with delivery (gated by approval)
+// POST /api/delivery/orders/:orderId/vehicle - MODERATOR selects the Lalamove vehicle (saves it + a free quote). Requires an APPROVED request.
 router.post(
-  '/orders/:orderId/proceed',
+  '/orders/:orderId/vehicle',
+  restrictTo(UserRole.MODERATOR),
+  validate(selectVehicleSchema),
+  deliveryController.selectVehicle,
+);
+
+// POST /api/delivery/orders/:orderId/book - MODERATOR places the real Lalamove booking for the selected vehicle
+router.post(
+  '/orders/:orderId/book',
+  restrictTo(UserRole.MODERATOR),
   validate(orderIdParamsSchema),
-  deliveryController.proceedWithDelivery,
+  deliveryController.bookDelivery,
 );
 
-// POST /api/delivery/orders/:orderId/arrange - MODERATOR and OWNER (Staff action to arrange delivery for eligible order)
-router.post(
-  '/orders/:orderId/arrange',
-  restrictTo(UserRole.MODERATOR, UserRole.OWNER),
-  validate(orderIdParamsSchema),
-  deliveryController.arrangeForOrder,
-);
-
-// POST /api/delivery/orders/:orderId/quotation - CUSTOMER (own order) or staff. Requires approvalStatus === APPROVED.
-router.post(
-  '/orders/:orderId/quotation',
-  validate(requestQuotationSchema),
-  deliveryController.requestQuotation,
-);
-
-// POST /api/delivery/orders/:orderId/fee/gcash - opens a PayMongo GCash checkout session for the delivery fee (separate charge from the product payment)
+// POST /api/delivery/orders/:orderId/fee/gcash - CUSTOMER pays the booked shipping fee via PayMongo GCash (separate charge from the product payment)
 router.post(
   '/orders/:orderId/fee/gcash',
+  restrictTo(UserRole.CUSTOMER),
   validate(orderIdParamsSchema),
   deliveryController.payFeeWithGcash,
 );
 
-// POST /api/delivery/orders/:orderId/fee/cash - selects Cash on Delivery for the delivery fee
+// POST /api/delivery/orders/:orderId/fee/cash - CUSTOMER chooses to pay the booked shipping fee in cash on delivery
 router.post(
   '/orders/:orderId/fee/cash',
+  restrictTo(UserRole.CUSTOMER),
   validate(orderIdParamsSchema),
   deliveryController.payFeeWithCash,
 );
 
-// POST /api/delivery/orders/:orderId/book - redeems the stored quotation into a real Lalamove order. Requires the delivery fee to be paid (GCash) or Cash on Delivery selected first.
-router.post(
-  '/orders/:orderId/book',
-  validate(orderIdParamsSchema),
-  deliveryController.confirmBooking,
-);
-
-// PATCH /api/delivery/orders/:orderId/coordinates - MODERATOR/OWNER manual dropoff-coordinates bridge
+// PATCH /api/delivery/orders/:orderId/coordinates - MODERATOR fallback for older orders without a saved-address map pin
 router.patch(
   '/orders/:orderId/coordinates',
-  restrictTo(UserRole.MODERATOR, UserRole.OWNER),
+  restrictTo(UserRole.MODERATOR),
   validate(setDeliveryCoordinatesSchema),
   deliveryController.setCoordinates,
 );

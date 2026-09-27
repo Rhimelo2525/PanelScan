@@ -58,7 +58,7 @@ export function DeliveryFeeCancelPage() {
             <div className="mt-7 flex flex-wrap gap-3">{orderButton}</div>
           </PaymentResultCard>
         ) : (
-          <PaymentResultCard tone="neutral" icon={XCircle} eyebrow="Delivery fee cancelled" title="Delivery fee payment cancelled." description="Nothing has been booked and nothing was charged. Return to your order to try GCash again, or choose Cash on Delivery instead." headingRef={headingRef}>
+          <PaymentResultCard tone="neutral" icon={XCircle} eyebrow="Delivery fee cancelled" title="Delivery fee payment cancelled." description="Nothing was charged. Your delivery booking is unaffected - return to your order to try GCash again, or pay the fee in cash on delivery instead." headingRef={headingRef}>
             {feePayment && <DeliveryFeeSummaryList feePayment={feePayment} order={orderSummary} orderNumber={orderNumber} />}
             <div className="mt-7 flex flex-wrap gap-3">{orderButton}</div>
           </PaymentResultCard>

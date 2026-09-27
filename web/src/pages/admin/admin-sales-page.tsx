@@ -1,12 +1,12 @@
 import { ExternalLink, Eye, Loader2, MapPin, PackageSearch } from "lucide-react"
 import { useState } from "react"
 import type { ReactNode } from "react"
+import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
 import {
   approveDeliveryRequest,
   approveOrder,
-  arrangeDelivery,
   declineDeliveryRequest,
   getSalesReport,
   updateOrderStatus,
@@ -39,6 +39,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
+import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
 import type { OrderReportRow } from "@/types/admin"
 
 const ORDER_STATUSES = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]
@@ -72,31 +73,33 @@ function deliveryStatusContent(row: OrderReportRow, { truncateAddress }: { trunc
     )
   }
   if (row.deliveryApprovalStatus === "APPROVED") {
-    if (row.deliveryStatus === "PREPARING") return <StatusBadge status="PREPARING" label="Preparing" />
-    if (row.deliveryStatus === "DELIVERED") return <StatusBadge status="DELIVERED" label="Delivered" />
     if (row.deliveryStatus && row.deliveryStatus !== "NOT_REQUESTED" && row.deliveryStatus !== "NOT_SCHEDULED") {
-      return <StatusBadge status={row.deliveryStatus} label="In transit" />
+      return <StatusBadge status={row.deliveryStatus} label={getDeliveryStatusLabel(row.deliveryStatus)} />
     }
     return <StatusBadge status="APPROVED" label="Approved" />
   }
   return <span className="text-xs text-muted-foreground">Not requested</span>
 }
 
-/** Eligible for arranging delivery: approved, paid, not cancelled, delivery approved, and not already arranged. */
-function isDeliveryEligibleForRow(row: OrderReportRow): boolean {
+/** An approved delivery request not yet booked with Lalamove - the moderator selects the vehicle and books it from Deliveries. */
+function needsBookingForRow(row: OrderReportRow): boolean {
+  const pre = ["NOT_REQUESTED", "NOT_SCHEDULED", "VEHICLE_SELECTED", "BOOKING_FAILED"]
+  return row.deliveryApprovalStatus === "APPROVED" && (!row.deliveryStatus || pre.includes(row.deliveryStatus))
+}
+
+function BookInDeliveriesLink({ row, compact }: { row: OrderReportRow; compact: boolean }) {
   return (
-    Boolean(row.moderatorApproved) &&
-    Boolean(row.isPaid) &&
-    row.deliveryApprovalStatus === "APPROVED" &&
-    (!row.deliveryStatus || row.deliveryStatus === "NOT_REQUESTED" || row.deliveryStatus === "NOT_SCHEDULED")
+    <Button size="sm" variant="outline" className={compact ? "h-6 px-2 text-[11px] font-medium border-primary/40 text-primary hover:bg-primary/10" : "h-7 px-2.5 text-xs font-medium border-primary/40 text-primary hover:bg-primary/10"} asChild>
+      <Link to={`/admin/deliveries?search=${encodeURIComponent(row.orderNumber)}`}>Book in Deliveries</Link>
+    </Button>
   )
 }
 
 /**
  * Sales Review (owner) and Sales Management (moderator) show sales orders,
  * revenue metrics, and order payment/delivery/fulfillment statuses.
- * MODERATOR can act (approve, accept/decline delivery, arrange delivery,
- * change order status); OWNER is view-only throughout - never shown an
+ * MODERATOR can act (approve, accept/decline delivery requests, change
+ * order status; vehicle selection and Lalamove booking live on Deliveries); OWNER is view-only throughout - never shown an
  * action control, only the same information.
  */
 export function AdminSalesPage() {
@@ -108,7 +111,6 @@ export function AdminSalesPage() {
   const [status, setStatus] = useState("")
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
-  const [arrangingId, setArrangingId] = useState<string | null>(null)
   const [acceptingDeliveryId, setAcceptingDeliveryId] = useState<string | null>(null)
   const [decliningOrder, setDecliningOrder] = useState<OrderReportRow | null>(null)
   const [declineReason, setDeclineReason] = useState("")
@@ -123,7 +125,7 @@ export function AdminSalesPage() {
     setAcceptingDeliveryId(order.id)
     try {
       await approveDeliveryRequest(order.id)
-      toast.success(`Delivery request approved for ${order.orderNumber}. Customer may now proceed with delivery.`)
+      toast.success(`Delivery request approved for ${order.orderNumber}. Select a vehicle and book Lalamove from Deliveries.`)
       report.reload()
     } catch (error) {
       toast.error("Could not approve delivery request", { description: getAdminErrorMessage(error) })
@@ -171,19 +173,6 @@ export function AdminSalesPage() {
       toast.error("Order not approved", { description: getAdminErrorMessage(error) })
     } finally {
       setApprovingId(null)
-    }
-  }
-
-  async function handleArrangeDelivery(order: OrderReportRow) {
-    setArrangingId(order.id)
-    try {
-      await arrangeDelivery(order.id)
-      toast.success(`Delivery arranged for ${order.orderNumber}. Lalamove dispatch is being prepared.`)
-      report.reload()
-    } catch (error) {
-      toast.error("Could not arrange delivery", { description: getAdminErrorMessage(error) })
-    } finally {
-      setArrangingId(null)
     }
   }
 
@@ -298,17 +287,7 @@ export function AdminSalesPage() {
                         </Button>
                       </div>
                     )}
-                    {isDeliveryEligibleForRow(row) && isModerator && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 px-2 text-[11px] font-medium border-primary/40 text-primary hover:bg-primary/10"
-                        onClick={() => void handleArrangeDelivery(row)}
-                        disabled={arrangingId === row.id}
-                      >
-                        {arrangingId === row.id ? <Loader2 className="size-3 animate-spin" /> : "Arrange Delivery"}
-                      </Button>
-                    )}
+                    {needsBookingForRow(row) && isModerator && <BookInDeliveriesLink row={row} compact />}
                   </div>
                 ),
               },
@@ -443,17 +422,7 @@ export function AdminSalesPage() {
                           </Button>
                         </div>
                       )}
-                      {isDeliveryEligibleForRow(detailsOrder) && isModerator && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2.5 text-xs font-medium border-primary/40 text-primary hover:bg-primary/10"
-                          onClick={() => void handleArrangeDelivery(detailsOrder)}
-                          disabled={arrangingId === detailsOrder.id}
-                        >
-                          {arrangingId === detailsOrder.id ? <Loader2 className="size-3 animate-spin" /> : "Arrange Delivery"}
-                        </Button>
-                      )}
+                      {needsBookingForRow(detailsOrder) && isModerator && <BookInDeliveriesLink row={detailsOrder} compact={false} />}
                     </div>
                   </div>
 

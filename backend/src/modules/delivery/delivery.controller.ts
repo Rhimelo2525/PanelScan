@@ -6,7 +6,7 @@ import { AppError } from '../../utils/AppError.js';
 import { catchAsync } from '../../utils/catchAsync.js';
 import { sendSuccess } from '../../utils/response.js';
 import { DeliveryService, deliveryService } from './delivery.service.js';
-import type { DeliveryFilters } from './delivery.types.js';
+import { DELIVERY_STATE_FILTERS, type DeliveryFilters } from './delivery.types.js';
 import { lalamoveConfig } from './providers/lalamove.config.js';
 import { deliveryCoverage, isLocationInPanelScanCoverage } from './delivery-coverage.config.js';
 import {
@@ -40,7 +40,7 @@ const parseDeliveryFilters = (query: Request['query']): DeliveryFilters => ({
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   search: typeof query.search === 'string' ? query.search : undefined,
   status: query.status === 'scheduled' || query.status === 'delivered' ? query.status : undefined,
-  deliveryState: query.deliveryState === 'active' || query.deliveryState === 'completed' || query.deliveryState === 'cancelled' ? query.deliveryState : undefined,
+  deliveryState: DELIVERY_STATE_FILTERS.find((state) => state === query.deliveryState),
   sortBy: query.sortBy === 'scheduledDate' || query.sortBy === 'createdAt' ? query.sortBy : undefined,
   sortOrder: query.sortOrder === 'asc' || query.sortOrder === 'desc' ? query.sortOrder : undefined,
 });
@@ -53,24 +53,17 @@ export class DeliveryController {
     sendSuccess(res, 201, 'Delivery created successfully.', { delivery });
   });
 
-  arrangeForOrder = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const delivery = await this.deliveryService.arrangeDeliveryForOrder(orderId, requester.id, requester.role);
-    sendSuccess(res, 200, 'Delivery arranged successfully.', { delivery });
-  });
-
   requestDelivery = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
-    const delivery = await this.deliveryService.requestDelivery(orderId, requester.id);
+    const delivery = await this.deliveryService.requestDelivery(orderId, requester.id, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery request submitted successfully.', { delivery });
   });
 
   approveDeliveryRequest = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
-    const delivery = await this.deliveryService.approveDeliveryRequest(orderId, requester.id);
+    const delivery = await this.deliveryService.approveDeliveryRequest(orderId, requester.id, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery request approved successfully.', { delivery });
   });
 
@@ -78,15 +71,8 @@ export class DeliveryController {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
     const reason = req.body?.reason;
-    const delivery = await this.deliveryService.declineDeliveryRequest(orderId, requester.id, reason);
+    const delivery = await this.deliveryService.declineDeliveryRequest(orderId, requester.id, reason, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery request declined successfully.', { delivery });
-  });
-
-  proceedWithDelivery = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const result = await this.deliveryService.proceedWithDelivery(orderId, requester.id);
-    sendSuccess(res, 200, result.message, result);
   });
 
   /** CUSTOMER: deliveries for their own orders only. MODERATOR/OWNER: every delivery. */
@@ -159,41 +145,41 @@ export class DeliveryController {
     sendSuccess(res, 200, 'Barangays retrieved successfully.', { barangays });
   });
 
-  /** Live Lalamove vehicle lineup for the quotation UI's dropdown. */
+  /** MODERATOR: live Lalamove vehicle lineup for the vehicle picker on the Deliveries page. */
   getVehicleTypes = catchAsync(async (_req: Request, res: Response): Promise<void> => {
     const services = await this.deliveryService.getAvailableVehicleTypes();
     sendSuccess(res, 200, 'Vehicle types retrieved successfully.', { services });
   });
 
-  /** Free, non-committal - requests a live fee quote from Lalamove without booking anything. */
-  requestQuotation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+  /** MODERATOR: saves the chosen vehicle and a free, non-committal Lalamove quote for it (the estimated fee). Books nothing. */
+  selectVehicle = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
-    const quotation = await this.deliveryService.requestQuotation(orderId, requester.id, requester.role, req.body.serviceType, getRequestAuditContext(req));
-    sendSuccess(res, 200, 'Quotation retrieved successfully.', { quotation });
+    const result = await this.deliveryService.selectVehicle(orderId, requester.id, req.body.serviceType, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Vehicle selected successfully.', result);
   });
 
-  /** Redeems the stored quotation into a real, billable Lalamove booking. Refuses unless the delivery fee is paid (GCash) or Cash on Delivery is selected - see delivery.service.ts#confirmBooking. */
-  confirmBooking = catchAsync(async (req: Request, res: Response): Promise<void> => {
+  /** MODERATOR: places the real, billable Lalamove booking for the selected vehicle and saves the fee Lalamove returns. */
+  bookDelivery = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
-    const delivery = await this.deliveryService.confirmBooking(orderId, requester.id, requester.role, getRequestAuditContext(req));
+    const delivery = await this.deliveryService.bookDelivery(orderId, requester.id, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery booked successfully.', { delivery });
   });
 
-  /** Opens a PayMongo GCash checkout session for the delivery fee shown in the still-valid quotation. */
+  /** CUSTOMER: opens a PayMongo GCash checkout session for the shipping fee Lalamove charged for the booking. */
   payFeeWithGcash = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
-    const result = await this.deliveryService.createFeeGcashCheckout(orderId, requester.id, requester.role, getRequestAuditContext(req));
+    const result = await this.deliveryService.createFeeGcashCheckout(orderId, requester.id, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery fee checkout created successfully.', result);
   });
 
-  /** Selects Cash on Delivery for the delivery fee - rider collects it at drop-off. */
+  /** CUSTOMER: selects Cash on Delivery for the shipping fee - collected at drop-off. */
   payFeeWithCash = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;
-    const result = await this.deliveryService.selectFeeCash(orderId, requester.id, requester.role, getRequestAuditContext(req));
+    const result = await this.deliveryService.selectFeeCash(orderId, requester.id, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Cash on Delivery selected for the delivery fee.', result);
   });
 
@@ -211,7 +197,7 @@ export class DeliveryController {
     sendSuccess(res, 200, 'Delivery booking cancelled successfully.', { delivery });
   });
 
-  /** MODERATOR/OWNER interim bridge until a real geocoder is configured (see geocoding.service.ts). */
+  /** MODERATOR-only fallback for older orders placed before saved-address map pins existed. */
   setCoordinates = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const orderId = req.params.orderId as string;

@@ -1,9 +1,7 @@
-import { AlertCircle, ArrowRight, CheckCircle2, Clock3, HelpCircle, Loader2, Truck, XCircle } from "lucide-react"
+import { AlertCircle, ArrowRight, CheckCircle2, Clock3, HelpCircle, Loader2, XCircle } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
-import { toast } from "sonner"
 
-import { confirmDeliveryBooking } from "@/api/delivery"
 import { Container } from "@/components/layout/container"
 import { DeliveryFeeSummaryList } from "@/components/payments/delivery-fee-summary-list"
 import { PaymentResultCard } from "@/components/payments/payment-result-card"
@@ -11,23 +9,19 @@ import { Button } from "@/components/ui/button"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { readDeliveryFeeHandoff } from "@/payments/delivery-fee-handoff"
 import { useDeliveryFeeConfirmation } from "@/payments/use-delivery-fee-confirmation"
-import { getPaymentErrorMessage } from "@/payments/payment-errors"
 import type { OrderStatus } from "@/types/order"
 
 /**
  * Return route for DELIVERY_PAYMENT_SUCCESS_URL. Landing here proves only
  * that PayMongo redirected the browser back - never treated as proof of
- * payment (see delivery.service.ts#handleDeliveryFeeWebhook, which does NOT
- * book the Lalamove order itself). Once the fee is confirmed PAID, the
- * customer clicks "Book vehicle" here to place the real, billable booking -
- * matching the "explicit click after payment" choice made for this feature.
+ * payment (see delivery.service.ts#handleDeliveryFeeWebhook). The Lalamove
+ * booking itself was already placed by PanelScan staff before the fee could
+ * be paid, so there is nothing left for the customer to book here.
  */
 export function DeliveryFeeSuccessPage() {
   useDocumentTitle("Delivery fee payment result | PanelScan")
   const [handoff] = useState(() => readDeliveryFeeHandoff())
   const { delivery, phase, error, checkAgain } = useDeliveryFeeConfirmation({ deliveryId: handoff?.deliveryId ?? null, poll: true })
-  const [isBooking, setIsBooking] = useState(false)
-  const [bookError, setBookError] = useState<string | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
@@ -40,20 +34,6 @@ export function DeliveryFeeSuccessPage() {
 
   const orderButton = orderId ? <Button variant="outline" asChild><Link to={`/orders/${orderId}`}>View order</Link></Button> : <Button variant="outline" asChild><Link to="/orders">View your orders</Link></Button>
   const orderSummary = delivery?.order ? { orderNumber: delivery.order.orderNumber, status: delivery.order.status as OrderStatus } : null
-
-  async function handleBookVehicle() {
-    if (!orderId) return
-    setIsBooking(true)
-    setBookError(null)
-    try {
-      await confirmDeliveryBooking(orderId)
-      toast.success("Delivery booked", { description: "Your order has been booked with Lalamove." })
-    } catch (caughtError) {
-      setBookError(getPaymentErrorMessage(caughtError))
-    } finally {
-      setIsBooking(false)
-    }
-  }
 
   return (
     <Container className="py-10 sm:py-14 lg:py-18">
@@ -74,22 +54,12 @@ export function DeliveryFeeSuccessPage() {
             <div className="mt-7 flex flex-wrap gap-3"><Button onClick={checkAgain}>Check again</Button>{orderButton}</div>
           </PaymentResultCard>
         ) : feePayment?.status === "PAID" ? (
-          <PaymentResultCard tone="positive" icon={CheckCircle2} eyebrow="Delivery fee confirmed" title="Your delivery fee is paid." description="PanelScan received a confirmed successful GCash payment for the delivery fee. Book your vehicle to complete the Lalamove booking." headingRef={headingRef}>
+          <PaymentResultCard tone="positive" icon={CheckCircle2} eyebrow="Delivery fee confirmed" title="Your delivery fee is paid." description="PanelScan received a confirmed successful GCash payment for the delivery fee. You can follow your delivery from the order page." headingRef={headingRef}>
             <DeliveryFeeSummaryList feePayment={feePayment} order={orderSummary} orderNumber={orderNumber} />
-            {bookError && <p role="alert" className="mt-5 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs leading-5 text-destructive">{bookError}</p>}
-            {delivery?.lalamoveOrderId ? (
-              <div className="mt-7 flex flex-wrap gap-3">{orderId && <Button asChild><Link to={`/orders/${orderId}`}>View booking<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>}</div>
-            ) : (
-              <div className="mt-7 flex flex-wrap gap-3">
-                <Button onClick={() => void handleBookVehicle()} disabled={isBooking}>
-                  {isBooking ? <><Loader2 className="animate-spin" aria-hidden="true" />Booking…</> : <><Truck data-icon="inline-start" aria-hidden="true" />Book vehicle</>}
-                </Button>
-                {orderButton}
-              </div>
-            )}
+            <div className="mt-7 flex flex-wrap gap-3">{orderId ? <Button asChild><Link to={`/orders/${orderId}`}>Track delivery<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button> : orderButton}</div>
           </PaymentResultCard>
         ) : feePayment?.status === "FAILED" ? (
-          <PaymentResultCard tone="critical" icon={XCircle} eyebrow="Delivery fee" title="This delivery fee payment did not go through." description="The payment provider reported that the payment failed. You can go back to your order and try GCash again, or choose Cash on Delivery instead." headingRef={headingRef}>
+          <PaymentResultCard tone="critical" icon={XCircle} eyebrow="Delivery fee" title="This delivery fee payment did not go through." description="The payment provider reported that the payment failed. You can go back to your order and try GCash again, or pay the fee in cash on delivery instead." headingRef={headingRef}>
             {feePayment && <DeliveryFeeSummaryList feePayment={feePayment} order={null} orderNumber={orderNumber} />}
             <div className="mt-7 flex flex-wrap gap-3">{orderButton}</div>
           </PaymentResultCard>

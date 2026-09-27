@@ -21,6 +21,12 @@ export const ActivityAction = {
   LALAMOVE_WEBHOOK_REJECTED: 'LALAMOVE_WEBHOOK_REJECTED',
   DELIVERY_COORDINATES_SET: 'DELIVERY_COORDINATES_SET',
 
+  // Moderator-driven delivery workflow (request -> approve -> vehicle -> book).
+  DELIVERY_REQUESTED: 'DELIVERY_REQUESTED',
+  DELIVERY_REQUEST_APPROVED: 'DELIVERY_REQUEST_APPROVED',
+  DELIVERY_REQUEST_DECLINED: 'DELIVERY_REQUEST_DECLINED',
+  DELIVERY_VEHICLE_SELECTED: 'DELIVERY_VEHICLE_SELECTED',
+
   // Delivery-fee payment (DeliveryPayment) - separate from the product
   // PAYMENT_* actions, which don't exist in this table but live implicitly
   // via the "payments" audit trail elsewhere.

@@ -98,18 +98,7 @@ export function requestDelivery(orderId: string) {
   })
 }
 
-/** CUSTOMER action: Proceeds with delivery for an approved order. */
-export function proceedWithDelivery(orderId: string) {
-  return apiRequest<{ success: boolean; message: string; orderId: string; delivery: DeliveryRecord }>(
-    `/delivery/orders/${orderId}/proceed`,
-    {
-      method: "POST",
-      authenticated: true,
-    },
-  )
-}
-
-/** MODERATOR/OWNER staff action: Approves a customer delivery request. */
+/** MODERATOR: approves a customer delivery request. */
 export function approveDeliveryRequest(orderId: string) {
   return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/approve`, {
     method: "PATCH",
@@ -117,7 +106,7 @@ export function approveDeliveryRequest(orderId: string) {
   })
 }
 
-/** MODERATOR/OWNER staff action: Declines a customer delivery request. */
+/** MODERATOR: declines a customer delivery request. */
 export function declineDeliveryRequest(orderId: string, reason?: string) {
   return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/decline`, {
     method: "PATCH",
@@ -128,15 +117,15 @@ export function declineDeliveryRequest(orderId: string, reason?: string) {
 
 // ---------------------------------------------------------------- live Lalamove integration
 
-/** Live Lalamove vehicle lineup for the quotation UI. Always succeeds - the backend falls back to a static list if the provider call fails. */
+/** MODERATOR: the live Lalamove vehicle lineup. Fails (rather than inventing vehicles) when Lalamove can't be reached. */
 export async function getVehicleTypes(signal?: AbortSignal): Promise<LalamoveServiceType[]> {
   const response = await apiRequest<{ services: LalamoveServiceType[] }>("/delivery/vehicle-types", { authenticated: true, signal })
   return response.services
 }
 
-/** Free, non-committal: requests a live fee quote from Lalamove without booking anything. Requires the delivery request to already be APPROVED. */
-export function requestQuotation(orderId: string, serviceType: string, signal?: AbortSignal) {
-  return apiRequest<{ quotation: DeliveryQuotation }>(`/delivery/orders/${orderId}/quotation`, {
+/** MODERATOR: saves the chosen vehicle plus a free Lalamove quote for it (the estimated fee). Books nothing. Requires an APPROVED request. */
+export function selectDeliveryVehicle(orderId: string, serviceType: string, signal?: AbortSignal) {
+  return apiRequest<{ delivery: DeliveryRecord; quotation: DeliveryQuotation }>(`/delivery/orders/${orderId}/vehicle`, {
     method: "POST",
     authenticated: true,
     body: { serviceType },
@@ -144,18 +133,18 @@ export function requestQuotation(orderId: string, serviceType: string, signal?: 
   })
 }
 
-/** Opens a PayMongo GCash checkout session for the delivery fee shown in the current quotation - a separate charge from the product payment. */
+/** CUSTOMER: opens a PayMongo GCash checkout for the shipping fee Lalamove charged for the booking - a separate charge from the product payment. */
 export function payDeliveryFeeWithGcash(orderId: string, signal?: AbortSignal) {
   return apiRequest<{ checkoutUrl: string }>(`/delivery/orders/${orderId}/fee/gcash`, { method: "POST", authenticated: true, signal })
 }
 
-/** Selects Cash on Delivery for the delivery fee - the rider collects it at drop-off. */
+/** CUSTOMER: chooses to pay the booked shipping fee in cash on delivery. */
 export function selectDeliveryFeeCash(orderId: string, signal?: AbortSignal) {
   return apiRequest<{ amount: number }>(`/delivery/orders/${orderId}/fee/cash`, { method: "POST", authenticated: true, signal })
 }
 
-/** Redeems the quotation from requestQuotation() into a real, billable Lalamove booking. Requires the delivery fee to be paid (GCash) or Cash on Delivery selected first - see delivery.service.ts#confirmBooking. */
-export function confirmDeliveryBooking(orderId: string, signal?: AbortSignal) {
+/** MODERATOR: places the real, billable Lalamove booking for the selected vehicle; the response carries the fee Lalamove returned. */
+export function bookDelivery(orderId: string, signal?: AbortSignal) {
   return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/book`, { method: "POST", authenticated: true, signal })
 }
 
@@ -169,16 +158,19 @@ export function cancelDeliveryBooking(deliveryId: string, signal?: AbortSignal) 
   return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/${deliveryId}/cancel-booking`, { method: "POST", authenticated: true, signal })
 }
 
-/** MODERATOR/OWNER interim bridge until a real geocoder is wired in: manually sets an order's dropoff coordinates. */
+/** MODERATOR fallback for older orders without a saved-address map pin: manually sets the dropoff coordinates. */
 export function setDeliveryCoordinates(orderId: string, latitude: number, longitude: number, signal?: AbortSignal) {
   return apiRequest<void>(`/delivery/orders/${orderId}/coordinates`, { method: "PATCH", authenticated: true, body: { latitude, longitude }, signal })
 }
+
+/** "requested" = awaiting moderator approval; "to_book" = approved, not yet booked with Lalamove. */
+export type DeliveryStateFilter = "requested" | "to_book" | "active" | "completed" | "cancelled"
 
 export interface DeliveryListFilters {
   page?: number
   limit?: number
   search?: string
-  deliveryState?: "active" | "completed" | "cancelled"
+  deliveryState?: DeliveryStateFilter
   sortBy?: "scheduledDate" | "createdAt"
   sortOrder?: "asc" | "desc"
 }
