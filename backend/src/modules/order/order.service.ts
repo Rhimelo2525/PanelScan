@@ -2,6 +2,8 @@ import { BookingStatus, NotificationType, OrderStatus, Prisma, UserRole } from '
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { notifyStaff, notifyStockLevelChanges, notifySystemIssue } from '../notifications/notification.triggers';
+import type { StockChange } from '../notifications/notification.triggers';
 import { ActivityAction, buildActivityLogData } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
 import { syncRecordToBackup } from '../../utils/backupSync';
@@ -37,16 +39,20 @@ interface OrderItemDraft {
  * Restores the ordered quantity of every item back to Inventory. Shared by
  * the CUSTOMER cancel-while-PENDING path and the MODERATOR/OWNER
  * set-status-to-CANCELLED path, so stock is returned identically no matter
- * who cancels.
+ * who cancels. Returns each product's pre-restock quantity so the caller can
+ * raise "back in stock" notifications once its transaction has committed.
  */
-const restockOrderItems = async (tx: Prisma.TransactionClient, orderId: string): Promise<void> => {
+const restockOrderItems = async (tx: Prisma.TransactionClient, orderId: string): Promise<StockChange[]> => {
   const items = await tx.orderItem.findMany({ where: { orderId } });
+  const changes: StockChange[] = [];
   for (const item of items) {
-    await tx.inventory.update({
+    const updated = await tx.inventory.update({
       where: { productId: item.productId },
       data: { quantity: { increment: item.quantity } },
     });
+    changes.push({ productId: item.productId, previousQuantity: updated.quantity - item.quantity });
   }
+  return changes;
 };
 
 export class OrderService {
@@ -69,8 +75,11 @@ export class OrderService {
     // never do either (coordinates just stay null/"pending", exactly as
     // before a geocoder existed at all - see geocoding.service.ts).
     const { finalShippingAddress, deliveryLocationSnapshot } = await this.resolveDeliveryLocation(input);
+    let stockChanges: StockChange[] = [];
 
     const order = await prisma.$transaction(async (tx) => {
+      // Reset on every attempt - Prisma may retry this callback on a serialization conflict.
+      stockChanges = [];
       let subtotal = new Prisma.Decimal(0);
       const orderItemsData: OrderItemDraft[] = [];
       const inventoryDecrements: { productId: string; quantity: number }[] = [];
@@ -180,10 +189,11 @@ export class OrderService {
       });
 
       for (const item of inventoryDecrements) {
-        await tx.inventory.update({
+        const updated = await tx.inventory.update({
           where: { productId: item.productId },
           data: { quantity: { decrement: item.quantity } },
         });
+        stockChanges.push({ productId: item.productId, previousQuantity: updated.quantity + item.quantity });
       }
 
       if (cartIdForDeletion && cartItemIdsToDelete.length > 0) {
@@ -233,6 +243,31 @@ export class OrderService {
       return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: orderInclude });
     });
 
+    // Staff notifications fan out only after checkout has committed - they
+    // are informational, and must never be able to fail or roll back an order.
+    const customerName = `${order.customer.firstName} ${order.customer.lastName}`.trim();
+    await notifyStaff({
+      type: NotificationType.ORDER,
+      title: 'New order placed',
+      message: `${customerName} placed order ${order.orderNumber}.`,
+      metadata: { orderId: order.id, orderNumber: order.orderNumber, event: 'ORDER_CREATED' },
+      byRole: {
+        [UserRole.MODERATOR]: {
+          title: 'New order received',
+          message: `Order ${order.orderNumber} from ${customerName} is awaiting your approval.`,
+        },
+      },
+    });
+    if (order.booking) {
+      await notifyStaff({
+        type: NotificationType.BOOKING,
+        title: 'New installation request',
+        message: `${customerName} requested installation with order ${order.orderNumber}.`,
+        metadata: { bookingId: order.booking.id, orderId: order.id, orderNumber: order.orderNumber, event: 'INSTALLATION_REQUESTED' },
+      });
+    }
+    await notifyStockLevelChanges(stockChanges);
+
     // Real-time backup sync - only after the main database transaction
     // above has fully committed (see backupSync.ts's own doc comment for
     // the failure-handling contract). Only bothers for orders that actually
@@ -250,6 +285,12 @@ export class OrderService {
               id: order.id,
               reason: 'order creation with a confirmed delivery location',
             }),
+          });
+          await notifySystemIssue({
+            title: 'Backup sync failed',
+            message: 'An order could not be synchronized to the backup database. It will be retried by the next scheduled backup sync.',
+            event: 'BACKUP_SYNC_FAILED',
+            metadata: { model: 'order', id: order.id },
           });
         }
       }
@@ -380,7 +421,8 @@ export class OrderService {
   }
 
   async cancelOwnOrder(orderId: string, customerId: string): Promise<OrderWithItems> {
-    return prisma.$transaction(async (tx) => {
+    let stockChanges: StockChange[] = [];
+    const cancelled = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id: orderId } });
       if (!order || order.customerId !== customerId) {
         throw new AppError('Order not found.', 404);
@@ -389,7 +431,7 @@ export class OrderService {
         throw new AppError('Only pending orders can be cancelled.', 400);
       }
 
-      await restockOrderItems(tx, orderId);
+      stockChanges = await restockOrderItems(tx, orderId);
       await tx.order.update({ where: { id: orderId }, data: { status: OrderStatus.CANCELLED } });
 
       await createNotification(
@@ -405,10 +447,14 @@ export class OrderService {
 
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
     });
+
+    await notifyStockLevelChanges(stockChanges);
+    return cancelled;
   }
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<OrderWithItems> {
-    return prisma.$transaction(async (tx) => {
+    let stockChanges: StockChange[] = [];
+    const updated = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id: orderId } });
       if (!order) {
         throw new AppError('Order not found.', 404);
@@ -420,25 +466,31 @@ export class OrderService {
         );
       }
 
-      if (status === OrderStatus.CANCELLED) {
-        await restockOrderItems(tx, orderId);
-      }
+      stockChanges = status === OrderStatus.CANCELLED ? await restockOrderItems(tx, orderId) : [];
 
       await tx.order.update({ where: { id: orderId }, data: { status } });
 
+      // Staff cancelling an order they never approved is, from the
+      // customer's side, the order being declined - say so plainly.
+      const isDeclined = status === OrderStatus.CANCELLED && !order.moderatorApproved;
       await createNotification(
         {
           userId: order.customerId,
           type: NotificationType.ORDER,
-          title: 'Order status updated',
-          message: `Your order ${order.orderNumber} is now ${status.toLowerCase()}.`,
-          metadata: { orderId: order.id, orderNumber: order.orderNumber, status },
+          title: isDeclined ? 'Order declined' : 'Order status updated',
+          message: isDeclined
+            ? `Your order ${order.orderNumber} has been declined. Any stock reserved for it has been released.`
+            : `Your order ${order.orderNumber} is now ${status.toLowerCase()}.`,
+          metadata: { orderId: order.id, orderNumber: order.orderNumber, status, ...(isDeclined ? { event: 'ORDER_DECLINED' } : {}) },
         },
         tx,
       );
 
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
     });
+
+    await notifyStockLevelChanges(stockChanges);
+    return updated;
   }
 
   async approveOrder(orderId: string, _moderatorId: string): Promise<OrderWithItems> {

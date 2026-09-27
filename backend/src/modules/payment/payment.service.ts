@@ -3,6 +3,7 @@ import { NotificationType, OrderStatus, PaymentStatus, Prisma, UserRole } from '
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { describeError, notifyStaff, notifySystemIssue } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { deliveryService } from '../delivery/delivery.service';
 import { DELIVERY_FEE_REFERENCE_PREFIX, createPaymongoCheckoutSession, verifyPaymongoSignature } from './paymongo.client';
@@ -54,7 +55,21 @@ export class PaymentService {
       throw new AppError('This order has already been paid.', 400);
     }
 
-    const checkoutSession = await this.createPaymongoCheckoutSession(order, order.customer);
+    let checkoutSession: PaymongoCheckoutSessionResponseData;
+    try {
+      checkoutSession = await this.createPaymongoCheckoutSession(order, order.customer);
+    } catch (error) {
+      // Configuration/validation problems (4xx AppErrors) are not provider outages - only alert staff for the rest.
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        await notifySystemIssue({
+          title: 'Payment API error',
+          message: `PayMongo checkout could not be created: ${describeError(error)}`,
+          event: 'PAYMENT_API_ERROR',
+          metadata: { orderId: order.id },
+        });
+      }
+      throw error;
+    }
 
     const payment = await prisma.payment.upsert({
       where: { orderId: order.id },
@@ -189,7 +204,7 @@ export class PaymentService {
         return;
       }
 
-      await prisma.$transaction(async (tx) => {
+      const paidOrder = await prisma.$transaction(async (tx) => {
         await tx.payment.update({
           where: { id: payment.id },
           data: {
@@ -216,7 +231,17 @@ export class PaymentService {
             tx,
           );
         }
+        return order;
       });
+
+      if (paidOrder) {
+        await notifyStaff({
+          type: NotificationType.PAYMENT,
+          title: 'Payment received',
+          message: `GCash payment of ₱${Number(payment.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })} received for order ${paidOrder.orderNumber}.`,
+          metadata: { paymentId: payment.id, orderId: paidOrder.id, event: 'PAYMENT_RECEIVED' },
+        });
+      }
       return;
     }
 
@@ -228,6 +253,24 @@ export class PaymentService {
         where: { id: payment.id },
         data: { status: PaymentStatus.FAILED, transactionRef: eventPaymentId ?? payment.transactionRef },
       });
+
+      const order = await prisma.order.findUnique({ where: { id: payment.orderId }, select: { id: true, orderNumber: true, customerId: true } });
+      if (order) {
+        await createNotification({
+          userId: order.customerId,
+          type: NotificationType.PAYMENT,
+          title: 'Payment failed',
+          message: `Your payment for order ${order.orderNumber} did not go through. You can try paying again from your order.`,
+          metadata: { paymentId: payment.id, orderId: order.id, event: 'PAYMENT_FAILED' },
+        });
+        await notifyStaff({
+          type: NotificationType.PAYMENT,
+          title: 'Payment failed',
+          message: `A GCash payment for order ${order.orderNumber} failed.`,
+          metadata: { paymentId: payment.id, orderId: order.id, event: 'PAYMENT_FAILED' },
+          roles: [UserRole.MODERATOR],
+        });
+      }
     }
   }
 

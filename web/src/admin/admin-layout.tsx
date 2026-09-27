@@ -5,6 +5,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { adminNavGroups, navGroupsForRole } from "@/admin/admin-nav"
 import { useAuth } from "@/auth/use-auth"
 import { BrandMark } from "@/components/layout/brand"
+import { NotificationBell } from "@/components/notifications/notification-bell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -102,6 +103,7 @@ export function AdminLayout() {
 
           <div className="flex items-center gap-2">
             <span className="hidden rounded-full border border-border bg-secondary px-2.5 py-1 text-xs font-medium sm:inline">{roleLabels[user.role] ?? user.role}</span>
+            <NotificationBell size="icon-sm" className="mr-1" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2" aria-label={`Account menu for ${user.firstName}`}>

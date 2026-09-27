@@ -2,6 +2,7 @@ import { BookingStatus, NotificationType, OrderStatus, Prisma, ProjectSource, Pr
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { bookingInclude } from './booking.types';
 import type { BookingFilters, BookingWithRelations, PaginatedBookings } from './booking.types';
@@ -75,6 +76,13 @@ export class BookingService {
       title: 'Booking created',
       message: `Your booking for ${booking.address} has been submitted and is pending approval.`,
       metadata: { bookingId: booking.id },
+    });
+
+    await notifyStaff({
+      type: NotificationType.BOOKING,
+      title: 'New installation request',
+      message: `${booking.customer.firstName} ${booking.customer.lastName} requested installation at ${booking.address}.`,
+      metadata: { bookingId: booking.id, orderId: booking.orderId, event: 'INSTALLATION_REQUESTED' },
     });
 
     return booking;
@@ -157,7 +165,7 @@ export class BookingService {
     newStatus: BookingStatus,
     scheduledDate?: Date,
   ): Promise<BookingWithRelations> {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({ where: { id: bookingId } });
       if (!booking) {
         throw new AppError('Booking not found.', 404);
@@ -193,12 +201,38 @@ export class BookingService {
         );
       }
 
+      if (newStatus === BookingStatus.COMPLETED && booking.status !== BookingStatus.COMPLETED) {
+        await createNotification(
+          {
+            userId: booking.customerId,
+            type: NotificationType.BOOKING,
+            title: 'Installation completed',
+            message: `Your installation at ${booking.address} has been completed.`,
+            metadata: { bookingId: booking.id, status: newStatus, event: 'INSTALLATION_COMPLETED' },
+          },
+          tx,
+        );
+      }
+
       if (newStatus === BookingStatus.COMPLETED) {
         await this.syncProjectOnBookingCompleted(tx, booking, actingUserId);
       }
 
-      return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: bookingInclude });
+      return { booking: await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: bookingInclude }), previousStatus: booking.status };
     });
+
+    if (newStatus === BookingStatus.COMPLETED && result.previousStatus !== BookingStatus.COMPLETED) {
+      await notifyStaff({
+        type: NotificationType.BOOKING,
+        title: 'Installation completed',
+        message: `Installation for ${result.booking.customer.firstName} ${result.booking.customer.lastName} at ${result.booking.address} was marked completed.`,
+        metadata: { bookingId: result.booking.id, event: 'INSTALLATION_COMPLETED' },
+        roles: [UserRole.MODERATOR],
+        excludeUserIds: [actingUserId],
+      });
+    }
+
+    return result.booking;
   }
 
   async assignInstaller(bookingId: string, installerId: string): Promise<BookingWithRelations> {
@@ -228,6 +262,20 @@ export class BookingService {
         where: { id: bookingId },
         data: { installerId, status: nextStatus },
       });
+
+      if (booking.installerId !== installerId) {
+        const scheduledFor = booking.scheduledDate.toLocaleDateString('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' });
+        await createNotification(
+          {
+            userId: booking.customerId,
+            type: NotificationType.BOOKING,
+            title: nextStatus === BookingStatus.SCHEDULED ? 'Installation scheduled' : 'Installer assigned',
+            message: `${installer.firstName} ${installer.lastName} has been assigned to your installation at ${booking.address}, scheduled for ${scheduledFor}.`,
+            metadata: { bookingId: booking.id, installerId, status: nextStatus, event: 'INSTALLER_ASSIGNED' },
+          },
+          tx,
+        );
+      }
 
       return tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: bookingInclude });
     });

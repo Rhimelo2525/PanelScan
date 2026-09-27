@@ -1,7 +1,7 @@
 import { NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
-import { createNotification } from '../notifications/notification.service';
+import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { feedbackInclude } from './feedback.types';
 import type { FeedbackFilters, FeedbackWithRelations, PaginatedFeedback } from './feedback.types';
@@ -156,27 +156,17 @@ export class FeedbackService {
    * NotificationType has no dedicated FEEDBACK value (only ORDER/PAYMENT/
    * BOOKING/CHAT/SYSTEM exist), so SYSTEM is used, disambiguated via
    * metadata.event - same approach already used for the booking-completion
-   * -> project-sync notification. Reuses createNotification() from the
-   * existing Notification module rather than writing to the Notification
-   * table directly, per "do NOT duplicate notification logic."
+   * -> project-sync notification. Goes through the shared notifyStaff()
+   * fan-out in the Notification module rather than writing to the
+   * Notification table directly, per "do NOT duplicate notification logic."
    */
   private async notifyStaffOfNewFeedback(feedback: FeedbackWithRelations): Promise<void> {
-    const staff = await prisma.user.findMany({
-      where: { role: { in: [UserRole.MODERATOR, UserRole.OWNER] }, isActive: true },
-      select: { id: true },
+    await notifyStaff({
+      type: NotificationType.SYSTEM,
+      title: 'New feedback submitted',
+      message: `${feedback.customer.firstName} ${feedback.customer.lastName} left a ${feedback.rating}-star review.`,
+      metadata: { feedbackId: feedback.id, orderId: feedback.orderId, event: 'FEEDBACK_SUBMITTED' },
     });
-
-    await Promise.all(
-      staff.map((member) =>
-        createNotification({
-          userId: member.id,
-          type: NotificationType.SYSTEM,
-          title: 'New feedback submitted',
-          message: `${feedback.customer.firstName} ${feedback.customer.lastName} left a ${feedback.rating}-star review.`,
-          metadata: { feedbackId: feedback.id, orderId: feedback.orderId, event: 'FEEDBACK_SUBMITTED' },
-        }),
-      ),
-    );
   }
 }
 

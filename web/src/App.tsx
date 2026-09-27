@@ -7,6 +7,7 @@ import { CustomerRoute } from "@/auth/customer-route"
 import { ProtectedRoute } from "@/auth/protected-route"
 import { CartProvider } from "@/cart/cart-provider"
 import { Container } from "@/components/layout/container"
+import { NotificationsProvider } from "@/notifications/notifications-provider"
 import { SiteLayout } from "@/components/layout/site-layout"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toaster } from "@/components/ui/sonner"
@@ -35,6 +36,7 @@ const DeliveryFeeSuccessPage = lazy(() => import("@/pages/delivery-fee-success-p
 const DeliveryFeeCancelPage = lazy(() => import("@/pages/delivery-fee-cancel-page").then((module) => ({ default: module.DeliveryFeeCancelPage })))
 const CustomerProjectsPage = lazy(() => import("@/pages/customer-projects-page").then((module) => ({ default: module.CustomerProjectsPage })))
 const TermsPage = lazy(() => import("@/pages/terms-page").then((module) => ({ default: module.TermsPage })))
+const NotificationsPage = lazy(() => import("@/pages/notifications-page").then((module) => ({ default: module.NotificationsPage })))
 const PrivacyPage = lazy(() => import("@/pages/privacy-page").then((module) => ({ default: module.PrivacyPage })))
 
 const AdminLayout = lazy(() => import("@/admin/admin-layout").then((module) => ({ default: module.AdminLayout })))
@@ -64,65 +66,69 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <CartProvider>
-          <Routes>
-            <Route element={<AdminRoute />}>
-              <Route path="admin" element={<Suspense fallback={<AdminPageFallback />}><AdminLayout /></Suspense>}>
-                <Route index element={<Suspense fallback={<AdminPageFallback />}><AdminDashboardPage /></Suspense>} />
-                <Route path="products" element={<Suspense fallback={<AdminPageFallback />}><AdminProductsPage /></Suspense>} />
-                <Route path="projects" element={<Suspense fallback={<AdminPageFallback />}><AdminProjectsPage /></Suspense>} />
-                <Route path="inventory" element={<Suspense fallback={<AdminPageFallback />}><AdminInventoryPage /></Suspense>} />
-                <Route path="sales" element={<Suspense fallback={<AdminPageFallback />}><AdminSalesPage /></Suspense>} />
-                <Route path="installation-requests" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallationRequestsPage /></Suspense>} />
-                <Route path="deliveries" element={<Suspense fallback={<AdminPageFallback />}><AdminDeliveriesPage /></Suspense>} />
-                <Route path="installers" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallersPage /></Suspense>} />
-                <Route path="chat" element={<Suspense fallback={<AdminPageFallback />}><AdminChatPage /></Suspense>} />
-                <Route path="feedback" element={<Suspense fallback={<AdminPageFallback />}><AdminFeedbackPage /></Suspense>} />
-                <Route path="requests" element={<Suspense fallback={<AdminPageFallback />}><AdminRequestsPage /></Suspense>} />
-                <Route path="team" element={<Suspense fallback={<AdminPageFallback />}><AdminTeamPage /></Suspense>} />
-                <Route path="*" element={<Navigate to="/admin" replace />} />
-              </Route>
-            </Route>
-
-            <Route element={<SiteLayout />}>
-              <Route index element={<Suspense fallback={<RoutePageFallback />}><HomePage /></Suspense>} />
-              <Route path="products" element={<Suspense fallback={<RoutePageFallback />}><ProductsPage /></Suspense>} />
-              <Route path="products/:id" element={<Suspense fallback={<RoutePageFallback />}><ProductDetailPage /></Suspense>} />
-              {/* Preserve retired route compatibility without adding browser-based AR or 3D. */}
-              <Route path="designer" element={<Navigate to="/products" replace />} />
-              <Route path="visualizer" element={<Navigate to="/products" replace />} />
-              <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
-              <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
-              <Route path="forgot-password" element={<Suspense fallback={<RoutePageFallback />}><ForgotPasswordPage /></Suspense>} />
-              <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
-              <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
-              <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />
-              <Route path="terms" element={<Suspense fallback={<RoutePageFallback />}><TermsPage /></Suspense>} />
-              <Route path="privacy" element={<Suspense fallback={<RoutePageFallback />}><PrivacyPage /></Suspense>} />
-              <Route element={<ProtectedRoute />}>
-                <Route path="dashboard" element={<Suspense fallback={<RoutePageFallback />}><DashboardPage /></Suspense>} />
-                <Route path="account" element={<Navigate to="/dashboard" replace />} />
+          <NotificationsProvider>
+            <Routes>
+              <Route element={<AdminRoute />}>
+                <Route path="admin" element={<Suspense fallback={<AdminPageFallback />}><AdminLayout /></Suspense>}>
+                  <Route index element={<Suspense fallback={<AdminPageFallback />}><AdminDashboardPage /></Suspense>} />
+                  <Route path="products" element={<Suspense fallback={<AdminPageFallback />}><AdminProductsPage /></Suspense>} />
+                  <Route path="projects" element={<Suspense fallback={<AdminPageFallback />}><AdminProjectsPage /></Suspense>} />
+                  <Route path="inventory" element={<Suspense fallback={<AdminPageFallback />}><AdminInventoryPage /></Suspense>} />
+                  <Route path="sales" element={<Suspense fallback={<AdminPageFallback />}><AdminSalesPage /></Suspense>} />
+                  <Route path="installation-requests" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallationRequestsPage /></Suspense>} />
+                  <Route path="deliveries" element={<Suspense fallback={<AdminPageFallback />}><AdminDeliveriesPage /></Suspense>} />
+                  <Route path="installers" element={<Suspense fallback={<AdminPageFallback />}><AdminInstallersPage /></Suspense>} />
+                  <Route path="chat" element={<Suspense fallback={<AdminPageFallback />}><AdminChatPage /></Suspense>} />
+                  <Route path="feedback" element={<Suspense fallback={<AdminPageFallback />}><AdminFeedbackPage /></Suspense>} />
+                  <Route path="requests" element={<Suspense fallback={<AdminPageFallback />}><AdminRequestsPage /></Suspense>} />
+                  <Route path="team" element={<Suspense fallback={<AdminPageFallback />}><AdminTeamPage /></Suspense>} />
+                  <Route path="notifications" element={<Suspense fallback={<AdminPageFallback />}><NotificationsPage variant="admin" /></Suspense>} />
+                  <Route path="*" element={<Navigate to="/admin" replace />} />
+                </Route>
               </Route>
 
-              <Route element={<CustomerRoute />}>
-                <Route path="profile" element={<Suspense fallback={<RoutePageFallback />}><ProfilePage /></Suspense>} />
-                <Route path="cart"element={<Suspense fallback={<RoutePageFallback />}><CartPage /></Suspense>} />
-                <Route path="checkout" element={<Suspense fallback={<RoutePageFallback />}><CheckoutPage /></Suspense>} />
-                <Route path="orders" element={<Suspense fallback={<RoutePageFallback />}><OrdersPage /></Suspense>} />
-                <Route path="orders/:id" element={<Suspense fallback={<RoutePageFallback />}><OrderDetailPage /></Suspense>} />
-                <Route path="messages" element={<Suspense fallback={<RoutePageFallback />}><MessagesPage /></Suspense>} />
-                <Route path="feedback" element={<Suspense fallback={<RoutePageFallback />}><FeedbackPage /></Suspense>} />
-                <Route path="projects" element={<Suspense fallback={<RoutePageFallback />}><CustomerProjectsPage /></Suspense>} />
-                {/* PayMongo return routes. These match the backend's PAYMENT_SUCCESS_URL / PAYMENT_CANCEL_URL paths and stay behind the customer guard: an unauthenticated return is sent to login and back here, never shown payment data. */}
-                <Route path="payment/success" element={<Suspense fallback={<RoutePageFallback />}><PaymentSuccessPage /></Suspense>} />
-                <Route path="payment/cancel" element={<Suspense fallback={<RoutePageFallback />}><PaymentCancelPage /></Suspense>} />
-                {/* Same PayMongo return-route pattern, for the separate delivery-fee checkout (DELIVERY_PAYMENT_SUCCESS_URL / DELIVERY_PAYMENT_CANCEL_URL). */}
-                <Route path="delivery-fee/success" element={<Suspense fallback={<RoutePageFallback />}><DeliveryFeeSuccessPage /></Suspense>} />
-                <Route path="delivery-fee/cancel" element={<Suspense fallback={<RoutePageFallback />}><DeliveryFeeCancelPage /></Suspense>} />
+              <Route element={<SiteLayout />}>
+                <Route index element={<Suspense fallback={<RoutePageFallback />}><HomePage /></Suspense>} />
+                <Route path="products" element={<Suspense fallback={<RoutePageFallback />}><ProductsPage /></Suspense>} />
+                <Route path="products/:id" element={<Suspense fallback={<RoutePageFallback />}><ProductDetailPage /></Suspense>} />
+                {/* Preserve retired route compatibility without adding browser-based AR or 3D. */}
+                <Route path="designer" element={<Navigate to="/products" replace />} />
+                <Route path="visualizer" element={<Navigate to="/products" replace />} />
+                <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
+                <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
+                <Route path="forgot-password" element={<Suspense fallback={<RoutePageFallback />}><ForgotPasswordPage /></Suspense>} />
+                <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
+                <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
+                <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />
+                <Route path="terms" element={<Suspense fallback={<RoutePageFallback />}><TermsPage /></Suspense>} />
+                <Route path="privacy" element={<Suspense fallback={<RoutePageFallback />}><PrivacyPage /></Suspense>} />
+                <Route element={<ProtectedRoute />}>
+                  <Route path="dashboard" element={<Suspense fallback={<RoutePageFallback />}><DashboardPage /></Suspense>} />
+                  <Route path="account" element={<Navigate to="/dashboard" replace />} />
+                </Route>
+
+                <Route element={<CustomerRoute />}>
+                  <Route path="profile" element={<Suspense fallback={<RoutePageFallback />}><ProfilePage /></Suspense>} />
+                  <Route path="cart"element={<Suspense fallback={<RoutePageFallback />}><CartPage /></Suspense>} />
+                  <Route path="checkout" element={<Suspense fallback={<RoutePageFallback />}><CheckoutPage /></Suspense>} />
+                  <Route path="orders" element={<Suspense fallback={<RoutePageFallback />}><OrdersPage /></Suspense>} />
+                  <Route path="orders/:id" element={<Suspense fallback={<RoutePageFallback />}><OrderDetailPage /></Suspense>} />
+                  <Route path="messages" element={<Suspense fallback={<RoutePageFallback />}><MessagesPage /></Suspense>} />
+                  <Route path="feedback" element={<Suspense fallback={<RoutePageFallback />}><FeedbackPage /></Suspense>} />
+                  <Route path="projects" element={<Suspense fallback={<RoutePageFallback />}><CustomerProjectsPage /></Suspense>} />
+                  <Route path="notifications" element={<Suspense fallback={<RoutePageFallback />}><NotificationsPage variant="customer" /></Suspense>} />
+                  {/* PayMongo return routes. These match the backend's PAYMENT_SUCCESS_URL / PAYMENT_CANCEL_URL paths and stay behind the customer guard: an unauthenticated return is sent to login and back here, never shown payment data. */}
+                  <Route path="payment/success" element={<Suspense fallback={<RoutePageFallback />}><PaymentSuccessPage /></Suspense>} />
+                  <Route path="payment/cancel" element={<Suspense fallback={<RoutePageFallback />}><PaymentCancelPage /></Suspense>} />
+                  {/* Same PayMongo return-route pattern, for the separate delivery-fee checkout (DELIVERY_PAYMENT_SUCCESS_URL / DELIVERY_PAYMENT_CANCEL_URL). */}
+                  <Route path="delivery-fee/success" element={<Suspense fallback={<RoutePageFallback />}><DeliveryFeeSuccessPage /></Suspense>} />
+                  <Route path="delivery-fee/cancel" element={<Suspense fallback={<RoutePageFallback />}><DeliveryFeeCancelPage /></Suspense>} />
+                </Route>
+                <Route path="*" element={<Suspense fallback={<RoutePageFallback />}><PlaceholderPage eyebrow="404" title="This page could not be found." description="The address may have changed, or this part of PanelScan may not be available yet." notFound /></Suspense>} />
               </Route>
-              <Route path="*" element={<Suspense fallback={<RoutePageFallback />}><PlaceholderPage eyebrow="404" title="This page could not be found." description="The address may have changed, or this part of PanelScan may not be available yet." notFound /></Suspense>} />
-            </Route>
-          </Routes>
-          <Toaster position="top-right" richColors closeButton />
+            </Routes>
+            <Toaster position="top-right" richColors closeButton />
+          </NotificationsProvider>
         </CartProvider>
       </AuthProvider>
     </BrowserRouter>

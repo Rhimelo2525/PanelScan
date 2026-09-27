@@ -3,6 +3,8 @@ import { NotificationType, Prisma, RequestStatus, UserRole } from '@prisma/clien
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import type { NotificationDbClient } from '../notifications/notification.types';
+import { notifyStockLevelChange } from '../notifications/notification.triggers';
+import type { StockChange } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { slugify } from '../../utils/slugify';
 import { parseDescription, requestInclude, serializeDescription } from './request.types';
@@ -136,7 +138,9 @@ export class RequestService {
   }
 
   async approveRequest(requestId: string, ownerId: string, reviewNote: string | undefined): Promise<RequestWithRelations> {
-    return prisma.$transaction(async (tx) => {
+    let stockChange = null as StockChange | null;
+    const approved = await prisma.$transaction(async (tx) => {
+      stockChange = null;
       const request = await tx.request.findUnique({ where: { id: requestId } });
       if (!request) {
         throw new AppError('Request not found.', 404);
@@ -147,6 +151,11 @@ export class RequestService {
 
       const { payload } = parseDescription(request.description);
       if (payload) {
+        const stockProductId = payload.action === 'ADJUST_STOCK' ? payload.productId : payload.action === 'ADD_INVENTORY' ? payload.productData?.productId : undefined;
+        if (stockProductId) {
+          const before = await tx.inventory.findUnique({ where: { productId: stockProductId }, select: { quantity: true } });
+          stockChange = { productId: stockProductId, previousQuantity: before?.quantity ?? 0 };
+        }
         await this.applyApprovedChange(tx, payload);
       }
 
@@ -169,6 +178,9 @@ export class RequestService {
 
       return updated;
     });
+
+    if (stockChange) await notifyStockLevelChange(stockChange);
+    return approved;
   }
 
   async rejectRequest(requestId: string, ownerId: string, reviewNote: string | undefined): Promise<RequestWithRelations> {

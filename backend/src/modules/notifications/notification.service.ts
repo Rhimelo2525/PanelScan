@@ -2,6 +2,7 @@ import type { Notification, Prisma } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { mirrorMarkAllReadToBackup, mirrorNotificationDeleteToBackup, mirrorNotificationToBackup, queueNotificationBackup } from './notification.backup';
 import type { CreateNotificationParams, NotificationDbClient, NotificationFilters, PaginatedNotifications } from './notification.types';
 
 const DEFAULT_PAGE = 1;
@@ -16,12 +17,16 @@ const DEFAULT_LIMIT = 20;
  * model boundaries directly via Prisma rather than through other services.
  * Accepts an optional `$transaction` client so callers already inside a
  * transaction can create the notification atomically with their own write.
+ *
+ * Every notification is then mirrored to the backup database (see
+ * notification.backup.ts): immediately when created outside a transaction,
+ * or once the caller's transaction has committed when created inside one.
  */
 export const createNotification = async (
   params: CreateNotificationParams,
   client: NotificationDbClient = prisma,
 ): Promise<Notification> => {
-  return client.notification.create({
+  const notification = await client.notification.create({
     data: {
       userId: params.userId,
       type: params.type,
@@ -30,6 +35,14 @@ export const createNotification = async (
       metadata: params.metadata,
     },
   });
+
+  if (client === prisma) {
+    await mirrorNotificationToBackup(notification);
+  } else {
+    queueNotificationBackup(notification.id);
+  }
+
+  return notification;
 };
 
 export class NotificationService {
@@ -77,7 +90,9 @@ export class NotificationService {
       throw new AppError('Notification not found.', 404);
     }
 
-    return prisma.notification.update({ where: { id: notificationId }, data: { isRead: true } });
+    const updated = await prisma.notification.update({ where: { id: notificationId }, data: { isRead: true } });
+    await mirrorNotificationToBackup(updated);
+    return updated;
   }
 
   async markAllAsRead(userId: string): Promise<number> {
@@ -85,6 +100,7 @@ export class NotificationService {
       where: { userId, isRead: false },
       data: { isRead: true },
     });
+    if (result.count > 0) await mirrorMarkAllReadToBackup(userId);
     return result.count;
   }
 
@@ -95,6 +111,7 @@ export class NotificationService {
     }
 
     await prisma.notification.delete({ where: { id: notificationId } });
+    await mirrorNotificationDeleteToBackup(notificationId);
   }
 }
 

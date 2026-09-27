@@ -1,7 +1,8 @@
-import { UserRole, type User } from '@prisma/client';
+import { NotificationType, UserRole, type User } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { notifyUser } from '../notifications/notification.triggers';
 import { sendMail } from '../../utils/mailer';
 import { hashPassword } from '../../utils/password';
 import {
@@ -248,6 +249,14 @@ export class VerificationService {
       // Anyone already signed in with the old password (including whoever the
       // customer is recovering the account from) must log in again.
       await tx.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    });
+
+    await notifyUser({
+      userId: user.id,
+      type: NotificationType.SYSTEM,
+      title: 'Password changed',
+      message: "Your password was reset and every device was signed out. If this wasn't you, contact PanelScan support right away.",
+      metadata: { event: 'PASSWORD_CHANGED' },
     });
   }
 }

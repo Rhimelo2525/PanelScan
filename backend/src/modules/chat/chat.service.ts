@@ -2,6 +2,7 @@ import { NotificationType, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { chatRoomInclude, messageInclude } from './chat.types';
 import type {
@@ -114,7 +115,7 @@ export class ChatService {
     senderRole: UserRole,
     input: SendMessageInput,
   ): Promise<MessageWithSender> {
-    return prisma.$transaction(async (tx) => {
+    const { message, otherParticipantIds } = await prisma.$transaction(async (tx) => {
       const room = await tx.chatRoom.findUnique({ where: { id: chatRoomId }, include: { participants: true } });
       if (!room) {
         throw new AppError('Conversation not found.', 404);
@@ -160,8 +161,45 @@ export class ChatService {
         );
       }
 
-      return message;
+      return { message, otherParticipantIds: [...recipientIds] };
     });
+
+    if (senderRole === UserRole.CUSTOMER) {
+      await this.notifyModeratorsOfNewCustomerMessage(chatRoomId, message, otherParticipantIds);
+    }
+
+    return message;
+  }
+
+  /**
+   * A customer message nobody on staff has picked up yet only reaches the
+   * support team through this: until a moderator replies (and so joins the
+   * room), there is no staff participant for the "New message" notification
+   * above to go to. Sent once per conversation - for its first message - so
+   * a customer sending several messages in a row doesn't flood every
+   * moderator; once a moderator joins, normal participant notifications apply.
+   */
+  private async notifyModeratorsOfNewCustomerMessage(chatRoomId: string, message: MessageWithSender, otherParticipantIds: string[]): Promise<void> {
+    try {
+      const [staffParticipants, messageCount] = await Promise.all([
+        otherParticipantIds.length
+          ? prisma.user.count({ where: { id: { in: otherParticipantIds }, role: { in: [UserRole.MODERATOR, UserRole.OWNER] } } })
+          : Promise.resolve(0),
+        prisma.message.count({ where: { chatRoomId } }),
+      ]);
+      if (staffParticipants > 0 || messageCount > 1) return;
+
+      const preview = message.content.length > 120 ? `${message.content.slice(0, 117)}...` : message.content;
+      await notifyStaff({
+        type: NotificationType.CHAT,
+        title: 'New customer message',
+        message: `${message.sender.firstName} ${message.sender.lastName}: ${preview}`,
+        metadata: { chatRoomId, messageId: message.id, event: 'CUSTOMER_MESSAGE' },
+        roles: [UserRole.MODERATOR],
+      });
+    } catch (error) {
+      console.error('[chat] New-customer-message notification failed:', error);
+    }
   }
 
   async getMessages(

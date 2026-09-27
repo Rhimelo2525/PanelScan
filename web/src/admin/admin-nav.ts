@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Truck, Users, Wrench } from "lucide-react"
+import { BarChart3, Bell, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Truck, Users, Wrench } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import type { UserRole } from "@/types/auth"
@@ -29,6 +29,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     label: "Overview",
     items: [
       { to: "/admin", label: "Dashboard", icon: LayoutDashboard, roles: ["OWNER", "MODERATOR"], description: "Business and operational snapshot", end: true },
+      { to: "/admin/notifications", label: "Notifications", icon: Bell, roles: ["OWNER", "MODERATOR"], description: "Your order, delivery, inventory and system alerts" },
     ],
   },
   {

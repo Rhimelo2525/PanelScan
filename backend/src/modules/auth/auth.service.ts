@@ -1,7 +1,8 @@
-import { type Prisma, type User, UserRole } from '@prisma/client';
+import { NotificationType, type Prisma, type User, UserRole } from '@prisma/client';
 
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
+import { notifyOwnersOfNewCustomer, notifyUser } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { signToken } from '../../utils/jwt';
 import { comparePassword, hashPassword } from '../../utils/password';
@@ -86,6 +87,7 @@ export class AuthService {
     await verificationService.sendEmailVerification(user.id).catch((error) => {
       console.error('[auth] Could not send the registration verification email:', error);
     });
+    await notifyOwnersOfNewCustomer(user, 'email');
 
     const token = signToken({ userId: user.id, role: user.role });
     return { user: sanitizeUser(user), token };
@@ -166,6 +168,7 @@ export class AuthService {
         termsAcceptedAt: acceptedTerms ? new Date() : null,
       },
     });
+    await notifyOwnersOfNewCustomer(user, 'google');
 
     const token = signToken({ userId: user.id, role: user.role });
     const refreshToken = await this.issueRefreshToken(user.id);
@@ -197,6 +200,13 @@ export class AuthService {
     if (input.address !== undefined) data.address = input.address;
 
     const user = await prisma.user.update({ where: { id: userId }, data });
+    await notifyUser({
+      userId,
+      type: NotificationType.SYSTEM,
+      title: 'Profile updated',
+      message: 'Your profile details were updated.',
+      metadata: { event: 'PROFILE_UPDATED' },
+    });
     return sanitizeUser(user);
   }
 
@@ -237,6 +247,13 @@ export class AuthService {
         data: { revokedAt: new Date() },
       }),
     ]);
+    await notifyUser({
+      userId: user.id,
+      type: NotificationType.SYSTEM,
+      title: 'Password changed',
+      message: 'Your password was changed and other devices were signed out. If this wasn\'t you, reset your password right away.',
+      metadata: { event: 'PASSWORD_CHANGED' },
+    });
   }
 
   /** Creates and persists (hash-only) a new refresh token row for a user, returning the plaintext token to hand to the client. */

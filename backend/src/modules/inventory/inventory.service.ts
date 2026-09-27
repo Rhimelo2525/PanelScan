@@ -2,6 +2,7 @@ import { Prisma, RequestStatus, RequestType } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { notifyStockLevelChange } from '../notifications/notification.triggers';
 import { parseDescription } from '../request/request.types';
 
 const inventoryInclude = {
@@ -133,7 +134,7 @@ export class InventoryService {
       throw new AppError('An inventory record already exists for this product. Use Adjust to modify stock.', 400);
     }
 
-    return prisma.inventory.create({
+    const created = await prisma.inventory.create({
       data: {
         productId,
         quantity,
@@ -144,10 +145,12 @@ export class InventoryService {
       },
       include: inventoryInclude,
     });
+    await notifyStockLevelChange({ productId, previousQuantity: 0 });
+    return created;
   }
 
   async adjustStock(productId: string, targetQuantity: number): Promise<InventoryWithProduct> {
-    return prisma.$transaction(async (tx) => {
+    const { updated, previousQuantity } = await prisma.$transaction(async (tx) => {
       const inventory = await tx.inventory.findUnique({ where: { productId } });
       if (!inventory) {
         throw new AppError('Inventory record not found for this product.', 404);
@@ -156,7 +159,7 @@ export class InventoryService {
         throw new AppError(`Cannot reduce stock below reserved quantity (${inventory.reservedQty}).`, 400);
       }
 
-      return tx.inventory.update({
+      const next = await tx.inventory.update({
         where: { productId },
         data: {
           quantity: targetQuantity,
@@ -164,7 +167,10 @@ export class InventoryService {
         },
         include: inventoryInclude,
       });
+      return { updated: next, previousQuantity: inventory.quantity };
     });
+    await notifyStockLevelChange({ productId, previousQuantity });
+    return updated;
   }
 
   async deleteInventory(productId: string): Promise<void> {
@@ -176,7 +182,7 @@ export class InventoryService {
   }
 
   async addStock(productId: string, quantity: number): Promise<InventoryWithProduct> {
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const product = await tx.product.findFirst({ where: { id: productId, deletedAt: null } });
       if (!product) {
         throw new AppError('Product not found.', 404);
@@ -196,10 +202,13 @@ export class InventoryService {
         include: inventoryInclude,
       });
     });
+    // Either branch of the upsert leaves quantity exactly `quantity` above where it was (0 for a brand-new record).
+    await notifyStockLevelChange({ productId, previousQuantity: updated.quantity - quantity });
+    return updated;
   }
 
   async reduceStock(productId: string, quantity: number): Promise<InventoryWithProduct> {
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const inventory = await tx.inventory.findUnique({ where: { productId } });
       if (!inventory) {
         throw new AppError('Inventory record not found for this product.', 404);
@@ -214,6 +223,8 @@ export class InventoryService {
         include: inventoryInclude,
       });
     });
+    await notifyStockLevelChange({ productId, previousQuantity: updated.quantity + quantity });
+    return updated;
   }
 
   async reserveStock(productId: string, quantity: number): Promise<InventoryWithProduct> {

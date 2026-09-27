@@ -3,6 +3,7 @@ import { DeliveryApprovalStatus, NotificationType, OrderStatus, PaymentStatus, P
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { describeError, notifyStaff, notifySystemIssue } from '../notifications/notification.triggers';
 import { ActivityAction, buildActivityLogData, type RequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
 import { syncRecordToBackup } from '../../utils/backupSync';
@@ -18,6 +19,32 @@ import { normalizePhilippinePhone } from './utils/phone-normalizer';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
+
+/**
+ * Staff alert for a failed call to an external provider. Only 5xx/unknown
+ * failures count as an "API error" - a 4xx is the provider rejecting this
+ * particular request (bad input), which the caller already sees directly.
+ */
+const alertProviderError = async (title: 'Delivery API error' | 'Payment API error', operation: string, error: unknown, metadata: Prisma.JsonObject): Promise<void> => {
+  if (error instanceof AppError && error.statusCode < 500) return;
+  await notifySystemIssue({
+    title,
+    message: `${operation} failed: ${describeError(error)}`,
+    event: title === 'Delivery API error' ? 'DELIVERY_API_ERROR' : 'PAYMENT_API_ERROR',
+    metadata,
+  });
+};
+
+/** "Delivery status changed" for moderators, who own delivery operations. */
+const notifyModeratorsOfDeliveryStatus = async (delivery: { id: string; orderId: string; order: { orderNumber: string } }, status: string): Promise<void> => {
+  await notifyStaff({
+    type: NotificationType.ORDER,
+    title: 'Delivery status changed',
+    message: `Delivery for order ${delivery.order.orderNumber} is now: ${getDeliveryStatusLabel(status)}.`,
+    metadata: { deliveryId: delivery.id, orderId: delivery.orderId, status, event: 'DELIVERY_STATUS_CHANGED' },
+    roles: [UserRole.MODERATOR],
+  });
+};
 
 const buildOrderBy = (
   sortBy: DeliveryFilters['sortBy'],
@@ -375,6 +402,7 @@ export class DeliveryService {
         message: `Your delivery request for order ${order.orderNumber} has been submitted and is awaiting approval.`,
         metadata: { deliveryId: updated.id, orderId: order.id, event: 'DELIVERY_REQUESTED' },
       });
+      await this.notifyModeratorsOfDeliveryRequest(updated.id, order.id, order.orderNumber);
 
       return updated;
     }
@@ -398,8 +426,19 @@ export class DeliveryService {
       message: `Your delivery request for order ${order.orderNumber} has been submitted and is awaiting approval.`,
       metadata: { deliveryId: delivery.id, orderId: order.id, event: 'DELIVERY_REQUESTED' },
     });
+    await this.notifyModeratorsOfDeliveryRequest(delivery.id, order.id, order.orderNumber);
 
     return delivery;
+  }
+
+  private async notifyModeratorsOfDeliveryRequest(deliveryId: string, orderId: string, orderNumber: string): Promise<void> {
+    await notifyStaff({
+      type: NotificationType.ORDER,
+      title: 'New delivery request',
+      message: `The customer requested delivery for order ${orderNumber}. It is awaiting your approval.`,
+      metadata: { deliveryId, orderId, event: 'DELIVERY_REQUESTED' },
+      roles: [UserRole.MODERATOR],
+    });
   }
 
   /**
@@ -688,6 +727,7 @@ export class DeliveryService {
           error: error instanceof AppError ? error.message : 'Unknown error',
         }),
       });
+      await alertProviderError('Delivery API error', 'Lalamove quotation', error, { orderId: order.id, deliveryId: order.delivery.id });
       throw error;
     }
   }
@@ -765,6 +805,9 @@ export class DeliveryService {
       successUrl: env.DELIVERY_PAYMENT_SUCCESS_URL,
       cancelUrl: env.DELIVERY_PAYMENT_CANCEL_URL,
       paymentMethodTypes: ['gcash'],
+    }).catch(async (error: unknown) => {
+      await alertProviderError('Payment API error', 'PayMongo delivery-fee checkout', error, { orderId: order.id, deliveryId: delivery.id });
+      throw error;
     });
 
     await prisma.deliveryPayment.upsert({
@@ -838,6 +881,12 @@ export class DeliveryService {
         message: `Your delivery fee for order ${deliveryPayment.delivery.order.orderNumber} has been paid. You can now confirm your booking.`,
         metadata: { deliveryId, orderId: deliveryPayment.delivery.order.id, event: 'DELIVERY_FEE_PAID' },
       });
+      await notifyStaff({
+        type: NotificationType.PAYMENT,
+        title: 'Delivery fee paid',
+        message: `GCash delivery fee received for order ${deliveryPayment.delivery.order.orderNumber}.`,
+        metadata: { deliveryId, orderId: deliveryPayment.delivery.order.id, event: 'DELIVERY_FEE_PAID' },
+      });
 
       await prisma.activityLog.create({
         data: buildActivityLogData(null, ActivityAction.DELIVERY_FEE_PAID, { ipAddress: null, userAgent: null }, { deliveryId, transactionRef: eventPaymentId }),
@@ -855,6 +904,22 @@ export class DeliveryService {
 
       await prisma.activityLog.create({
         data: buildActivityLogData(null, ActivityAction.DELIVERY_FEE_PAYMENT_FAILED, { ipAddress: null, userAgent: null }, { deliveryId }),
+      });
+
+      const { order } = deliveryPayment.delivery;
+      await createNotification({
+        userId: order.customerId,
+        type: NotificationType.PAYMENT,
+        title: 'Delivery fee payment failed',
+        message: `Your delivery fee payment for order ${order.orderNumber} did not go through. You can try again from your order.`,
+        metadata: { deliveryId, orderId: order.id, event: 'DELIVERY_FEE_PAYMENT_FAILED' },
+      });
+      await notifyStaff({
+        type: NotificationType.PAYMENT,
+        title: 'Payment failed',
+        message: `A GCash delivery-fee payment for order ${order.orderNumber} failed.`,
+        metadata: { deliveryId, orderId: order.id, event: 'DELIVERY_FEE_PAYMENT_FAILED' },
+        roles: [UserRole.MODERATOR],
       });
     }
   }
@@ -958,6 +1023,14 @@ export class DeliveryService {
         message: `Your delivery for order ${order.orderNumber} has been booked with Lalamove. You can now track it live.`,
         metadata: { deliveryId: updated.id, orderId: order.id, lalamoveOrderId: result.orderId, event: 'DELIVERY_BOOKED' },
       });
+      await notifyStaff({
+        type: NotificationType.ORDER,
+        title: 'Delivery booked',
+        message: `A ${pendingQuotation.serviceType} vehicle was booked with Lalamove for order ${order.orderNumber}.`,
+        metadata: { deliveryId: updated.id, orderId: order.id, lalamoveOrderId: result.orderId, event: 'DELIVERY_BOOKED' },
+        roles: [UserRole.MODERATOR],
+        excludeUserIds: [requesterId],
+      });
 
       return updated;
     } catch (error) {
@@ -968,6 +1041,7 @@ export class DeliveryService {
           error: error instanceof AppError ? error.message : 'Unknown error',
         }),
       });
+      await alertProviderError('Delivery API error', 'Lalamove booking', error, { orderId: order.id, deliveryId: order.delivery.id });
       throw error;
     }
   }
@@ -1022,6 +1096,7 @@ export class DeliveryService {
           message: `Your delivery for order ${delivery.order.orderNumber} is now: ${getDeliveryStatusLabel(result.status)}.`,
           metadata: { deliveryId, orderId: delivery.orderId, status: result.status, event: 'DELIVERY_STATUS_CHANGED' },
         });
+        await notifyModeratorsOfDeliveryStatus(delivery, result.status);
       }
 
       return updated;
@@ -1033,6 +1108,7 @@ export class DeliveryService {
           error: error instanceof AppError ? error.message : 'Unknown error',
         }),
       });
+      await alertProviderError('Delivery API error', 'Lalamove status refresh', error, { deliveryId });
       throw error;
     }
   }
@@ -1076,6 +1152,7 @@ export class DeliveryService {
           error: error instanceof AppError ? error.message : 'Unknown error',
         }),
       });
+      await alertProviderError('Delivery API error', 'Lalamove cancellation', error, { deliveryId });
       throw error;
     }
   }
@@ -1122,6 +1199,12 @@ export class DeliveryService {
           id: orderId,
           reason: 'manual delivery-coordinates fix',
         }),
+      });
+      await notifySystemIssue({
+        title: 'Backup sync failed',
+        message: 'An order could not be synchronized to the backup database. It will be retried by the next scheduled backup sync.',
+        event: 'BACKUP_SYNC_FAILED',
+        metadata: { model: 'order', id: orderId },
       });
     }
   }
@@ -1198,6 +1281,7 @@ export class DeliveryService {
         message: `Your delivery for order ${delivery.order.orderNumber} is now: ${getDeliveryStatusLabel(nextStatus)}.`,
         metadata: { deliveryId: delivery.id, orderId: delivery.orderId, status: nextStatus, event: 'DELIVERY_STATUS_CHANGED' },
       });
+      await notifyModeratorsOfDeliveryStatus(delivery, nextStatus);
     }
   }
 }
