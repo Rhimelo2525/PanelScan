@@ -393,6 +393,7 @@ model Delivery {
   vehicleType      String?                @map("vehicle_type")
   shippingFee      Decimal?               @map("shipping_fee") @db.Decimal(12, 2)
   trackingUrl      String?                @map("tracking_url")
+  quotedAt         DateTime?              @map("quoted_at")
   bookedAt         DateTime?              @map("booked_at")
   bookedById       String?                @map("booked_by_id") @db.Uuid
   // Last failed booking attempt, cleared on success - lets the customer see

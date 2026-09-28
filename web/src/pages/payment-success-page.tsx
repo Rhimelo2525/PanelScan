@@ -53,7 +53,7 @@ export function PaymentSuccessPage() {
             <div className="mt-7 flex flex-wrap gap-3"><Button onClick={checkAgain}>Check again</Button>{viewOrderButton}</div>
           </PaymentResultCard>
         ) : payment?.status === "PAID" ? (
-          <PaymentResultCard tone="positive" icon={CheckCircle2} eyebrow="Payment confirmed" title="Your payment is confirmed." description="PanelScan received a confirmed successful payment from the payment provider for this order." headingRef={headingRef}>
+          <PaymentResultCard tone="positive" icon={CheckCircle2} eyebrow="Payment confirmed" title="Payment successful." description="PanelScan received a confirmed payment for your order and delivery fee. Your delivery is being prepared." headingRef={headingRef}>
             <PaymentSummaryList payment={payment} order={order} orderNumber={orderNumber} />
             <div className="mt-7 flex flex-wrap gap-3">{orderId && <Button asChild><Link to={`/orders/${orderId}`}>View order<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>}<Button variant="outline" asChild><Link to="/products">Continue shopping</Link></Button></div>
           </PaymentResultCard>

@@ -41,6 +41,11 @@ const statusTones: Record<string, StatusTone> = {
   // Live Lalamove delivery statuses (Delivery.deliveryStatus) - see
   // backend/src/modules/delivery/utils/lalamove-status.ts, the source of truth
   // this mirrors.
+  // PanelScan's order-driven delivery stages, before Lalamove is booked.
+  AWAITING_ORDER_APPROVAL: "warning",
+  AWAITING_QUOTE: "warning",
+  AWAITING_PAYMENT: "warning",
+  READY_TO_BOOK: "info",
   NOT_SCHEDULED: "neutral",
   PREPARING: "warning",
   ASSIGNING_DRIVER: "info",

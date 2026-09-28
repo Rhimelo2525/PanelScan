@@ -90,31 +90,6 @@ export async function getDeliveryBarangays(cityCode: string): Promise<PsgcBarang
   return response.barangays
 }
 
-/** CUSTOMER action: Requests delivery for an order. */
-export function requestDelivery(orderId: string) {
-  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/request`, {
-    method: "POST",
-    authenticated: true,
-  })
-}
-
-/** MODERATOR: approves a customer delivery request. */
-export function approveDeliveryRequest(orderId: string) {
-  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/approve`, {
-    method: "PATCH",
-    authenticated: true,
-  })
-}
-
-/** MODERATOR: declines a customer delivery request. */
-export function declineDeliveryRequest(orderId: string, reason?: string) {
-  return apiRequest<{ delivery: DeliveryRecord }>(`/delivery/orders/${orderId}/decline`, {
-    method: "PATCH",
-    authenticated: true,
-    body: reason ? { reason } : {},
-  })
-}
-
 // ---------------------------------------------------------------- live Lalamove integration
 
 /** MODERATOR: the live Lalamove vehicle lineup. Fails (rather than inventing vehicles) when Lalamove can't be reached. */
@@ -131,16 +106,6 @@ export function selectDeliveryVehicle(orderId: string, serviceType: string, sign
     body: { serviceType },
     signal,
   })
-}
-
-/** CUSTOMER: opens a PayMongo GCash checkout for the shipping fee Lalamove charged for the booking - a separate charge from the product payment. */
-export function payDeliveryFeeWithGcash(orderId: string, signal?: AbortSignal) {
-  return apiRequest<{ checkoutUrl: string }>(`/delivery/orders/${orderId}/fee/gcash`, { method: "POST", authenticated: true, signal })
-}
-
-/** CUSTOMER: chooses to pay the booked shipping fee in cash on delivery. */
-export function selectDeliveryFeeCash(orderId: string, signal?: AbortSignal) {
-  return apiRequest<{ amount: number }>(`/delivery/orders/${orderId}/fee/cash`, { method: "POST", authenticated: true, signal })
 }
 
 /** MODERATOR: places the real, billable Lalamove booking for the selected vehicle; the response carries the fee Lalamove returned. */
@@ -163,8 +128,8 @@ export function setDeliveryCoordinates(orderId: string, latitude: number, longit
   return apiRequest<void>(`/delivery/orders/${orderId}/coordinates`, { method: "PATCH", authenticated: true, body: { latitude, longitude }, signal })
 }
 
-/** "requested" = awaiting moderator approval; "to_book" = approved, not yet booked with Lalamove. */
-export type DeliveryStateFilter = "requested" | "to_book" | "active" | "completed" | "cancelled"
+/** One filter per workflow stage; "to_book" = paid, not yet booked with Lalamove. */
+export type DeliveryStateFilter = "awaiting_approval" | "awaiting_quote" | "awaiting_payment" | "to_book" | "active" | "completed" | "cancelled"
 
 export interface DeliveryListFilters {
   page?: number

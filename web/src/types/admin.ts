@@ -139,10 +139,21 @@ export interface OrderReportRow {
   deliveryApprovedAt?: string | null
   deliveryDeclinedAt?: string | null
   deliveryDeclineReason?: string | null
+  deliveryId?: string | null
+  /** When the moderator set the estimated shipping fee (null = not quoted yet). */
+  deliveryQuotedAt?: string | null
+  deliveryVehicleType?: string | null
+  deliveryVehicleLabel?: string | null
+  lalamoveBookingId?: string | null
+  trackingUrl?: string | null
   itemCount: number
   items: OrderReportItem[]
   createdAt: string
   totalAmount?: number
+  /** Same visibility as totalAmount. shippingFee = the estimate the customer pays; finalShippingFee = what Lalamove charged at booking. */
+  subtotal?: number
+  shippingFee?: number
+  finalShippingFee?: number | null
 }
 
 export interface SalesReport {

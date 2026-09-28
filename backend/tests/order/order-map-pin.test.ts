@@ -105,10 +105,11 @@ describe('Checkout - customer map-pin location', () => {
       const logs = await prisma.activityLog.findMany({ where: { action: 'BACKUP_SYNC_FAILED' } });
       const matching = logs.filter((log) => (log.metadata as { id?: string } | null)?.id === orderId);
       expect(matching).toHaveLength(1);
-      expect((matching[0]?.metadata as { model?: string })?.model).toBe('order');
+      expect((matching[0]?.metadata as { model?: string })?.model).toContain('order');
+      expect((matching[0]?.metadata as { model?: string })?.model).toContain('delivery');
     });
 
-    it('does not attempt a backup sync (and logs no failure) for an order with no delivery location at all', async () => {
+    it('syncs every order, even one with no delivery location - its delivery record is part of the order', async () => {
       const { user, token } = await createCustomer();
       const product = await createTestProduct({ withInventory: true, quantity: 10, price: 500 });
       const cart = await createTestCart(user.id);
@@ -124,7 +125,7 @@ describe('Checkout - customer map-pin location', () => {
 
       const logs = await prisma.activityLog.findMany({ where: { action: 'BACKUP_SYNC_FAILED' } });
       const matching = logs.filter((log) => (log.metadata as { id?: string } | null)?.id === orderId);
-      expect(matching).toHaveLength(0);
+      expect(matching).toHaveLength(1); // attempted - and, with no backup configured in tests, logged
     });
   });
 });

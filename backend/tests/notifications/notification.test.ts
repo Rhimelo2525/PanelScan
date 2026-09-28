@@ -377,7 +377,7 @@ describe('Notification module', () => {
 
       const notification = await prisma.notification.findFirst({ where: { userId: customer.user.id, type: NotificationType.ORDER } });
       expect(notification).not.toBeNull();
-      expect(notification?.title).toBe('Order placed');
+      expect(notification?.title).toBe('Order submitted');
       expect((notification?.metadata as { orderId?: string } | null)?.orderId).toBe(orderId);
     });
 
@@ -408,7 +408,7 @@ describe('Notification module', () => {
     it('creates a PAYMENT notification when a payment is created', async () => {
       const customer = await createCustomer();
       const product = await createTestProduct({ price: 200 });
-      const order = await createTestOrder({ customerId: customer.user.id, items: [{ productId: product.id, quantity: 1, unitPrice: 200 }] });
+      const order = await createTestOrder({ customerId: customer.user.id, items: [{ productId: product.id, quantity: 1, unitPrice: 200 }], shippingQuote: 120 });
       mockPaymongoCheckoutSuccess();
 
       const response = await request(app)

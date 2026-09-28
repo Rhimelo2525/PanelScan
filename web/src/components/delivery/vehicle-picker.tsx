@@ -13,9 +13,24 @@ import type { DeliveryRecord, LalamoveServiceType } from "@/types/delivery"
  * MODERATOR vehicle selection. The options are exactly what Lalamove's live
  * vehicle list returns for PanelScan's area - nothing is invented when that
  * call fails. Selecting saves the vehicle on the delivery together with a
- * free Lalamove fee estimate; nothing is booked here.
+ * free Lalamove fee quote; nothing is booked here. Before the customer pays,
+ * that quote becomes the order's shipping fee (see delivery.service.ts).
  */
-export function VehiclePicker({ orderId, currentVehicle, disabled, onSelected }: { orderId: string; currentVehicle: string | null; disabled?: boolean; onSelected: (delivery: DeliveryRecord) => void }) {
+export function VehiclePicker({
+  orderId,
+  currentVehicle,
+  disabled,
+  onSelected,
+  actionLabel = "Select vehicle",
+  hint = "Saves the vehicle and gets Lalamove's fee estimate. Nothing is booked yet.",
+}: {
+  orderId: string
+  currentVehicle: string | null
+  disabled?: boolean
+  onSelected: (delivery: DeliveryRecord) => void
+  actionLabel?: string
+  hint?: string
+}) {
   const [vehicles, setVehicles] = useState<LalamoveServiceType[]>([])
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading")
   const [loadKey, setLoadKey] = useState(0)
@@ -88,9 +103,9 @@ export function VehiclePicker({ orderId, currentVehicle, disabled, onSelected }:
       </div>
       {error && <p role="alert" className="rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">{error}</p>}
       <Button size="sm" className="w-full" onClick={() => void handleSelect()} disabled={disabled || isSaving || !selected}>
-        {isSaving ? <><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />Getting Lalamove fee…</> : currentVehicle && currentVehicle === selected ? "Refresh fee estimate" : "Select vehicle"}
+        {isSaving ? <><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />Getting Lalamove fee…</> : currentVehicle && currentVehicle === selected ? "Refresh fee estimate" : actionLabel}
       </Button>
-      <p className="text-[11px] text-muted-foreground">Saves the vehicle and gets Lalamove&apos;s fee estimate. Nothing is booked yet.</p>
+      <p className="text-[11px] text-muted-foreground">{hint}</p>
     </div>
   )
 }

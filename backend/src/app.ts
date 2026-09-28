@@ -13,8 +13,13 @@ import { notFound } from './middleware/notFound.middleware';
 import { apiRateLimiter } from './middleware/rateLimit.middleware';
 import routes from './routes';
 import { AppError } from './utils/AppError';
+import { paymongoConfigSummary, paymongoProductionWarnings } from './modules/payment/paymongo.client';
 
 const app: Application = express();
+
+// Surfaces a production PayMongo misconfiguration (test key, missing webhook
+// secret, localhost return URL) in the deployment logs on every cold start.
+for (const warning of paymongoProductionWarnings()) console.warn(`[payment] ${warning}`);
 
 // Trust the reverse proxy every common host runs this app behind (Vercel,
 // Render, Railway, Fly.io, Heroku, nginx on a VPS), so req.ip and the
@@ -91,8 +96,11 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());
 
 // Health check
+// `payments` is a non-secret summary (live/test mode, webhook verification
+// on/off, return URLs) for checking a deployment's PayMongo setup - it never
+// includes a key.
 app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), payments: paymongoConfigSummary() });
 });
 
 // Monitoring only - reports connectivity of both the production database

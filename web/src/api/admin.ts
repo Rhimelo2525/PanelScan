@@ -229,21 +229,11 @@ export function updateOrderStatus(orderId: string, status: string) {
   return apiRequest<{ order: { id: string; status: string } }>(`/orders/${orderId}/status`, { method: "PATCH", authenticated: true, body: { status } })
 }
 
-/** MODERATOR only. Approves order so customer can proceed with payment. */
+/** MODERATOR only. Approves the order; its delivery then waits for the moderator's shipping quote. */
 export function approveOrder(orderId: string) {
   return apiRequest<{ order: { id: string; status: string; moderatorApproved: boolean } }>(`/orders/${orderId}/approve`, { method: "PATCH", authenticated: true })
 }
 
-
-/** MODERATOR only. Approves a customer delivery request. */
-export function approveDeliveryRequest(orderId: string) {
-  return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/approve`, { method: "PATCH", authenticated: true })
-}
-
-/** MODERATOR only. Declines a customer delivery request with an optional reason. */
-export function declineDeliveryRequest(orderId: string, reason?: string) {
-  return apiRequest<{ delivery: unknown }>(`/delivery/orders/${orderId}/decline`, { method: "PATCH", authenticated: true, body: reason ? { reason } : {} })
-}
 
 // ----------------------------------------------------------------- requests
 

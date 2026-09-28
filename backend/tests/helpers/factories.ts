@@ -1,4 +1,4 @@
-import { BookingStatus, NotificationType, OrderStatus, PaymentStatus, ProjectStatus, RequestStatus, RequestType, UserRole } from '@prisma/client';
+import { BookingStatus, DeliveryApprovalStatus, NotificationType, OrderStatus, PaymentStatus, ProjectStatus, RequestStatus, RequestType, UserRole } from '@prisma/client';
 import type {
   Booking,
   Cart,
@@ -218,6 +218,12 @@ export interface CreateTestOrderOptions {
   status?: OrderStatus;
   items?: CreateTestOrderItemInput[];
   moderatorApproved?: boolean;
+  /**
+   * The moderator's shipping quote: when set, the order's estimated shipping
+   * fee is this amount (folded into totalAmount) and a quoted delivery record
+   * awaiting payment is created with it - the state in which the customer can pay.
+   */
+  shippingQuote?: number;
 }
 
 /**
@@ -228,16 +234,17 @@ export interface CreateTestOrderOptions {
 export const createTestOrder = async (options: CreateTestOrderOptions): Promise<Order> => {
   const items = options.items ?? [];
   const subtotal = items.reduce((sum, item) => sum + (item.unitPrice ?? 100) * item.quantity, 0);
+  const shippingFee = options.shippingQuote ?? 0;
 
-  return prisma.order.create({
+  const order = await prisma.order.create({
     data: {
       orderNumber: `TEST-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       customerId: options.customerId,
       status: options.status ?? OrderStatus.PENDING,
       moderatorApproved: options.moderatorApproved ?? true,
       subtotal,
-      shippingFee: 0,
-      totalAmount: subtotal,
+      shippingFee,
+      totalAmount: subtotal + shippingFee,
       shippingAddress: '123 Test Street, Test City, Test Province, 1234',
       items: {
         create: items.map((item) => ({
@@ -250,6 +257,22 @@ export const createTestOrder = async (options: CreateTestOrderOptions): Promise<
       },
     },
   });
+
+  if (options.shippingQuote !== undefined) {
+    await prisma.delivery.create({
+      data: {
+        orderId: order.id,
+        address: order.shippingAddress,
+        approvalStatus: DeliveryApprovalStatus.APPROVED,
+        requestedAt: order.createdAt,
+        approvedAt: new Date(),
+        deliveryStatus: 'AWAITING_PAYMENT',
+        vehicleType: 'SEDAN',
+        quotedAt: new Date(),
+      },
+    });
+  }
+  return order;
 };
 
 export interface CreateTestPaymentOptions {

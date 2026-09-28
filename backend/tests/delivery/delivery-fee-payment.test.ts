@@ -6,21 +6,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { prisma } from '../../src/config/database';
 import { lalamoveProvider } from '../../src/modules/delivery/providers/lalamove.provider';
-import { authHeader, createCustomer, createModerator, createTestOrder } from '../helpers/factories';
+import { authHeader, createCustomer, createModerator, createTestOrder, createTestPayment } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 /**
- * Covers paying the SHIPPING fee (GCash via PayMongo, or cash on delivery)
- * as its own charge, separate from the product Payment. In the moderator-
- * driven flow the fee only exists once the moderator has booked Lalamove
- * (see delivery-approval.test.ts) - it is the total Lalamove returned for
- * that booking, and paying the product never marks it paid.
+ * The shipping fee is part of the order total and paid in the same PayMongo
+ * payment as the products (see payment.test.ts / order-delivery-workflow.test.ts).
+ * Booking Lalamove creates no separate shipping-fee charge, and there is no
+ * shipping-fee payment endpoint. The PayMongo webhook tests at the bottom
+ * cover only the legacy handler that settles separate shipping-fee sessions
+ * opened under an earlier flow.
  */
 
 vi.mock('../../src/modules/delivery/providers/lalamove.provider', () => ({
-  lalamoveProvider: { placeDeliveryOrder: vi.fn() },
+  lalamoveProvider: { placeDeliveryOrder: vi.fn(), getQuotation: vi.fn() },
 }));
-const mockProvider = lalamoveProvider as unknown as { placeDeliveryOrder: ReturnType<typeof vi.fn> };
+const mockProvider = lalamoveProvider as unknown as { placeDeliveryOrder: ReturnType<typeof vi.fn>; getQuotation: ReturnType<typeof vi.fn> };
 
 const WEBHOOK_SECRET = process.env.PAYMONGO_WEBHOOK_SECRET ?? 'whsec_fake_test_secret_for_testing_only';
 
@@ -67,22 +68,6 @@ async function bookedDelivery(customerId: string, moderatorId: string, overrides
   return { order, delivery };
 }
 
-const mockPaymongoCheckoutSuccess = (checkoutSessionId = `cs_fee_test_${Date.now()}`): void => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: {
-          id: checkoutSessionId,
-          type: 'checkout_session',
-          attributes: { checkout_url: `https://checkout.paymongo.com/${checkoutSessionId}`, status: 'active' },
-        },
-      }),
-    }),
-  );
-};
-
 const buildDeliveryFeeWebhookPayload = (eventType: 'payment.paid' | 'payment.failed', deliveryId: string, paymongoPaymentId?: string): string =>
   JSON.stringify({
     data: {
@@ -113,122 +98,77 @@ const expectApiSuccess = (response: request.Response, status: number): void => {
   expect(response.status).toBe(status);
   expect(response.body.success).toBe(true);
 };
-const expectApiError = (response: request.Response, status: number, messageMatch?: string | RegExp): void => {
-  expect(response.status).toBe(status);
-  expect(response.body.success).toBe(false);
-  if (messageMatch) expect(response.body.message).toMatch(messageMatch);
-};
 
 beforeEach(() => {
   mockProvider.placeDeliveryOrder.mockReset();
+  mockProvider.getQuotation.mockReset();
 });
 
-describe('Delivery-fee payment (separate from the product Payment)', () => {
-  // ---------------------------------------------------------------- GCash checkout
+describe('Shipping fee is part of the order payment', () => {
+  describe('No separate shipping-fee payment', () => {
+    /** A paid order (products + quoted shipping) with the moderator's vehicle and a live quotation - ready to book. */
+    async function readyToBook(customerId: string, moderatorId: string) {
+      const { order, delivery } = await bookedDelivery(customerId, moderatorId, { lalamoveOrderId: null, shippingFee: null, deliveryStatus: 'READY_TO_BOOK' });
+      await prisma.order.update({ where: { id: order.id }, data: { shippingFee: 180, totalAmount: Number(order.subtotal) + 180 } });
+      await createTestPayment({ orderId: order.id, status: PaymentStatus.PAID, amount: Number(order.subtotal) + 180 });
+      const quotation = {
+        quotationId: 'quo_fee_1',
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        amount: 180,
+        currency: 'PHP',
+        serviceType: 'VAN',
+        stops: [{ stopId: 'stop_pickup' }, { stopId: 'stop_dropoff' }],
+      };
+      await prisma.delivery.update({ where: { id: delivery.id }, data: { quotedAt: new Date(), providerMetadata: { pendingQuotation: quotation } } });
+      return { order, delivery };
+    }
 
-  describe('POST /api/delivery/orders/:orderId/fee/gcash', () => {
-    it('opens a PayMongo checkout for exactly the booked Lalamove fee, never the product price', async () => {
+    it('booking records no shipping-fee charge, calls no PayMongo, and never asks the customer to pay the rider', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
-      mockPaymongoCheckoutSuccess('cs_fee_creation_check');
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token));
-
-      expectApiSuccess(response, 200);
-      expect(response.body.data.checkoutUrl).toBe('https://checkout.paymongo.com/cs_fee_creation_check');
-
-      const feePayment = await prisma.deliveryPayment.findUnique({ where: { deliveryId: delivery.id } });
-      expect(feePayment?.method).toBe('PayMongo');
-      expect(feePayment?.status).toBe(PaymentStatus.PENDING);
-      expect(Number(feePayment?.amount)).toBe(SHIPPING_FEE); // the shipping fee, not order.totalAmount
-      expect(feePayment?.transactionRef).toBe('cs_fee_creation_check');
-
-      // The reference_number PayMongo was called with carries the "delivery:" prefix, not the bare order id.
-      const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
-      const requestBody = JSON.parse(fetchMock.mock.calls[0]![1].body);
-      expect(requestBody.data.attributes.reference_number).toBe(`delivery:${delivery.id}`);
-      expect(requestBody.data.attributes.line_items[0].amount).toBe(SHIPPING_FEE * 100);
-      expect(requestBody.data.attributes.payment_method_types).toEqual(['gcash']);
-
-      // The product Payment table is completely untouched by this call.
-      expect(await prisma.payment.findUnique({ where: { orderId: order.id } })).toBeNull();
-    });
-
-    it('rejects before the moderator has booked the delivery (no fee exists yet)', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order } = await bookedDelivery(customer.user.id, moderator.user.id, { lalamoveOrderId: null, shippingFee: null, deliveryStatus: 'VEHICLE_SELECTED' });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token));
-
-      expectApiError(response, 400, /once PanelScan staff have booked/i);
-    });
-
-    it('rejects a fee that is already paid', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
-      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PAID, method: 'PayMongo', amount: SHIPPING_FEE, transactionRef: 'cs_already_paid', paidAt: new Date() } });
-
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token));
-
-      expectApiError(response, 409, /already been paid/i);
-    });
-
-    it("rejects a different customer's order with 403", async () => {
-      const owner = await createCustomer();
-      const stranger = await createCustomer();
-      const moderator = await createModerator();
-      const { order } = await bookedDelivery(owner.user.id, moderator.user.id);
-
-      expectApiError(await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(stranger.token)), 403);
-    });
-
-    it('is CUSTOMER-only: staff cannot start a fee payment', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order } = await bookedDelivery(customer.user.id, moderator.user.id);
-
-      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(moderator.token))).status).toBe(403);
-      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/cash`).set(authHeader(moderator.token))).status).toBe(403);
-    });
-
-    it('requires authentication', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order } = await bookedDelivery(customer.user.id, moderator.user.id);
-
-      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`)).status).toBe(401);
-    });
-  });
-
-  // ---------------------------------------------------------------- Cash on Delivery
-
-  describe('POST /api/delivery/orders/:orderId/fee/cash', () => {
-    it('records cash on delivery for the booked fee, with no PayMongo call, leaving it unpaid', async () => {
-      const customer = await createCustomer();
-      const moderator = await createModerator();
-      const { order, delivery } = await bookedDelivery(customer.user.id, moderator.user.id);
+      const { order, delivery } = await readyToBook(customer.user.id, moderator.user.id);
+      mockProvider.placeDeliveryOrder.mockResolvedValue({ orderId: `llm_fee_${Date.now()}`, status: 'ASSIGNING_DRIVER', shareLink: null, priceBreakdown: { total: 180, currency: 'PHP' }, driverId: null });
       const fetchSpy = vi.fn();
       vi.stubGlobal('fetch', fetchSpy);
 
-      const response = await request(app).post(`/api/delivery/orders/${order.id}/fee/cash`).set(authHeader(customer.token));
+      const response = await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token));
+      vi.unstubAllGlobals();
 
       expectApiSuccess(response, 200);
-      expect(response.body.data.amount).toBe(SHIPPING_FEE);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(response.body.data.delivery.deliveryPayment).toBeNull();
+      expect(await prisma.deliveryPayment.findUnique({ where: { deliveryId: delivery.id } })).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled(); // no PayMongo session
+      const messages = (await prisma.notification.findMany({ where: { userId: customer.user.id } })).map((notification) => notification.message).join(' ');
+      expect(messages).not.toMatch(/rider|cash on delivery/i);
+    });
 
-      const feePayment = await prisma.deliveryPayment.findUnique({ where: { deliveryId: delivery.id } });
-      expect(feePayment?.method).toBe('Cash');
-      expect(feePayment?.status).toBe(PaymentStatus.PENDING);
-      expect(Number(feePayment?.amount)).toBe(SHIPPING_FEE);
+    it('leaves a shipping fee already PAID under an old separate payment as it was', async () => {
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const { order, delivery } = await readyToBook(customer.user.id, moderator.user.id);
+      await prisma.deliveryPayment.create({ data: { deliveryId: delivery.id, status: PaymentStatus.PAID, method: 'PayMongo', amount: 180, transactionRef: 'cs_legacy_paid', paidAt: new Date() } });
+      mockProvider.placeDeliveryOrder.mockResolvedValue({ orderId: `llm_fee_legacy_${Date.now()}`, status: 'ASSIGNING_DRIVER', shareLink: null, priceBreakdown: { total: 180, currency: 'PHP' }, driverId: null });
+
+      expectApiSuccess(await request(app).post(`/api/delivery/orders/${order.id}/book`).set(authHeader(moderator.token)), 200);
+
+      const feePayment = await prisma.deliveryPayment.findUniqueOrThrow({ where: { deliveryId: delivery.id } });
+      expect(feePayment.status).toBe(PaymentStatus.PAID);
+      expect(feePayment.method).toBe('PayMongo');
+    });
+
+    it('has no shipping-fee payment endpoints (online or cash)', async () => {
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const { order } = await bookedDelivery(customer.user.id, moderator.user.id);
+
+      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/gcash`).set(authHeader(customer.token))).status).toBe(404);
+      expect((await request(app).post(`/api/delivery/orders/${order.id}/fee/cash`).set(authHeader(customer.token))).status).toBe(404);
     });
   });
 
   // ---------------------------------------------------------------- webhook routing
 
-  describe('POST /api/payments/webhook - delivery-fee events (routed via the "delivery:" reference_number prefix)', () => {
+  describe('POST /api/payments/webhook - legacy delivery-fee sessions (routed via the "delivery:" reference_number prefix)', () => {
     it('marks the DeliveryPayment PAID, notifies the customer, and never touches the product Payment table', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();

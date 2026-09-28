@@ -10,24 +10,66 @@ import type {
 } from './payment.types';
 
 /**
- * The PayMongo client itself, shared by every module that needs to open a
- * Checkout Session or verify a webhook signature - currently the product
- * payment (payment.service.ts) and the Lalamove delivery-fee payment
- * (delivery.service.ts). One PayMongo secret key, one signing scheme, one
- * place to fix if PayMongo ever changes a field name - see payment.types.ts
- * for the same caveat about these shapes not being verified against live
- * PayMongo docs.
+ * The PayMongo client itself: opens Checkout Sessions and verifies webhook
+ * signatures for the order payment (payment.service.ts), which covers the
+ * products and the shipping fee in one transaction. One PayMongo secret key
+ * (server-side only), one signing scheme, one place to fix if PayMongo ever
+ * changes a field name - see payment.types.ts for the same caveat about
+ * these shapes not being verified against live PayMongo docs.
  */
+
+/**
+ * Which PayMongo environment the configured secret key belongs to. PayMongo
+ * uses the same API host for both - the key alone decides whether a
+ * checkout is a real (live) charge or a test one. Derived from the key's
+ * prefix only; the key itself is never returned, logged or displayed.
+ */
+export type PaymongoMode = 'live' | 'test' | 'unconfigured';
+
+export const paymongoMode = (secretKey: string | undefined = env.PAYMONGO_SECRET_KEY): PaymongoMode => {
+  if (secretKey?.startsWith('sk_live_')) return 'live';
+  if (secretKey?.startsWith('sk_test_')) return 'test';
+  return 'unconfigured';
+};
+
+/**
+ * Safe, non-secret summary of the payment configuration for GET /health:
+ * the mode, whether webhook verification is configured, and the public
+ * return URLs PayMongo sends the customer back to. Never includes a key.
+ */
+export const paymongoConfigSummary = () => ({
+  mode: paymongoMode(),
+  webhookVerification: Boolean(env.PAYMONGO_WEBHOOK_SECRET),
+  successUrl: env.PAYMENT_SUCCESS_URL,
+  cancelUrl: env.PAYMENT_CANCEL_URL,
+});
+
+/**
+ * Production misconfigurations that would break (or fake) real payments,
+ * as plain warnings - never including a key. Empty when all is well.
+ */
+export const paymongoProductionWarnings = (): string[] => {
+  if (env.NODE_ENV !== 'production') return [];
+  const warnings: string[] = [];
+  const mode = paymongoMode();
+  if (mode !== 'live') warnings.push(`PAYMONGO_SECRET_KEY is ${mode === 'test' ? 'a TEST key' : 'not set'} - production checkouts will not take real payments.`);
+  if (!env.PAYMONGO_WEBHOOK_SECRET) warnings.push('PAYMONGO_WEBHOOK_SECRET is not set - payment webhooks will be rejected, so no order can be marked paid.');
+  for (const [name, url] of [['PAYMENT_SUCCESS_URL', env.PAYMENT_SUCCESS_URL], ['PAYMENT_CANCEL_URL', env.PAYMENT_CANCEL_URL]] as const) {
+    if (/localhost|127\.0\.0\.1/.test(url)) warnings.push(`${name} points to localhost - customers returning from PayMongo will not reach PanelScan.`);
+  }
+  return warnings;
+};
 
 /**
  * PayMongo signs webhook requests with a `Paymongo-Signature` header shaped
  * like `t=<unix_timestamp>,te=<test_signature>,li=<live_signature>`, where
  * each signature is HMAC-SHA256(webhook_secret, `${t}.${rawBody}`) in hex.
- * Accepts a match on either `te` or `li` since this integration doesn't yet
- * separate test/live webhook secrets. `timingSafeEqual` avoids leaking
+ * PayMongo fills `li` for live-mode events and `te` for test-mode ones, so
+ * with a live key only `li` is accepted and with a test key only `te`
+ * (either, when the mode is unknown). `timingSafeEqual` avoids leaking
  * signature bytes through response-time comparisons.
  */
-export const verifyPaymongoSignature = (rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean => {
+export const verifyPaymongoSignature = (rawBody: Buffer, signatureHeader: string | undefined, secret: string, mode: PaymongoMode = 'unconfigured'): boolean => {
   if (!signatureHeader) return false;
 
   const parts = new Map<string, string>();
@@ -37,7 +79,8 @@ export const verifyPaymongoSignature = (rawBody: Buffer, signatureHeader: string
   }
 
   const timestamp = parts.get('t');
-  const candidates = [parts.get('li'), parts.get('te')].filter((value): value is string => Boolean(value));
+  const accepted = mode === 'live' ? [parts.get('li')] : mode === 'test' ? [parts.get('te')] : [parts.get('li'), parts.get('te')];
+  const candidates = accepted.filter((value): value is string => Boolean(value));
   if (!timestamp || candidates.length === 0) return false;
 
   const expected = createHmac('sha256', secret).update(`${timestamp}.${rawBody.toString('utf8')}`).digest('hex');
@@ -50,8 +93,9 @@ export const verifyPaymongoSignature = (rawBody: Buffer, signatureHeader: string
 };
 
 /**
- * Prefix used on `reference_number` for a delivery-fee Checkout Session
- * (see delivery.service.ts's createFeeGcashCheckout), so the ONE PayMongo
+ * Prefix used on `reference_number` for a separate delivery-fee Checkout
+ * Session. Legacy: the shipping fee is now part of the order payment and no
+ * new delivery-fee session is ever created; kept so the ONE PayMongo
  * webhook endpoint (payment.service.ts#handleWebhook) can tell a
  * delivery-fee event apart from a product-order event and route it to the
  * right table, without needing a second webhook endpoint or a second
@@ -67,6 +111,12 @@ export interface CreateCheckoutSessionParams {
   /** Smallest currency unit - centavos for PHP. */
   amountInCentavos: number;
   lineItemName: string;
+  /**
+   * Optional breakdown shown on PayMongo's checkout page (e.g. products and
+   * shipping fee). Still ONE session and ONE payment; the items must add up
+   * to exactly `amountInCentavos`, or nothing is sent to PayMongo.
+   */
+  lineItems?: { name: string; amountInCentavos: number }[];
   billing: { name: string; email: string; phone?: string };
   successUrl: string;
   cancelUrl: string;
@@ -77,6 +127,13 @@ export interface CreateCheckoutSessionParams {
 export async function createPaymongoCheckoutSession(params: CreateCheckoutSessionParams): Promise<PaymongoCheckoutSessionResponseData> {
   if (!env.PAYMONGO_SECRET_KEY) {
     throw new AppError('Payment provider is not configured.', 500);
+  }
+
+  const lineItems = params.lineItems?.length
+    ? params.lineItems.map((item) => ({ currency: 'PHP', amount: item.amountInCentavos, description: params.description, name: item.name, quantity: 1 }))
+    : [{ currency: 'PHP', amount: params.amountInCentavos, description: params.description, name: params.lineItemName, quantity: 1 }];
+  if (lineItems.reduce((sum, item) => sum + item.amount, 0) !== params.amountInCentavos) {
+    throw new AppError('Payment line items do not add up to the amount due.', 500);
   }
 
   const requestBody: PaymongoCheckoutSessionRequest = {
@@ -94,15 +151,7 @@ export async function createPaymongoCheckoutSession(params: CreateCheckoutSessio
         success_url: params.successUrl,
         description: params.description,
         reference_number: params.referenceNumber,
-        line_items: [
-          {
-            currency: 'PHP',
-            amount: params.amountInCentavos,
-            description: params.description,
-            name: params.lineItemName,
-            quantity: 1,
-          },
-        ],
+        line_items: lineItems,
         payment_method_types: params.paymentMethodTypes,
       },
     },

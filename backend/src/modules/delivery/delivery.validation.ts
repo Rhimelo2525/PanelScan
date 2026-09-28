@@ -56,17 +56,6 @@ export const listDeliveriesSchema = z.object({
 export type CreateDeliveryInput = z.infer<typeof createDeliverySchema>['body'];
 export type UpdateDeliveryInput = z.infer<typeof updateDeliverySchema>['body'];
 
-export const declineDeliverySchema = z.object({
-  params: z.object({ orderId: z.string().uuid('Invalid order id.') }),
-  body: z
-    .object({
-      reason: z.string().trim().max(500, 'Decline reason is too long.').optional(),
-    })
-    .optional(),
-});
-
-export type DeclineDeliveryInput = z.infer<typeof declineDeliverySchema>['body'];
-
 /** MODERATOR vehicle selection - serviceType is a Lalamove vehicle key from GET /vehicle-types. */
 export const selectVehicleSchema = z.object({
   params: z.object({ orderId: z.string().uuid('Invalid order id.') }),

@@ -172,15 +172,15 @@ describe('Live Lalamove integration', () => {
       expect(mockProvider.getQuotation).not.toHaveBeenCalled();
     });
 
-    it('rejects when the delivery request has not been approved yet', async () => {
+    it('rejects when the order has not been approved yet', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
-      const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PROCESSING });
-      await prisma.delivery.create({ data: { orderId: order.id, address: order.shippingAddress, approvalStatus: DeliveryApprovalStatus.PENDING_APPROVAL } });
+      const order = await createTestOrder({ customerId: customer.user.id, status: OrderStatus.PENDING, moderatorApproved: false });
+      await prisma.delivery.create({ data: { orderId: order.id, address: order.shippingAddress, approvalStatus: DeliveryApprovalStatus.PENDING_APPROVAL, deliveryStatus: 'AWAITING_ORDER_APPROVAL' } });
 
       const response = await request(app).post(`/api/delivery/orders/${order.id}/vehicle`).set(authHeader(moderator.token)).send({ serviceType: 'MOTORCYCLE' });
 
-      expectApiError(response, 400, /approve the delivery request/i);
+      expectApiError(response, 400, /approve the order/i);
       expect(mockProvider.getQuotation).not.toHaveBeenCalled();
     });
 
@@ -552,7 +552,7 @@ describe('Live Lalamove integration', () => {
       const logs = await prisma.activityLog.findMany({ where: { action: 'BACKUP_SYNC_FAILED' } });
       const matching = logs.filter((log) => (log.metadata as { id?: string } | null)?.id === order.id);
       expect(matching).toHaveLength(1);
-      expect((matching[0]?.metadata as { model?: string })?.model).toBe('order');
+      expect((matching[0]?.metadata as { model?: string })?.model).toContain('order');
     });
 
     it('rejects a CUSTOMER (staff-only)', async () => {

@@ -103,6 +103,8 @@ const setupPayableOrder = async (status: OrderStatus = OrderStatus.PENDING) => {
     customerId: customer.user.id,
     status,
     items: [{ productId: product.id, quantity: 4, unitPrice: 200 }],
+    // Payment opens only once the moderator has quoted the shipping fee.
+    shippingQuote: 194,
   });
   return { customer, order };
 };

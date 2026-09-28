@@ -3,11 +3,10 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { approveOrder } from "@/api/admin"
 import {
-  approveDeliveryRequest,
   bookDelivery,
   cancelDeliveryBooking,
-  declineDeliveryRequest,
   getDeliveries,
   getDeliveryById,
   getFailedDeliveryRequests,
@@ -29,7 +28,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Textarea } from "@/components/ui/textarea"
 import { useDebouncedValue } from "@/admin/use-admin-resource"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
@@ -39,28 +37,26 @@ import { formatProductPrice } from "@/lib/format-price"
 import type { DeliveryRecord } from "@/types/delivery"
 
 const STATE_OPTIONS: { value: DeliveryStateFilter; label: string }[] = [
-  { value: "requested", label: "Pending approval" },
-  { value: "to_book", label: "To book" },
-  { value: "active", label: "Active" },
-  { value: "completed", label: "Completed" },
+  { value: "awaiting_approval", label: "Waiting for approval" },
+  { value: "awaiting_quote", label: "Awaiting shipping quote" },
+  { value: "awaiting_payment", label: "Awaiting customer payment" },
+  { value: "to_book", label: "Ready to book" },
+  { value: "active", label: "Booked / in transit" },
+  { value: "completed", label: "Delivered" },
   { value: "cancelled", label: "Cancelled" },
 ]
 
 type DeliveryState = "" | DeliveryStateFilter
 
-const PRE_BOOKING = new Set(["NOT_REQUESTED", "NOT_SCHEDULED", "VEHICLE_SELECTED", "BOOKING", "BOOKING_FAILED"])
+/** Paid and waiting for the moderator to book (including an in-flight or failed attempt). */
+const TO_BOOK = new Set(["READY_TO_BOOK", "BOOKING", "BOOKING_FAILED"])
 
-/** One status for the whole workflow: the request's approval state until Lalamove has the order, then Lalamove's own status. */
+/** One status for the whole workflow: PanelScan's order-driven stage until Lalamove has the order, then Lalamove's own status. */
 function workflowStatus(delivery: DeliveryRecord): { status: string; label: string } {
-  if (delivery.lalamoveOrderId) return { status: delivery.deliveryStatus ?? "ASSIGNING_DRIVER", label: getDeliveryStatusLabel(delivery.deliveryStatus) }
-  if (delivery.approvalStatus === "PENDING_APPROVAL") return { status: "PENDING", label: "Pending approval" }
-  if (delivery.approvalStatus === "DECLINED") return { status: "CANCELLED", label: "Declined" }
-  if (delivery.approvalStatus === "APPROVED") {
-    const status = delivery.deliveryStatus ?? ""
-    if (status === "VEHICLE_SELECTED" || status === "BOOKING" || status === "BOOKING_FAILED") return { status, label: getDeliveryStatusLabel(status) }
-    return { status: "APPROVED", label: "Approved" }
-  }
-  return { status: delivery.deliveryStatus ?? "NOT_SCHEDULED", label: getDeliveryStatusLabel(delivery.deliveryStatus) }
+  if (!delivery.lalamoveOrderId && delivery.order?.status === "CANCELLED") return { status: "CANCELLED", label: "Cancelled" }
+  const status = delivery.deliveryStatus ?? "NOT_SCHEDULED"
+  if (status === "READY_TO_BOOK") return { status, label: "Paid — Ready to book" }
+  return { status, label: getDeliveryStatusLabel(status) }
 }
 
 function customerName(delivery: DeliveryRecord): string {
@@ -68,20 +64,25 @@ function customerName(delivery: DeliveryRecord): string {
   return customer ? `${customer.firstName} ${customer.lastName}`.trim() : "—"
 }
 
-/** Estimated fee from the moderator's vehicle selection, while it's still the current (unbooked) quote. */
-function pendingEstimate(delivery: DeliveryRecord): { amount: number; expiresAt: string } | null {
+const isPaid = (delivery: DeliveryRecord): boolean => delivery.order?.payment?.status === "PAID"
+
+/** The estimated shipping fee included in the customer's order total - null until quoted. */
+function estimatedFee(delivery: DeliveryRecord): string | null {
+  return delivery.quotedAt && delivery.order?.shippingFee != null ? delivery.order.shippingFee : null
+}
+
+/** Lalamove's latest (unbooked) quote for the selected vehicle. */
+function currentQuote(delivery: DeliveryRecord): { amount: number; expiresAt: string } | null {
   const quote = delivery.providerMetadata?.pendingQuotation
   if (!quote || delivery.lalamoveOrderId) return null
   return { amount: quote.amount, expiresAt: quote.expiresAt }
 }
 
-function feePaymentLabel(delivery: DeliveryRecord): string {
-  const payment = delivery.deliveryPayment
-  if (!payment) return "Not yet paid"
-  if (payment.status === "PAID") return payment.method === "PayMongo" ? "Paid (GCash)" : "Paid"
-  if (payment.method === "Cash") return "Cash on delivery"
-  if (payment.status === "FAILED") return "GCash payment failed"
-  return "Awaiting GCash confirmation"
+function PaymentCell({ delivery }: { delivery: DeliveryRecord }) {
+  const payment = delivery.order?.payment
+  if (payment) return <StatusBadge status={payment.status} label={payment.status === "PENDING" ? "Awaiting payment" : undefined} />
+  if (delivery.order?.status === "CANCELLED") return <span className="text-xs text-muted-foreground italic">—</span>
+  return <span className="text-xs text-muted-foreground italic">{delivery.quotedAt ? "Awaiting payment" : "Not payable yet"}</span>
 }
 
 export function AdminDeliveriesPage() {
@@ -136,8 +137,8 @@ export function AdminDeliveriesPage() {
     deliveriesResource.reload()
   }
 
-  const pendingCount = rows.filter((row) => row.approvalStatus === "PENDING_APPROVAL").length
-  const toBookCount = rows.filter((row) => row.approvalStatus === "APPROVED" && !row.lalamoveOrderId).length
+  const awaitingQuoteCount = rows.filter((row) => row.deliveryStatus === "AWAITING_QUOTE").length
+  const toBookCount = rows.filter((row) => !row.lalamoveOrderId && TO_BOOK.has(row.deliveryStatus ?? "")).length
   const activeCount = rows.filter((row) => ["ASSIGNING_DRIVER", "ON_GOING", "PICKED_UP"].includes(row.deliveryStatus ?? "")).length
 
   return (
@@ -145,12 +146,12 @@ export function AdminDeliveriesPage() {
       <AdminPageHeader
         eyebrow="Operations"
         title="Deliveries"
-        description={isModerator ? "Approve customer delivery requests, select the Lalamove vehicle, book it, and track it to the door." : "Delivery requests, Lalamove bookings and tracking across every order (view-only)."}
+        description={isModerator ? "Every order's delivery: get the shipping quote after approving the order, then book Lalamove once the customer has paid." : "Every order's delivery, payment and Lalamove booking (view-only)."}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Delivery summary">
-        <MetricCard label="Pending requests" value={deliveriesResource.isLoading ? "—" : pendingCount} isLoading={deliveriesResource.isLoading} />
-        <MetricCard label="Awaiting booking" value={deliveriesResource.isLoading ? "—" : toBookCount} isLoading={deliveriesResource.isLoading} />
+        <MetricCard label="Awaiting shipping quote" value={deliveriesResource.isLoading ? "—" : awaitingQuoteCount} isLoading={deliveriesResource.isLoading} />
+        <MetricCard label="Paid — ready to book" value={deliveriesResource.isLoading ? "—" : toBookCount} isLoading={deliveriesResource.isLoading} />
         <MetricCard label="Active deliveries" value={deliveriesResource.isLoading ? "—" : activeCount} isLoading={deliveriesResource.isLoading} />
         <button type="button" onClick={() => setShowFailedRequests(true)} className="text-left">
           <MetricCard label="Failed API requests" value="View" isLoading={false} />
@@ -166,7 +167,7 @@ export function AdminDeliveriesPage() {
           onChange={(value) => { setDeliveryState(value as DeliveryState); setPage(1) }}
         />
         <div className="min-w-48">
-          <Input placeholder="Search order, customer, booking, address…" value={searchInput} onChange={(event) => { setSearchInput(event.target.value); setPage(1) }} className="h-9" />
+          <Input placeholder="Search order, customer, date, booking…" value={searchInput} onChange={(event) => { setSearchInput(event.target.value); setPage(1) }} className="h-9" />
         </div>
       </FilterBar>
 
@@ -175,11 +176,11 @@ export function AdminDeliveriesPage() {
       ) : (
         <>
           <DataTable
-            caption="Delivery requests and Lalamove bookings"
+            caption="Order deliveries, payments and Lalamove bookings"
             isLoading={deliveriesResource.isLoading}
             rows={rows}
             getRowId={(row) => row.id}
-            empty={<EmptyState icon={Truck} title="No deliveries found" description="Delivery requests appear here as soon as a customer with a paid order requests delivery." />}
+            empty={<EmptyState icon={Truck} title="No deliveries found" description="Every order appears here as soon as a customer places it." />}
             columns={[
               {
                 key: "order",
@@ -188,13 +189,23 @@ export function AdminDeliveriesPage() {
                 cell: (row) => (
                   <div className="space-y-0.5">
                     <span className="font-semibold text-foreground">{row.order?.orderNumber ?? "—"}</span>
-                    <p className="text-xs text-muted-foreground">{customerName(row)} · {formatDateTime(row.requestedAt ?? row.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground">{customerName(row)}</p>
                   </div>
                 ),
               },
               {
+                key: "date",
+                header: "Order date",
+                cell: (row) => <span className="text-xs">{formatDateTime(row.order?.createdAt ?? row.createdAt)}</span>,
+              },
+              {
+                key: "payment",
+                header: "Payment",
+                cell: (row) => <PaymentCell delivery={row} />,
+              },
+              {
                 key: "status",
-                header: "Status",
+                header: "Delivery",
                 cell: (row) => {
                   const { status, label } = workflowStatus(row)
                   return <StatusBadge status={status} label={label} />
@@ -207,8 +218,17 @@ export function AdminDeliveriesPage() {
                 cell: (row) => deliveryVehicleName(row) ?? <span className="text-xs text-muted-foreground italic">Not selected</span>,
               },
               {
-                key: "fee",
-                header: "Shipping fee",
+                key: "estimated",
+                header: "Est. shipping",
+                secondary: true,
+                cell: (row) => {
+                  const fee = estimatedFee(row)
+                  return fee != null ? formatProductPrice(fee) : <span className="text-xs text-muted-foreground italic">Not quoted</span>
+                },
+              },
+              {
+                key: "final",
+                header: "Final fee",
                 secondary: true,
                 cell: (row) => (row.shippingFee != null ? formatProductPrice(row.shippingFee) : <span className="text-xs text-muted-foreground italic">After booking</span>),
               },
@@ -254,15 +274,15 @@ function Field({ label, children, mono }: { label: string; children: ReactNode; 
 }
 
 /**
- * MODERATOR manages the whole workflow from here: approve/decline the
- * request -> select the Lalamove vehicle -> book -> refresh/cancel. OWNER
- * opens the same sheet with every action hidden (the backend refuses them
- * for OWNER regardless).
+ * MODERATOR manages the whole workflow from here, one stage at a time:
+ * approve the order -> get the shipping quote (the fee joins the order
+ * total the customer pays) -> after the customer's GCash payment, select
+ * the vehicle and book Lalamove -> refresh/cancel. OWNER opens the same
+ * sheet with every action hidden (the backend refuses them for OWNER
+ * regardless).
  */
 function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { delivery: DeliveryRecord | null; isModerator: boolean; onClose: () => void; onChanged: (delivery: DeliveryRecord) => void }) {
-  const [busyAction, setBusyAction] = useState<"approve" | "decline" | "book" | "refresh" | "cancel" | "coordinates" | null>(null)
-  const [isDeclining, setIsDeclining] = useState(false)
-  const [declineReason, setDeclineReason] = useState("")
+  const [busyAction, setBusyAction] = useState<"approve" | "book" | "refresh" | "cancel" | "coordinates" | null>(null)
   const [bookingError, setBookingError] = useState("")
   const [latInput, setLatInput] = useState("")
   const [lngInput, setLngInput] = useState("")
@@ -274,8 +294,6 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
     setLatInput(location?.latitude != null ? String(location.latitude) : "")
     setLngInput(location?.longitude != null ? String(location.longitude) : "")
     setCoordinatesError("")
-    setIsDeclining(false)
-    setDeclineReason("")
     setBookingError("")
     // Only reset when a different delivery is opened, not on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -287,11 +305,18 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
   const meta = current.providerMetadata
   const { status, label } = workflowStatus(current)
   const vehicle = deliveryVehicleName(current)
-  const estimate = pendingEstimate(current)
+  const quote = currentQuote(current)
+  const paidFee = estimatedFee(current)
+  const paid = isPaid(current)
   const isBooked = Boolean(current.lalamoveOrderId)
+  const isCancelled = !isBooked && (order?.status === "CANCELLED" || current.deliveryStatus === "CANCELED")
   const isTerminal = current.deliveryStatus === "COMPLETED" || current.deliveryStatus === "CANCELED"
-  const canBook = current.approvalStatus === "APPROVED" && !isBooked && Boolean(current.vehicleType) && PRE_BOOKING.has(current.deliveryStatus ?? "NOT_SCHEDULED")
+  const needsApproval = !isCancelled && !order?.moderatorApproved
+  const needsQuoteOrPayment = !isCancelled && !isBooked && Boolean(order?.moderatorApproved) && !paid
+  const readyToBook = !isCancelled && !isBooked && paid
+  const canBook = readyToBook && Boolean(current.vehicleType) && current.deliveryStatus !== "BOOKING"
   const hasPin = location?.latitude != null && location?.longitude != null
+  const quoteDiffers = paidFee != null && quote != null && Math.abs(quote.amount - Number(paidFee)) >= 0.005
 
   async function run(action: NonNullable<typeof busyAction>, task: () => Promise<DeliveryRecord>, success: string) {
     setBusyAction(action)
@@ -313,7 +338,7 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
     try {
       const response = await bookDelivery(current.orderId)
       onChanged(response.delivery)
-      toast.success("Lalamove delivery booked", { description: response.delivery.shippingFee != null ? `Shipping fee: ${formatProductPrice(response.delivery.shippingFee)}` : undefined })
+      toast.success("Lalamove delivery booked", { description: response.delivery.shippingFee != null ? `Final Lalamove fee: ${formatProductPrice(response.delivery.shippingFee)}` : undefined })
     } catch (error) {
       setBookingError(getAdminErrorMessage(error))
       // The failed attempt is recorded on the delivery (BOOKING_FAILED) - reload it so the sheet shows that state.
@@ -347,7 +372,7 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
         <SheetHeader className="space-y-1 border-b border-border pb-4">
           <div className="flex items-center gap-2">
             <Truck className="size-5 text-primary" aria-hidden="true" />
-            <SheetTitle className="text-lg font-semibold">Delivery request</SheetTitle>
+            <SheetTitle className="text-lg font-semibold">Delivery</SheetTitle>
           </div>
           <SheetDescription className="text-xs text-muted-foreground">
             Order <span className="font-semibold text-foreground">{order?.orderNumber ?? "—"}</span>
@@ -358,8 +383,10 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
           <SheetSection title="Status">
             <StatusBadge status={status} label={label} />
             <div className="grid grid-cols-2 gap-3 text-xs">
-              <Field label="Requested">{current.requestedAt ? formatDateTime(current.requestedAt) : "—"}</Field>
+              <Field label="Ordered">{order?.createdAt ? formatDateTime(order.createdAt) : "—"}</Field>
               <Field label="Approved">{current.approvedAt ? formatDateTime(current.approvedAt) : "—"}</Field>
+              <Field label="Shipping quoted">{current.quotedAt ? formatDateTime(current.quotedAt) : "—"}</Field>
+              <Field label="Paid">{order?.payment?.paidAt ? formatDateTime(order.payment.paidAt) : "—"}</Field>
               <Field label="Booked">{current.bookedAt ? formatDateTime(current.bookedAt) : "—"}</Field>
               <Field label="Delivered">{current.deliveredAt ? formatDateTime(current.deliveredAt) : "—"}</Field>
             </div>
@@ -376,8 +403,9 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
                 {location?.recipientName ?? "—"}
                 {location?.recipientPhone && <span className="block font-normal text-muted-foreground">{formatPhoneForDisplay(location.recipientPhone)}</span>}
               </Field>
-              <Field label="Product payment">
-                {order?.payment ? <StatusBadge status={order.payment.status} /> : <StatusBadge status="PENDING" label="Not paid" />}
+              <Field label="Payment (GCash)">
+                <PaymentCell delivery={current} />
+                {order?.payment?.transactionRef && <span className="mt-0.5 block font-mono text-[11px] font-normal text-muted-foreground break-all">Ref: {order.payment.transactionRef}</span>}
               </Field>
             </div>
             {order?.items && order.items.length > 0 && (
@@ -388,10 +416,22 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
                     <span className="shrink-0 text-muted-foreground">× {item.quantity}</span>
                   </li>
                 ))}
-                <li className="flex justify-between gap-3 pt-1 font-medium">
-                  <span>{order.items.reduce((sum, item) => sum + item.quantity, 0)} pcs</span>
-                  {order.totalAmount && <span>{formatProductPrice(order.totalAmount)}</span>}
+                {order.subtotal && (
+                  <li className="flex justify-between gap-3 pt-1">
+                    <span className="text-muted-foreground">Subtotal ({order.items.reduce((sum, item) => sum + item.quantity, 0)} pcs)</span>
+                    <span>{formatProductPrice(order.subtotal)}</span>
+                  </li>
+                )}
+                <li className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Estimated shipping fee</span>
+                  <span>{paidFee != null ? formatProductPrice(paidFee) : <span className="italic text-muted-foreground">Not quoted</span>}</span>
                 </li>
+                {order.totalAmount && (
+                  <li className="flex justify-between gap-3 border-t border-border pt-1 font-medium">
+                    <span>{paid ? "Total paid" : "Total"}</span>
+                    <span>{paid && order.payment ? formatProductPrice(order.payment.amount) : paidFee != null ? formatProductPrice(order.totalAmount) : "—"}</span>
+                  </li>
+                )}
               </ul>
             )}
           </SheetSection>
@@ -413,7 +453,7 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
             </div>
 
             {/* Orders placed with a saved address carry the customer's own map pin; manual entry is only a fallback for older orders without one. */}
-            {isModerator && !hasPin && !isBooked && (
+            {isModerator && !hasPin && !isBooked && !isCancelled && (
               <div className="space-y-2 rounded-md border border-border bg-card p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Set delivery coordinates (older order)</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -435,64 +475,99 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
             )}
           </SheetSection>
 
-          {isModerator && current.approvalStatus === "PENDING_APPROVAL" && (
-            <SheetSection title="Delivery request" emphasis>
-              <p className="text-xs text-muted-foreground">The product payment is complete. Approve to arrange this delivery, then select the Lalamove vehicle.</p>
-              {isDeclining ? (
-                <div className="space-y-2">
-                  <Label htmlFor="decline-reason" className="text-xs">Reason (shown to the customer, optional)</Label>
-                  <Textarea id="decline-reason" value={declineReason} onChange={(event) => setDeclineReason(event.target.value)} rows={3} maxLength={500} />
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="destructive" className="flex-1" disabled={busyAction !== null} onClick={() => void run("decline", async () => (await declineDeliveryRequest(current.orderId, declineReason.trim() || undefined)).delivery, "Delivery request declined")}>
-                      {busyAction === "decline" && <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />}Decline request
-                    </Button>
-                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setIsDeclining(false)} disabled={busyAction !== null}>Back</Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <Button size="sm" className="flex-1" disabled={busyAction !== null} onClick={() => void run("approve", async () => (await approveDeliveryRequest(current.orderId)).delivery, "Delivery request approved")}>
-                    {busyAction === "approve" ? <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" /> : <CheckCircle2 className="size-3.5" data-icon="inline-start" />}Approve delivery
+          {needsApproval && (
+            <SheetSection title="Order approval" emphasis={isModerator}>
+              {isModerator ? (
+                <>
+                  <p className="text-xs text-muted-foreground">Approve the order to start its delivery. You then get the Lalamove shipping quote, and the customer pays products + shipping together.</p>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    disabled={busyAction !== null}
+                    onClick={() => void run("approve", async () => { await approveOrder(current.orderId); return (await getDeliveryById(current.id)).delivery }, "Order approved - get the shipping quote next")}
+                  >
+                    {busyAction === "approve" ? <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" /> : <CheckCircle2 className="size-3.5" data-icon="inline-start" />}Approve order
                   </Button>
-                  <Button size="sm" variant="outline" className="flex-1 border-destructive/40 text-destructive hover:bg-destructive/10" disabled={busyAction !== null} onClick={() => setIsDeclining(true)}>Decline</Button>
-                </div>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">Waiting for a moderator to approve this order.</p>
               )}
             </SheetSection>
           )}
 
-          {current.approvalStatus === "DECLINED" && current.declineReason && (
-            <SheetSection title="Declined">
-              <p className="text-xs text-destructive">{current.declineReason}</p>
+          {needsQuoteOrPayment && (
+            <SheetSection title="Shipping quote" emphasis={isModerator && !current.quotedAt}>
+              {current.quotedAt && paidFee != null ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <Field label="Quoted vehicle">{vehicle ?? "—"}</Field>
+                    <Field label="Estimated shipping fee">{formatProductPrice(paidFee)}</Field>
+                    <Field label="Customer pays">{order?.totalAmount ? formatProductPrice(order.totalAmount) : "—"}</Field>
+                    <Field label="Payment">Waiting for the customer's GCash payment</Field>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">The customer can pay once you get the shipping quote. The fee is added to the order total.</p>
+              )}
+              {isModerator ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{current.quotedAt ? "Update quote" : "Select vehicle for the quote"}</p>
+                  <VehiclePicker
+                    key={current.id}
+                    orderId={current.orderId}
+                    currentVehicle={current.vehicleType ?? null}
+                    disabled={busyAction !== null || !hasPin}
+                    onSelected={onChanged}
+                    actionLabel={current.quotedAt ? "Update shipping quote" : "Get shipping quote"}
+                    hint="Gets Lalamove's fee for this vehicle and sets it as the order's estimated shipping fee. The customer is notified to pay products + shipping in one GCash payment. Nothing is booked yet."
+                  />
+                  {!hasPin && <p className="text-[11px] text-amber-600">Set the delivery coordinates first.</p>}
+                </div>
+              ) : (
+                !current.quotedAt && <p className="text-xs text-muted-foreground">Waiting for a moderator to get the shipping quote.</p>
+              )}
             </SheetSection>
           )}
 
-          {current.approvalStatus === "APPROVED" && !isBooked && (
+          {readyToBook && (
             <SheetSection title="Lalamove booking" emphasis={isModerator}>
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground"><CheckCircle2 className="size-3.5 text-primary" aria-hidden="true" />Paid — ready to book</p>
               {(bookingError || current.bookingError) && (
                 <p role="alert" className="rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs leading-5 text-destructive">
                   {bookingError || `Lalamove booking failed. Please try again. (${current.bookingError})`}
                 </p>
               )}
-              {vehicle && (
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <Field label="Selected vehicle">{vehicle}</Field>
-                  <Field label="Estimated delivery fee">{estimate ? formatProductPrice(estimate.amount.toFixed(2)) : "Re-quoted at booking"}</Field>
-                </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <Field label="Vehicle">{vehicle ?? "Not selected"}</Field>
+                <Field label="Shipping fee paid">{paidFee != null ? formatProductPrice(paidFee) : "Not included (paid before shipping was part of the order)"}</Field>
+                {quote && <Field label="Current Lalamove quote">{formatProductPrice(quote.amount.toFixed(2))}</Field>}
+              </div>
+              {quoteDiffers && (
+                <p className="rounded-md border border-amber-500/30 bg-amber-50 p-2 text-[11px] leading-5 text-amber-800">
+                  Lalamove's current fee differs from the {formatProductPrice(paidFee)} the customer paid. The customer is not charged again - the difference is recorded when you book.
+                </p>
               )}
               {isModerator ? (
                 <>
                   <div className="space-y-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{vehicle ? "Change vehicle" : "Select vehicle"}</p>
-                    <VehiclePicker key={current.id} orderId={current.orderId} currentVehicle={current.vehicleType ?? null} disabled={busyAction !== null || current.deliveryStatus === "BOOKING" || !hasPin} onSelected={onChanged} />
+                    <VehiclePicker
+                      key={current.id}
+                      orderId={current.orderId}
+                      currentVehicle={current.vehicleType ?? null}
+                      disabled={busyAction !== null || current.deliveryStatus === "BOOKING" || !hasPin}
+                      onSelected={onChanged}
+                      hint="Refreshes Lalamove's fee for this vehicle. The amount the customer paid does not change. Nothing is booked yet."
+                    />
                     {!hasPin && <p className="text-[11px] text-amber-600">Set the delivery coordinates first.</p>}
                   </div>
                   <Button className="w-full" onClick={() => void handleBook()} disabled={!canBook || busyAction !== null}>
-                    {busyAction === "book" ? <><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />Booking with Lalamove…</> : <><Truck className="size-3.5" aria-hidden="true" />Book Lalamove delivery</>}
+                    {busyAction === "book" ? <><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />Booking with Lalamove…</> : <><Truck className="size-3.5" aria-hidden="true" />Book Lalamove</>}
                   </Button>
-                  <p className="text-[11px] text-muted-foreground">Booking places a real, billable Lalamove order. The fee Lalamove returns is shown to the customer.</p>
+                  <p className="text-[11px] text-muted-foreground">Booking places a real, billable Lalamove order. The booking ID and tracking link are shown to the customer.</p>
                 </>
               ) : (
-                !vehicle && <p className="text-xs text-muted-foreground">Waiting for a moderator to select the vehicle and book Lalamove.</p>
+                <p className="text-xs text-muted-foreground">Waiting for a moderator to book Lalamove.</p>
               )}
             </SheetSection>
           )}
@@ -502,8 +577,8 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <Field label="Booking ID" mono>{current.lalamoveOrderId}</Field>
                 <Field label="Vehicle">{vehicle ?? "—"}</Field>
-                <Field label="Shipping fee">{current.shippingFee != null ? formatProductPrice(current.shippingFee) : "—"}</Field>
-                <Field label="Fee payment">{feePaymentLabel(current)}</Field>
+                <Field label="Estimated fee (paid)">{paidFee != null ? formatProductPrice(paidFee) : "—"}</Field>
+                <Field label="Final Lalamove fee">{current.shippingFee != null ? formatProductPrice(current.shippingFee) : "—"}</Field>
                 <Field label="Driver">{meta?.driverName ?? "Not assigned yet"}</Field>
                 <Field label="Driver phone">{meta?.driverPhone ?? "—"}</Field>
                 <Field label="Plate number">{meta?.driverPlateNumber ?? "—"}</Field>
@@ -537,6 +612,12 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
                   </Button>
                 </div>
               )}
+            </SheetSection>
+          )}
+
+          {isCancelled && (
+            <SheetSection title="Cancelled">
+              <p className="text-xs text-muted-foreground">This order was cancelled before its delivery was booked.</p>
             </SheetSection>
           )}
         </div>

@@ -5,6 +5,11 @@
  * value still shows something honest rather than a blank badge.
  */
 const DISPLAY_LABELS: Record<string, string> = {
+  // PanelScan's order-driven stages, before Lalamove is booked.
+  AWAITING_ORDER_APPROVAL: "Waiting for approval",
+  AWAITING_QUOTE: "Awaiting shipping quote",
+  AWAITING_PAYMENT: "Awaiting customer payment",
+  READY_TO_BOOK: "Ready to book",
   NOT_REQUESTED: "Not requested",
   NOT_SCHEDULED: "Not scheduled",
   PREPARING: "Preparing delivery",

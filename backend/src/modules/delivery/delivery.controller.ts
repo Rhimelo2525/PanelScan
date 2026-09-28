@@ -53,28 +53,6 @@ export class DeliveryController {
     sendSuccess(res, 201, 'Delivery created successfully.', { delivery });
   });
 
-  requestDelivery = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const delivery = await this.deliveryService.requestDelivery(orderId, requester.id, getRequestAuditContext(req));
-    sendSuccess(res, 200, 'Delivery request submitted successfully.', { delivery });
-  });
-
-  approveDeliveryRequest = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const delivery = await this.deliveryService.approveDeliveryRequest(orderId, requester.id, getRequestAuditContext(req));
-    sendSuccess(res, 200, 'Delivery request approved successfully.', { delivery });
-  });
-
-  declineDeliveryRequest = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const reason = req.body?.reason;
-    const delivery = await this.deliveryService.declineDeliveryRequest(orderId, requester.id, reason, getRequestAuditContext(req));
-    sendSuccess(res, 200, 'Delivery request declined successfully.', { delivery });
-  });
-
   /** CUSTOMER: deliveries for their own orders only. MODERATOR/OWNER: every delivery. */
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
@@ -165,22 +143,6 @@ export class DeliveryController {
     const orderId = req.params.orderId as string;
     const delivery = await this.deliveryService.bookDelivery(orderId, requester.id, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Delivery booked successfully.', { delivery });
-  });
-
-  /** CUSTOMER: opens a PayMongo GCash checkout session for the shipping fee Lalamove charged for the booking. */
-  payFeeWithGcash = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const result = await this.deliveryService.createFeeGcashCheckout(orderId, requester.id, getRequestAuditContext(req));
-    sendSuccess(res, 200, 'Delivery fee checkout created successfully.', result);
-  });
-
-  /** CUSTOMER: selects Cash on Delivery for the shipping fee - collected at drop-off. */
-  payFeeWithCash = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const orderId = req.params.orderId as string;
-    const result = await this.deliveryService.selectFeeCash(orderId, requester.id, getRequestAuditContext(req));
-    sendSuccess(res, 200, 'Cash on Delivery selected for the delivery fee.', result);
   });
 
   /** Pulls live status + driver info from Lalamove and syncs it onto the record. */

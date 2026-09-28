@@ -14,26 +14,16 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
   REFUNDED: "Refunded",
 }
 
-const paymentStatusDescriptions: Record<PaymentStatus, string> = {
-  PENDING: "A payment was started for this order but PanelScan has not received a confirmed result yet.",
-  PAID: "PanelScan received a confirmed successful payment for this order.",
-  FAILED: "The payment provider reported that this payment did not go through.",
-  REFUNDED: "This payment is recorded as refunded.",
-}
-
 export function formatPaymentStatus(status: PaymentStatus): string {
   return paymentStatusLabels[status]
 }
 
-export function describePaymentStatus(status: PaymentStatus): string {
-  return paymentStatusDescriptions[status]
-}
-
 /**
- * Mirrors the backend's own eligibility checks in payment.service.ts: a
+ * Mirrors part of the backend's eligibility checks in payment.service.ts: a
  * cancelled order cannot be paid, and an order whose payment is already PAID or
- * REFUNDED cannot be paid again. Everything else is accepted by the backend,
- * including retrying a PENDING or FAILED attempt (the payment row is reused).
+ * REFUNDED cannot be paid again. Retrying a PENDING or FAILED attempt is fine
+ * (the payment row is reused). The backend also refuses payment until the
+ * shipping fee has been quoted.
  */
 export function canStartPayment(orderStatus: OrderStatus, payment: Payment | null, moderatorApproved?: boolean): boolean {
   if (orderStatus === "CANCELLED") return false
@@ -45,10 +35,6 @@ export function canStartPayment(orderStatus: OrderStatus, payment: Payment | nul
 /** Terminal from the website's point of view: no further webhook is expected. */
 export function isPaymentSettled(payment: Payment | null): boolean {
   return payment !== null && payment.status !== "PENDING"
-}
-
-export function paymentActionLabel(payment: Payment | null): string {
-  return payment?.status === "FAILED" ? "Try payment again" : "Continue to payment"
 }
 
 /** True when cancelling the order could strand an already-open checkout session. */

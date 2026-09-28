@@ -9,7 +9,7 @@ import type { OrderStatus, Prisma } from '@prisma/client';
 export const orderInclude = {
   items: { orderBy: { createdAt: 'asc' } },
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-  // deliveryPayment: whether the customer has paid the booked shipping fee.
+  // The order's delivery record (created with the order): workflow stage, quote, vehicle, booking and tracking. deliveryPayment is a legacy separate shipping-fee charge.
   delivery: { include: { deliveryPayment: true } },
   booking: {
     include: {

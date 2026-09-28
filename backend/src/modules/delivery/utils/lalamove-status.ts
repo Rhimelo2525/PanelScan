@@ -1,8 +1,11 @@
 /**
- * Maps Lalamove's own order-status vocabulary (stored verbatim in
- * Delivery.deliveryStatus - see providers/lalamove.provider.ts) to the
- * customer-facing labels from the feature spec, and groups statuses for the
- * admin dashboard's active/completed/cancelled tabs.
+ * Maps Delivery.deliveryStatus to the labels customers and staff see, and
+ * groups statuses for the admin dashboard's filters.
+ *
+ * deliveryStatus carries the whole delivery lifecycle in one column:
+ * PanelScan's own order-driven stages until a real Lalamove order exists
+ * (see ORDER_WORKFLOW_STATUSES), then Lalamove's own order-status vocabulary
+ * stored verbatim (see providers/lalamove.provider.ts).
  *
  * The raw value is never discarded - only the display layer translates it -
  * so an unrecognized or future status from Lalamove still shows something
@@ -10,13 +13,30 @@
  */
 import { LALAMOVE_ORDER_STATUSES } from '../delivery.domain.js';
 
+/**
+ * PanelScan's stages before Lalamove is booked, driven by the order itself:
+ *   order placed -> approved -> shipping quoted -> paid (products + shipping)
+ * The delivery record is created with the order, so the customer never
+ * requests delivery separately.
+ */
+export const ORDER_WORKFLOW_STATUSES = {
+  AWAITING_ORDER_APPROVAL: 'AWAITING_ORDER_APPROVAL',
+  AWAITING_QUOTE: 'AWAITING_QUOTE',
+  AWAITING_PAYMENT: 'AWAITING_PAYMENT',
+  READY_TO_BOOK: 'READY_TO_BOOK',
+} as const;
+
 const DISPLAY_LABELS: Record<string, string> = {
+  AWAITING_ORDER_APPROVAL: 'Waiting for approval',
+  AWAITING_QUOTE: 'Awaiting shipping quote',
+  AWAITING_PAYMENT: 'Awaiting customer payment',
+  READY_TO_BOOK: 'Ready to book',
+  // Records from before delivery became part of the order.
   NOT_REQUESTED: 'Not requested',
   NOT_SCHEDULED: 'Not scheduled',
   PREPARING: 'Preparing delivery',
-  // PanelScan's own pre-booking steps (see delivery.service.ts): the
-  // moderator picked a vehicle, a booking call is in flight, or it failed.
   VEHICLE_SELECTED: 'Vehicle selected',
+  // A booking call is in flight, or the last attempt failed.
   BOOKING: 'Booking in progress',
   BOOKING_FAILED: 'Booking failed',
   ASSIGNING_DRIVER: 'Booked',
@@ -38,8 +58,19 @@ export const ACTIVE_DELIVERY_STATUSES = ['PREPARING', 'ASSIGNING_DRIVER', 'ON_GO
 export const COMPLETED_DELIVERY_STATUSES = ['COMPLETED'];
 export const CANCELLED_DELIVERY_STATUSES = ['CANCELED', 'CANCELLED', 'REJECTED', 'EXPIRED'];
 
+/** Paid and waiting for the moderator to book Lalamove (including an in-flight or failed attempt). */
+export const TO_BOOK_DELIVERY_STATUSES = [ORDER_WORKFLOW_STATUSES.READY_TO_BOOK, 'BOOKING', 'BOOKING_FAILED'];
+
 /** Before a real Lalamove order exists. */
-export const PRE_BOOKING_DELIVERY_STATUSES = ['NOT_REQUESTED', 'NOT_SCHEDULED', 'VEHICLE_SELECTED', 'BOOKING', 'BOOKING_FAILED'];
+export const PRE_BOOKING_DELIVERY_STATUSES = [
+  ORDER_WORKFLOW_STATUSES.AWAITING_ORDER_APPROVAL,
+  ORDER_WORKFLOW_STATUSES.AWAITING_QUOTE,
+  ORDER_WORKFLOW_STATUSES.AWAITING_PAYMENT,
+  ...TO_BOOK_DELIVERY_STATUSES,
+  'NOT_REQUESTED',
+  'NOT_SCHEDULED',
+  'VEHICLE_SELECTED',
+];
 
 export type DeliveryStateGroup = 'active' | 'completed' | 'cancelled' | 'not_started';
 

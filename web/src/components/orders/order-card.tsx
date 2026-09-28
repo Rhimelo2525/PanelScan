@@ -5,10 +5,13 @@ import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { Button } from "@/components/ui/button"
 import { formatProductPrice } from "@/lib/format-price"
 import { formatOrderDate } from "@/orders/order-format"
+import { isShippingQuoted } from "@/orders/order-workflow"
 import type { Order } from "@/types/order"
 
 export function OrderCard({ order }: { order: Order }) {
   const itemCount = order.items.reduce((total, item) => total + item.quantity, 0)
+  // Until PanelScan quotes the delivery fee, the amount is the products only - never shown as the order total.
+  const awaitingFee = !isShippingQuoted(order) && (order.delivery?.deliveryStatus === "AWAITING_ORDER_APPROVAL" || order.delivery?.deliveryStatus === "AWAITING_QUOTE")
   return (
     <article className="surface-card p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -17,7 +20,7 @@ export function OrderCard({ order }: { order: Order }) {
       </div>
       <div className="mt-6 flex flex-wrap items-end justify-between gap-5 border-t border-border pt-5">
         <div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center bg-secondary"><Package className="size-4 text-primary" aria-hidden="true" /></div><div><p className="text-xs text-muted-foreground">Items</p><p className="font-semibold">{itemCount}</p></div></div>
-        <div className="text-right"><p className="text-xs text-muted-foreground">Order total</p><p className="mt-1 text-xl font-semibold tabular-nums">{formatProductPrice(order.totalAmount)}</p></div>
+        <div className="text-right"><p className="text-xs text-muted-foreground">{awaitingFee ? "Subtotal" : "Order total"}</p><p className="mt-1 text-xl font-semibold tabular-nums">{formatProductPrice(awaitingFee ? order.subtotal : order.totalAmount)}</p>{awaitingFee && <p className="mt-1 text-xs text-muted-foreground">+ delivery fee, calculated after approval</p>}</div>
       </div>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <Button variant="outline" className="w-full sm:w-auto" asChild>

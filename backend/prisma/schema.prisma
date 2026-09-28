@@ -435,6 +435,12 @@ model Delivery {
   vehicleType      String?                @map("vehicle_type")
   shippingFee      Decimal?               @map("shipping_fee") @db.Decimal(12, 2)
   trackingUrl      String?                @map("tracking_url")
+  // When the moderator set the shipping estimate the customer pays. The
+  // estimate itself is Order.shippingFee (folded into Order.totalAmount, the
+  // one amount charged through PayMongo); shippingFee above is the final fee
+  // Lalamove charged at booking. Null = not quoted yet, so a genuine PHP 0.00
+  // estimate is never confused with "no fee yet".
+  quotedAt         DateTime?              @map("quoted_at")
   bookedAt         DateTime?              @map("booked_at")
   bookedById       String?                @map("booked_by_id") @db.Uuid
   // Last failed booking attempt, cleared on success - lets the customer see

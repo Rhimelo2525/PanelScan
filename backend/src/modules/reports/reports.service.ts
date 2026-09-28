@@ -75,6 +75,12 @@ type OrderWithRelations = Prisma.OrderGetPayload<{
         approvedAt: true;
         declinedAt: true;
         declineReason: true;
+        quotedAt: true;
+        vehicleType: true;
+        shippingFee: true;
+        lalamoveOrderId: true;
+        trackingUrl: true;
+        providerMetadata: true;
       };
     };
   };
@@ -113,6 +119,12 @@ export class ReportsService {
               approvedAt: true,
               declinedAt: true,
               declineReason: true,
+              quotedAt: true,
+              vehicleType: true,
+              shippingFee: true,
+              lalamoveOrderId: true,
+              trackingUrl: true,
+              providerMetadata: true,
             },
           },
         },
@@ -182,6 +194,12 @@ export class ReportsService {
               approvedAt: true,
               declinedAt: true,
               declineReason: true,
+              quotedAt: true,
+              vehicleType: true,
+              shippingFee: true,
+              lalamoveOrderId: true,
+              trackingUrl: true,
+              providerMetadata: true,
             },
           },
         },
@@ -203,6 +221,7 @@ export class ReportsService {
   private toOrderRow(order: OrderWithRelations, includeAmount: boolean): OrderReportRow {
     const paymentStatus = order.payment?.status ?? PaymentStatus.PENDING;
     const location = order.deliveryLocation as Record<string, unknown> | null;
+    const deliveryMeta = order.delivery?.providerMetadata as Record<string, unknown> | null | undefined;
     const row: OrderReportRow = {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -223,6 +242,12 @@ export class ReportsService {
       deliveryApprovedAt: order.delivery?.approvedAt ?? null,
       deliveryDeclinedAt: order.delivery?.declinedAt ?? null,
       deliveryDeclineReason: order.delivery?.declineReason ?? null,
+      deliveryId: order.delivery?.id ?? null,
+      deliveryQuotedAt: order.delivery?.quotedAt ?? null,
+      deliveryVehicleType: order.delivery?.vehicleType ?? null,
+      deliveryVehicleLabel: typeof deliveryMeta?.vehicleLabel === 'string' ? deliveryMeta.vehicleLabel : null,
+      lalamoveBookingId: order.delivery?.lalamoveOrderId ?? null,
+      trackingUrl: order.delivery?.trackingUrl ?? null,
       itemCount: order.items.length,
       items: order.items.map((item) => {
         const primaryImage = item.product.images[0];
@@ -243,6 +268,9 @@ export class ReportsService {
     };
     if (includeAmount) {
       row.totalAmount = Number(order.totalAmount);
+      row.subtotal = Number(order.subtotal);
+      row.shippingFee = Number(order.shippingFee);
+      row.finalShippingFee = order.delivery?.shippingFee != null ? Number(order.delivery.shippingFee) : null;
     }
     return row;
   }

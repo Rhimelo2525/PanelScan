@@ -4,13 +4,7 @@ import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
-import {
-  approveDeliveryRequest,
-  approveOrder,
-  declineDeliveryRequest,
-  getSalesReport,
-  updateOrderStatus,
-} from "@/api/admin"
+import { approveOrder, getSalesReport, updateOrderStatus } from "@/api/admin"
 import { formatCount, formatDateTime, formatMoney } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -23,20 +17,10 @@ import { StatusBadge } from "@/components/admin/status-badge"
 import { StatusBreakdownBars } from "@/components/admin/trend-chart"
 import { ProductImage } from "@/components/products/product-image"
 import { useAuth } from "@/auth/use-auth"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
-import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
 import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
@@ -46,51 +30,28 @@ const ORDER_STATUSES = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCEL
 const TRANSITIONABLE = ["PENDING", "PROCESSING", "SHIPPED"]
 
 /** Shared by the table's Delivery cell and the details sheet, so the two never drift out of sync. */
-function deliveryStatusContent(row: OrderReportRow, { truncateAddress }: { truncateAddress: boolean }): ReactNode {
-  if (row.deliveryApprovalStatus === "PENDING_APPROVAL") {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <StatusBadge status="PENDING" label="Awaiting Approval" />
-        {row.deliveryRequestedAt && <span className="text-[11px] text-muted-foreground">Req: {formatDateTime(row.deliveryRequestedAt)}</span>}
-        {row.shippingAddress && (
-          <span className={truncateAddress ? "text-[11px] text-muted-foreground truncate max-w-[140px]" : "text-[11px] text-muted-foreground"} title={truncateAddress ? row.shippingAddress : undefined}>
-            {row.shippingAddress}
-          </span>
-        )}
-      </div>
-    )
-  }
-  if (row.deliveryApprovalStatus === "DECLINED") {
-    return (
-      <div className="flex flex-col gap-0.5">
-        <StatusBadge status="CANCELLED" label="Declined" />
-        {row.deliveryDeclineReason && (
-          <span className={truncateAddress ? "text-[11px] text-destructive truncate max-w-[140px]" : "text-[11px] text-destructive"} title={truncateAddress ? row.deliveryDeclineReason : undefined}>
-            {row.deliveryDeclineReason}
-          </span>
-        )}
-      </div>
-    )
-  }
-  if (row.deliveryApprovalStatus === "APPROVED") {
-    if (row.deliveryStatus && row.deliveryStatus !== "NOT_REQUESTED" && row.deliveryStatus !== "NOT_SCHEDULED") {
-      return <StatusBadge status={row.deliveryStatus} label={getDeliveryStatusLabel(row.deliveryStatus)} />
-    }
-    return <StatusBadge status="APPROVED" label="Approved" />
-  }
-  return <span className="text-xs text-muted-foreground">Not requested</span>
+function deliveryStatusContent(row: OrderReportRow): ReactNode {
+  if (row.status === "CANCELLED" && !row.lalamoveBookingId) return <StatusBadge status="CANCELLED" label="Cancelled" />
+  const status = row.deliveryStatus
+  if (!status) return <span className="text-xs text-muted-foreground">No delivery record</span>
+  return <StatusBadge status={status} label={status === "READY_TO_BOOK" ? "Paid — Ready to book" : getDeliveryStatusLabel(status)} />
 }
 
-/** An approved delivery request not yet booked with Lalamove - the moderator selects the vehicle and books it from Deliveries. */
-function needsBookingForRow(row: OrderReportRow): boolean {
-  const pre = ["NOT_REQUESTED", "NOT_SCHEDULED", "VEHICLE_SELECTED", "BOOKING_FAILED"]
-  return row.deliveryApprovalStatus === "APPROVED" && (!row.deliveryStatus || pre.includes(row.deliveryStatus))
+/** The moderator's next delivery step for this order, done on Deliveries: get the shipping quote, or book Lalamove once paid. */
+function deliveryNextStep(row: OrderReportRow): string | null {
+  if (row.status === "CANCELLED" || row.lalamoveBookingId) return null
+  if (row.deliveryStatus === "AWAITING_QUOTE") return "Get quote in Deliveries"
+  if (row.deliveryStatus === "READY_TO_BOOK" || row.deliveryStatus === "BOOKING_FAILED") return "Book in Deliveries"
+  return null
 }
 
-function BookInDeliveriesLink({ row, compact }: { row: OrderReportRow; compact: boolean }) {
+function DeliveriesLink({ row, compact }: { row: OrderReportRow; compact: boolean }) {
+  const label = deliveryNextStep(row)
+  if (!label) return null
+  const to = row.deliveryId ? `/admin/deliveries?delivery=${row.deliveryId}` : `/admin/deliveries?search=${encodeURIComponent(row.orderNumber)}`
   return (
     <Button size="sm" variant="outline" className={compact ? "h-6 px-2 text-[11px] font-medium border-primary/40 text-primary hover:bg-primary/10" : "h-7 px-2.5 text-xs font-medium border-primary/40 text-primary hover:bg-primary/10"} asChild>
-      <Link to={`/admin/deliveries?search=${encodeURIComponent(row.orderNumber)}`}>Book in Deliveries</Link>
+      <Link to={to}>{label}</Link>
     </Button>
   )
 }
@@ -98,9 +59,9 @@ function BookInDeliveriesLink({ row, compact }: { row: OrderReportRow; compact: 
 /**
  * Sales Review (owner) and Sales Management (moderator) show sales orders,
  * revenue metrics, and order payment/delivery/fulfillment statuses.
- * MODERATOR can act (approve, accept/decline delivery requests, change
- * order status; vehicle selection and Lalamove booking live on Deliveries); OWNER is view-only throughout - never shown an
- * action control, only the same information.
+ * MODERATOR can act (approve orders, change order status; the shipping
+ * quote and Lalamove booking live on Deliveries); OWNER is view-only
+ * throughout - never shown an action control, only the same information.
  */
 export function AdminSalesPage() {
   useDocumentTitle("Sales | PanelScan Admin")
@@ -111,44 +72,11 @@ export function AdminSalesPage() {
   const [status, setStatus] = useState("")
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
-  const [acceptingDeliveryId, setAcceptingDeliveryId] = useState<string | null>(null)
-  const [decliningOrder, setDecliningOrder] = useState<OrderReportRow | null>(null)
-  const [declineReason, setDeclineReason] = useState("")
-  const [isSubmittingDecline, setIsSubmittingDecline] = useState(false)
   const [detailsOrder, setDetailsOrder] = useState<OrderReportRow | null>(null)
 
   const report = useAdminResource((signal) => getSalesReport({ page, limit: 20, status: status || undefined }, signal), [page, status])
   const summary = report.data?.summary
   const orders = report.data?.orders ?? []
-
-  async function handleAcceptDeliveryRequest(order: OrderReportRow) {
-    setAcceptingDeliveryId(order.id)
-    try {
-      await approveDeliveryRequest(order.id)
-      toast.success(`Delivery request approved for ${order.orderNumber}. Select a vehicle and book Lalamove from Deliveries.`)
-      report.reload()
-    } catch (error) {
-      toast.error("Could not approve delivery request", { description: getAdminErrorMessage(error) })
-    } finally {
-      setAcceptingDeliveryId(null)
-    }
-  }
-
-  async function handleConfirmDecline() {
-    if (!decliningOrder) return
-    setIsSubmittingDecline(true)
-    try {
-      await declineDeliveryRequest(decliningOrder.id, declineReason.trim() || undefined)
-      toast.success(`Delivery request declined for ${decliningOrder.orderNumber}.`)
-      setDecliningOrder(null)
-      setDeclineReason("")
-      report.reload()
-    } catch (error) {
-      toast.error("Could not decline delivery request", { description: getAdminErrorMessage(error) })
-    } finally {
-      setIsSubmittingDecline(false)
-    }
-  }
 
   async function handleStatusChange(order: OrderReportRow, nextStatus: string) {
     setPendingId(order.id)
@@ -167,7 +95,7 @@ export function AdminSalesPage() {
     setApprovingId(order.id)
     try {
       await approveOrder(order.id)
-      toast.success(`${order.orderNumber} approved. Customer can now proceed with payment.`)
+      toast.success(`${order.orderNumber} approved. Get its shipping quote from Deliveries - the customer can pay once it is ready.`)
       report.reload()
     } catch (error) {
       toast.error("Order not approved", { description: getAdminErrorMessage(error) })
@@ -262,32 +190,8 @@ export function AdminSalesPage() {
                 header: "Delivery",
                 cell: (row) => (
                   <div className="flex flex-nowrap items-center gap-2">
-                    {deliveryStatusContent(row, { truncateAddress: true })}
-                    {row.deliveryApprovalStatus === "PENDING_APPROVAL" && isModerator && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          className="h-6 px-2 text-[11px] font-medium"
-                          onClick={() => void handleAcceptDeliveryRequest(row)}
-                          disabled={acceptingDeliveryId === row.id}
-                        >
-                          {acceptingDeliveryId === row.id ? <Loader2 className="size-3 animate-spin" /> : "Accept"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-[11px] font-medium border-destructive/40 text-destructive hover:bg-destructive/10"
-                          onClick={() => {
-                            setDecliningOrder(row)
-                            setDeclineReason("")
-                          }}
-                          disabled={acceptingDeliveryId === row.id}
-                        >
-                          Decline
-                        </Button>
-                      </div>
-                    )}
-                    {needsBookingForRow(row) && isModerator && <BookInDeliveriesLink row={row} compact />}
+                    {deliveryStatusContent(row)}
+                    {isModerator && <DeliveriesLink row={row} compact />}
                   </div>
                 ),
               },
@@ -350,10 +254,21 @@ export function AdminSalesPage() {
                     ))}
                   </div>
                   <Separator className="my-4" />
-                  <div className="flex items-center justify-between text-sm font-semibold">
-                    <span>Order total</span>
-                    <span className="tabular-nums">{formatMoney(detailsOrder.totalAmount)}</span>
-                  </div>
+                  <dl className="space-y-2 text-sm">
+                    {detailsOrder.subtotal !== undefined && (
+                      <div className="flex items-center justify-between"><dt className="text-muted-foreground">Subtotal</dt><dd className="tabular-nums">{formatMoney(detailsOrder.subtotal)}</dd></div>
+                    )}
+                    {detailsOrder.shippingFee !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <dt className="text-muted-foreground">Estimated shipping fee</dt>
+                        <dd className="tabular-nums">{detailsOrder.deliveryQuotedAt ? formatMoney(detailsOrder.shippingFee) : <span className="text-xs italic text-muted-foreground">Not quoted yet</span>}</dd>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between font-semibold">
+                      <dt>Order total</dt>
+                      <dd className="tabular-nums">{formatMoney(detailsOrder.totalAmount)}</dd>
+                    </div>
+                  </dl>
                 </section>
 
                 <section>
@@ -402,27 +317,16 @@ export function AdminSalesPage() {
                   <div className="sm:col-span-2">
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Delivery</h3>
                     <div className="flex flex-col items-start gap-2">
-                      {deliveryStatusContent(detailsOrder, { truncateAddress: false })}
-                      {detailsOrder.deliveryApprovalStatus === "PENDING_APPROVAL" && isModerator && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button size="sm" className="h-7 px-2.5 text-xs font-medium" onClick={() => void handleAcceptDeliveryRequest(detailsOrder)} disabled={acceptingDeliveryId === detailsOrder.id}>
-                            {acceptingDeliveryId === detailsOrder.id ? <Loader2 className="size-3 animate-spin" /> : "Accept"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2.5 text-xs font-medium border-destructive/40 text-destructive hover:bg-destructive/10"
-                            onClick={() => {
-                              setDecliningOrder(detailsOrder)
-                              setDeclineReason("")
-                            }}
-                            disabled={acceptingDeliveryId === detailsOrder.id}
-                          >
-                            Decline
-                          </Button>
-                        </div>
-                      )}
-                      {needsBookingForRow(detailsOrder) && isModerator && <BookInDeliveriesLink row={detailsOrder} compact={false} />}
+                      {deliveryStatusContent(detailsOrder)}
+                      <dl className="grid w-full grid-cols-2 gap-2 text-xs">
+                        <div><dt className="text-muted-foreground">Vehicle</dt><dd className="font-medium">{detailsOrder.deliveryVehicleLabel ?? detailsOrder.deliveryVehicleType ?? "—"}</dd></div>
+                        <div><dt className="text-muted-foreground">Booking ID</dt><dd className="font-mono font-medium break-all">{detailsOrder.lalamoveBookingId ?? "—"}</dd></div>
+                        {detailsOrder.finalShippingFee != null && <div><dt className="text-muted-foreground">Final Lalamove fee</dt><dd className="font-medium">{formatMoney(detailsOrder.finalShippingFee)}</dd></div>}
+                        {detailsOrder.trackingUrl && (
+                          <div><dt className="text-muted-foreground">Tracking</dt><dd><a href={detailsOrder.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Lalamove tracking <ExternalLink className="size-3" aria-hidden="true" /></a></dd></div>
+                        )}
+                      </dl>
+                      {isModerator && <DeliveriesLink row={detailsOrder} compact={false} />}
                     </div>
                   </div>
 
@@ -445,50 +349,6 @@ export function AdminSalesPage() {
         </SheetContent>
       </Sheet>
 
-      <AlertDialog open={Boolean(decliningOrder)} onOpenChange={(open) => { if (!open) setDecliningOrder(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Decline delivery request?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Decline the delivery request for order <strong>{decliningOrder?.orderNumber}</strong>.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-3 py-2 text-sm">
-            <div className="rounded-lg bg-secondary/50 p-3 text-xs space-y-1">
-              <div><span className="font-semibold text-foreground">Customer:</span> {decliningOrder?.customerName}</div>
-              <div><span className="font-semibold text-foreground">Order Number:</span> {decliningOrder?.orderNumber}</div>
-              <div><span className="font-semibold text-foreground">Delivery Address:</span> {decliningOrder?.shippingAddress}</div>
-              {decliningOrder?.deliveryRequestedAt && (
-                <div><span className="font-semibold text-foreground">Request Date:</span> {formatDateTime(decliningOrder.deliveryRequestedAt)}</div>
-              )}
-              <div><span className="font-semibold text-foreground">Current Status:</span> Awaiting approval</div>
-            </div>
-            <div>
-              <label htmlFor="decline-reason" className="block text-xs font-medium text-foreground mb-1.5">
-                Reason for decline (optional)
-              </label>
-              <Textarea
-                id="decline-reason"
-                placeholder="Provide a reason to help the customer adjust their delivery request..."
-                value={declineReason}
-                onChange={(e) => setDeclineReason(e.target.value)}
-                rows={3}
-              />
-            </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSubmittingDecline}>Cancel</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              onClick={() => void handleConfirmDecline()}
-              disabled={isSubmittingDecline}
-            >
-              {isSubmittingDecline && <Loader2 className="size-3 animate-spin mr-1.5" aria-hidden="true" />}
-              Decline request
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

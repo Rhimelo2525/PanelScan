@@ -1,13 +1,12 @@
-import { BookingStatus, NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { BookingStatus, DeliveryApprovalStatus, NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
-import { notifyStaff, notifyStockLevelChanges, notifySystemIssue } from '../notifications/notification.triggers';
+import { notifyStaff, notifyStockLevelChanges } from '../notifications/notification.triggers';
 import type { StockChange } from '../notifications/notification.triggers';
-import { ActivityAction, buildActivityLogData } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
-import { syncRecordToBackup } from '../../utils/backupSync';
 import type { CreateOrderInput } from './order.validation';
+import { mirrorOrderToBackup } from './order-backup';
 import { orderInclude } from './order.types';
 import type { OrderFilters, OrderWithItems, PaginatedOrders } from './order.types';
 import { validatePsgcHierarchy } from '../delivery/data/psgc-luzon.data.js';
@@ -15,6 +14,7 @@ import { isLocationInPanelScanCoverage } from '../delivery/delivery-coverage.con
 import { geocodingService } from '../delivery/services/geocoding.service.js';
 import { formatPhilippineDeliveryAddress } from '../delivery/utils/address-formatter.js';
 import { normalizePhilippinePhone } from '../delivery/utils/phone-normalizer.js';
+import { ORDER_WORKFLOW_STATUSES, PRE_BOOKING_DELIVERY_STATUSES } from '../delivery/utils/lalamove-status.js';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -34,6 +34,19 @@ interface OrderItemDraft {
   quantity: number;
   lineTotal: Prisma.Decimal;
 }
+
+/**
+ * A cancelled order's delivery is cancelled with it - but only while nothing
+ * is booked with Lalamove yet. A real Lalamove booking is cancelled
+ * explicitly by a moderator (it may already be on the road), never as a side
+ * effect of an order status change.
+ */
+const cancelUnbookedDelivery = async (tx: Prisma.TransactionClient, orderId: string): Promise<void> => {
+  await tx.delivery.updateMany({
+    where: { orderId, lalamoveOrderId: null, OR: [{ deliveryStatus: null }, { deliveryStatus: { in: PRE_BOOKING_DELIVERY_STATUSES } }] },
+    data: { deliveryStatus: 'CANCELED' },
+  });
+};
 
 /**
  * Restores the ordered quantity of every item back to Inventory. Shared by
@@ -190,6 +203,20 @@ export class OrderService {
         },
       });
 
+      // Delivery is part of the order: the record exists from checkout on,
+      // so the customer never requests delivery separately. It waits for
+      // the moderator to approve the order, then for a shipping quote.
+      await tx.delivery.create({
+        data: {
+          orderId: order.id,
+          address: finalShippingAddress,
+          approvalStatus: DeliveryApprovalStatus.PENDING_APPROVAL,
+          requestedAt: order.createdAt,
+          deliveryStatus: ORDER_WORKFLOW_STATUSES.AWAITING_ORDER_APPROVAL,
+          deliveryProvider: 'LALAMOVE',
+        },
+      });
+
       for (const item of inventoryDecrements) {
         const updated = await tx.inventory.update({
           where: { productId: item.productId },
@@ -211,8 +238,8 @@ export class OrderService {
         {
           userId: customerId,
           type: NotificationType.ORDER,
-          title: 'Order placed',
-          message: `Your order ${order.orderNumber} has been placed successfully.`,
+          title: 'Order submitted',
+          message: `Your order ${order.orderNumber} has been submitted and is waiting for approval. Once it is approved, we will calculate your delivery fee.`,
           metadata: { orderId: order.id, orderNumber: order.orderNumber },
         },
         tx,
@@ -270,33 +297,10 @@ export class OrderService {
     }
     await notifyStockLevelChanges(stockChanges);
 
-    // Real-time backup sync - only after the main database transaction
-    // above has fully committed (see backupSync.ts's own doc comment for
-    // the failure-handling contract). Only bothers for orders that actually
-    // carry a delivery location; an order created with just a legacy free-text
-    // shippingAddress has nothing new here the next periodic batch sync won't
-    // already catch.
-    if (deliveryLocationSnapshot) {
-      const flatOrderRow = await prisma.order.findUnique({ where: { id: order.id } });
-      if (flatOrderRow) {
-        const synced = await syncRecordToBackup('order', flatOrderRow as unknown as Record<string, unknown>);
-        if (!synced) {
-          await prisma.activityLog.create({
-            data: buildActivityLogData(customerId, ActivityAction.BACKUP_SYNC_FAILED, { ipAddress: null, userAgent: null }, {
-              model: 'order',
-              id: order.id,
-              reason: 'order creation with a confirmed delivery location',
-            }),
-          });
-          await notifySystemIssue({
-            title: 'Backup sync failed',
-            message: 'An order could not be synchronized to the backup database. It will be retried by the next scheduled backup sync.',
-            event: 'BACKUP_SYNC_FAILED',
-            metadata: { model: 'order', id: order.id },
-          });
-        }
-      }
-    }
+    // Real-time backup sync of the order, its delivery record and the
+    // customer - only after the main database transaction above has fully
+    // committed (see order-backup.ts for the failure-handling contract).
+    await mirrorOrderToBackup(order.id, customerId, 'order creation');
 
     return order;
   }
@@ -483,6 +487,7 @@ export class OrderService {
 
       stockChanges = await restockOrderItems(tx, orderId);
       await tx.order.update({ where: { id: orderId }, data: { status: OrderStatus.CANCELLED } });
+      await cancelUnbookedDelivery(tx, orderId);
 
       await createNotification(
         {
@@ -499,6 +504,7 @@ export class OrderService {
     });
 
     await notifyStockLevelChanges(stockChanges);
+    await mirrorOrderToBackup(orderId, customerId, 'order cancelled by customer');
     return cancelled;
   }
 
@@ -519,6 +525,7 @@ export class OrderService {
       stockChanges = status === OrderStatus.CANCELLED ? await restockOrderItems(tx, orderId) : [];
 
       await tx.order.update({ where: { id: orderId }, data: { status } });
+      if (status === OrderStatus.CANCELLED) await cancelUnbookedDelivery(tx, orderId);
 
       // Staff cancelling an order they never approved is, from the
       // customer's side, the order being declined - say so plainly.
@@ -540,12 +547,22 @@ export class OrderService {
     });
 
     await notifyStockLevelChanges(stockChanges);
+    await mirrorOrderToBackup(orderId, null, `order status changed to ${status}`);
     return updated;
   }
 
-  async approveOrder(orderId: string, _moderatorId: string): Promise<OrderWithItems> {
-    return prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({ where: { id: orderId } });
+  /**
+   * MODERATOR approves the order. Its delivery moves straight on to "awaiting
+   * shipping quote" - nobody requests delivery separately. Payment is not
+   * available yet: the customer pays products + shipping in one payment, so
+   * it opens only once the moderator has quoted the shipping fee (see
+   * delivery.service.ts#selectVehicle).
+   */
+  async approveOrder(orderId: string, moderatorId: string): Promise<OrderWithItems> {
+    let justApproved = false;
+    const approved = await prisma.$transaction(async (tx) => {
+      justApproved = false;
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { delivery: true } });
       if (!order) {
         throw new AppError('Order not found.', 404);
       }
@@ -561,19 +578,48 @@ export class OrderService {
         data: { moderatorApproved: true },
       });
 
+      // Orders placed before delivery became part of checkout may have no
+      // delivery record yet - create it here so every approved order has one.
+      const approval = {
+        approvalStatus: DeliveryApprovalStatus.APPROVED,
+        approvedAt: new Date(),
+        approvedById: moderatorId,
+        declinedAt: null,
+        declineReason: null,
+        deliveryStatus: ORDER_WORKFLOW_STATUSES.AWAITING_QUOTE,
+      };
+      if (!order.delivery) {
+        await tx.delivery.create({ data: { orderId, address: order.shippingAddress, requestedAt: order.createdAt, deliveryProvider: 'LALAMOVE', ...approval } });
+      } else if (!order.delivery.lalamoveOrderId) {
+        await tx.delivery.update({ where: { id: order.delivery.id }, data: approval });
+      }
+
       await createNotification(
         {
           userId: order.customerId,
           type: NotificationType.ORDER,
           title: 'Order approved',
-          message: `Your order ${order.orderNumber} has been approved. You can now proceed with payment.`,
+          message: `Your order ${order.orderNumber} has been approved. We are calculating your delivery fee. Payment will be available once the estimated shipping fee is ready.`,
           metadata: { orderId: order.id, orderNumber: order.orderNumber, event: 'ORDER_APPROVED' },
         },
         tx,
       );
 
+      justApproved = true;
       return tx.order.findUniqueOrThrow({ where: { id: orderId }, include: orderInclude });
     });
+
+    if (justApproved) {
+      await mirrorOrderToBackup(orderId, moderatorId, 'order approval');
+      await notifyStaff({
+        type: NotificationType.ORDER,
+        title: 'Order approved',
+        message: `Order ${approved.orderNumber} was approved. Next: get the Lalamove shipping quote so the customer can pay.`,
+        metadata: { orderId, orderNumber: approved.orderNumber, deliveryId: approved.delivery?.id, event: 'ORDER_APPROVED' },
+        excludeUserIds: [moderatorId],
+      });
+    }
+    return approved;
   }
 }
 

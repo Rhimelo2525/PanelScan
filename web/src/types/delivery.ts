@@ -104,7 +104,7 @@ export type DeliveryApprovalStatus = 'NOT_REQUESTED' | 'PENDING_APPROVAL' | 'APP
 
 export type DeliveryPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
 
-/** The delivery-fee charge - separate from the product Payment. `method` is "PayMongo" (GCash) or "Cash" (Cash on Delivery). */
+/** A separate shipping-fee charge from before the fee became part of the order payment - historical records only. */
 export interface DeliveryFeePayment {
   id: string
   deliveryId: string
@@ -126,12 +126,14 @@ export interface DeliveryOrderSummary {
   deliveryLocation?: DeliveryLocation | null
   shippingAddress?: string
   subtotal?: string
+  /** The estimated shipping fee included in the order total (what the customer pays). */
+  shippingFee?: string
   totalAmount?: string
   moderatorApproved?: boolean
   createdAt?: string
   customer?: { id: string; firstName: string; lastName: string; email: string; phone: string | null }
   items?: { id: string; productName: string; quantity: number; unitPrice: string; lineTotal: string }[]
-  payment?: { status: DeliveryPaymentStatus; method: string; amount: string; paidAt: string | null } | null
+  payment?: { status: DeliveryPaymentStatus; method: string; amount: string; paidAt: string | null; transactionRef?: string | null } | null
 }
 
 export interface DeliveryRecord {
@@ -151,8 +153,10 @@ export interface DeliveryRecord {
   lalamoveOrderId: string | null
   /** Lalamove vehicle key the moderator selected (e.g. "VAN"). */
   vehicleType?: string | null
-  /** The fee Lalamove returned for the booking (decimal string); null until booked. Separate from the product payment. */
+  /** The final fee Lalamove charged for the booking (decimal string); null until booked. The customer paid the estimate (order.shippingFee) and is never charged this again. */
   shippingFee?: string | null
+  /** When the moderator set the estimated shipping fee; null = not quoted yet. */
+  quotedAt?: string | null
   /** Lalamove's real share link; may arrive a little after the booking. */
   trackingUrl?: string | null
   bookedAt?: string | null

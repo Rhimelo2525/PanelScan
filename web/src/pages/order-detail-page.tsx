@@ -18,9 +18,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { formatMinorUnits, formatProductPrice, parsePriceToMinorUnits } from "@/lib/format-price"
+import { formatProductPrice } from "@/lib/format-price"
 import { getOrderErrorMessage } from "@/orders/order-errors"
 import { formatOrderDate } from "@/orders/order-format"
+import { getOrderStage, isShippingQuoted } from "@/orders/order-workflow"
 import { getPaymentErrorMessage } from "@/payments/payment-errors"
 import { hasOpenPaymentAttempt } from "@/payments/payment-format"
 import type { Order } from "@/types/order"
@@ -121,19 +122,13 @@ export function OrderDetailPage() {
   return (
     <Container className="py-10 sm:py-14 lg:py-18">
       <Button variant="ghost" asChild><Link to="/orders"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Back to orders</Link></Button>
-      {isConfirmation && <section className="mt-7 rounded-lg border border-emerald-700/20 bg-emerald-50/70 p-6 sm:p-8" aria-labelledby="confirmation-title"><CheckCircle2 className="size-8 text-emerald-700" aria-hidden="true" /><p className="mt-5 text-xs font-semibold tracking-[0.14em] text-emerald-800 uppercase">Order created</p><h1 id="confirmation-title" className="type-h2 mt-2">Your order has been created.</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-950/70">Your order has been submitted and is currently awaiting review by our team. Once approved by a moderator, secure PayMongo payment will become available in the payment panel below.</p></section>}
+      {isConfirmation && <section className="mt-7 rounded-lg border border-emerald-700/20 bg-emerald-50/70 p-6 sm:p-8" aria-labelledby="confirmation-title"><CheckCircle2 className="size-8 text-emerald-700" aria-hidden="true" /><p className="mt-5 text-xs font-semibold tracking-[0.14em] text-emerald-800 uppercase">Order created</p><h1 id="confirmation-title" className="type-h2 mt-2">Your order has been created.</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-950/70">Your order has been submitted and is awaiting review by our team. Once it is approved, we will calculate your delivery fee, and you can then pay your products and shipping together in one GCash payment.</p></section>}
 
       <div className="mt-8 flex flex-wrap items-start justify-between gap-6 border-b border-border pb-7">
         <div><p className="section-eyebrow">Order details</p><h1 className="type-h2 mt-3">{order.orderNumber}</h1><p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="size-4" aria-hidden="true" />{formatOrderDate(order.createdAt)}</p></div>
         <div className="flex flex-wrap items-center gap-3">
           <OrderStatusBadge status={order.status} />
-          {!order.moderatorApproved && order.status !== "CANCELLED" && (
-            <StatusBadge status="PENDING" label="Awaiting Approval" />
-          )}
-          {order.moderatorApproved && !payment && order.status !== "CANCELLED" && (
-            <StatusBadge status="APPROVED" label="Ready for Payment" />
-          )}
-          {payment && <PaymentStatusBadge status={payment.status} />}
+          <OrderStageBadge order={order} payment={payment} />
           {order.status === "PENDING" && <AlertDialog><AlertDialogTrigger asChild><Button variant="outline">Cancel order</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Cancel this order?</AlertDialogTitle><AlertDialogDescription>PanelScan will cancel {order.orderNumber} and return its item quantities to inventory. This cannot be undone.{hasOpenPaymentAttempt(order, payment) && " A payment attempt for this order is still open. Close any PayMongo checkout page for it and do not complete payment - cancelling this order does not close that checkout page or refund a payment made after cancellation."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Keep order</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => void handleCancel()} disabled={isCancelling}>{isCancelling && <Loader2 className="animate-spin" aria-hidden="true" />}Cancel order</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}
         </div>
       </div>
@@ -155,7 +150,7 @@ export function OrderDetailPage() {
           )}
         </div>
         <aside className="space-y-5">
-          <OrderTotalCard order={order} />
+          <OrderTotalCard order={order} payment={payment} />
           <OrderPaymentPanel order={order} payment={payment} isLoading={isPaymentLoading} error={paymentError} onRetryLoad={reloadPayment} />
           <section className="surface-card p-6" aria-labelledby="shipping-address-title"><div className="flex items-center gap-2"><MapPin className="size-4 text-primary" aria-hidden="true" /><h2 id="shipping-address-title" className="font-semibold">Shipping address</h2></div><address className="mt-4 whitespace-pre-line text-sm leading-6 text-muted-foreground not-italic">{order.shippingAddress}</address>{order.notes && <><h3 className="mt-5 text-xs font-semibold uppercase">Order notes</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{order.notes}</p></>}</section>
           {order.booking && (
@@ -218,28 +213,49 @@ export function OrderDetailPage() {
   )
 }
 
+/** Where the order stands, in the customer's words: approval -> delivery fee -> payment. */
+function OrderStageBadge({ order, payment }: { order: Order; payment: PaymentListItem | null }) {
+  const stage = getOrderStage(order, payment)
+  if (stage === "awaiting_approval") return <StatusBadge status="PENDING" label="Awaiting Approval" />
+  if (stage === "awaiting_quote") return <StatusBadge status="PENDING" label="Calculating Delivery Fee" />
+  if (stage === "awaiting_payment") return payment?.status === "FAILED" ? <PaymentStatusBadge status="FAILED" /> : <StatusBadge status="PENDING" label="Awaiting Payment" />
+  if (stage === "paid" && payment) return <PaymentStatusBadge status={payment.status} />
+  return null
+}
+
 /**
- * The Lalamove shipping fee is only known once PanelScan staff book the
- * delivery, and it is charged separately from the product payment - so the
- * total adds it on top of the product total rather than folding it in.
+ * Products + shipping fee = the one amount the customer pays through GCash.
+ * The shipping fee is quoted by PanelScan after approval; until then no
+ * total is shown, so the customer never sees (or pays) an amount that is
+ * missing its delivery fee.
  */
-function OrderTotalCard({ order }: { order: Order }) {
-  const bookedFee = order.delivery?.lalamoveOrderId ? order.delivery.shippingFee ?? null : null
-  const productTotal = parsePriceToMinorUnits(order.totalAmount)
-  const feeMinor = parsePriceToMinorUnits(bookedFee)
-  const grandTotal = productTotal !== null && feeMinor !== null ? formatMinorUnits(productTotal + feeMinor) : formatProductPrice(order.totalAmount)
+function OrderTotalCard({ order, payment }: { order: Order; payment: PaymentListItem | null }) {
+  const stage = getOrderStage(order, payment)
+  const quoted = isShippingQuoted(order)
+  const isBooked = Boolean(order.delivery?.lalamoveOrderId)
+  const isPaid = stage === "paid"
+  // Paid before shipping became part of the order total: the payment covered the products only.
+  const isLegacyPaid = isPaid && !quoted
+
+  const pendingFeeText = stage === "awaiting_approval" ? "Calculated after approval" : "Being calculated"
 
   return (
     <section className="rounded-xl border border-border bg-secondary/42 p-6" aria-labelledby="order-total-title">
       <h2 id="order-total-title" className="text-lg font-semibold">Order total</h2>
       <dl className="mt-5 space-y-3 text-sm">
-        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd>{formatProductPrice(order.subtotal)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd className="tabular-nums">{formatProductPrice(order.subtotal)}</dd></div>
         <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Shipping fee</dt>
-          <dd className="text-right">{bookedFee ? formatProductPrice(bookedFee) : <span className="text-muted-foreground">Set when delivery is booked</span>}</dd>
+          <dt className="text-muted-foreground">{isBooked ? "Shipping fee" : "Estimated shipping fee"}</dt>
+          <dd className="text-right tabular-nums">
+            {quoted ? formatProductPrice(order.shippingFee) : isLegacyPaid ? <span className="text-muted-foreground">Not included</span> : stage === "cancelled" ? "—" : <span className="text-muted-foreground">{pendingFeeText}</span>}
+          </dd>
         </div>
-        {bookedFee && <p className="text-xs leading-5 text-muted-foreground">Charged by Lalamove for your delivery, separately from the product payment.</p>}
-        <div className="flex items-end justify-between gap-4 border-t border-border pt-4"><dt className="font-semibold">Total</dt><dd className="text-xl font-semibold">{grandTotal}</dd></div>
+        <div className="flex items-end justify-between gap-4 border-t border-border pt-4">
+          <dt className="font-semibold">{isPaid ? "Total paid" : "Total"}</dt>
+          <dd className="text-xl font-semibold tabular-nums">{quoted || isLegacyPaid ? formatProductPrice(isPaid && payment ? payment.amount : order.totalAmount) : "—"}</dd>
+        </div>
+        {quoted && !isPaid && stage !== "cancelled" && <p className="text-xs leading-5 text-muted-foreground">Includes your products and the delivery fee - one GCash payment.</p>}
+        {!quoted && (stage === "awaiting_approval" || stage === "awaiting_quote") && <p className="text-xs leading-5 text-muted-foreground">Your total appears once the delivery fee is ready.</p>}
       </dl>
     </section>
   )

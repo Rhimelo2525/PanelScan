@@ -46,7 +46,7 @@ describe('Notification triggers', () => {
       expect(response.status).toBe(201);
       const orderId = response.body.data.order.id as string;
 
-      expect(await titlesFor(customer.user.id)).toContain('Order placed');
+      expect(await titlesFor(customer.user.id)).toContain('Order submitted');
 
       const moderatorNotification = await prisma.notification.findFirst({ where: { userId: moderator.user.id, type: NotificationType.ORDER } });
       expect(moderatorNotification?.title).toBe('New order received');

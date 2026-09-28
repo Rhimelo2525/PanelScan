@@ -23,10 +23,10 @@ router.post('/', restrictTo(UserRole.CUSTOMER), validate(createOrderSchema), ord
 // PATCH /api/orders/:id/cancel - CUSTOMER cancels their own PENDING order.
 router.patch('/:id/cancel', restrictTo(UserRole.CUSTOMER), validate(idParamsSchema), orderController.cancel);
 
-// PATCH /api/orders/:id/status - MODERATOR/OWNER updates an order's status.
+// PATCH /api/orders/:id/status - MODERATOR updates an order's status. OWNER is view-only across the order workflow.
 router.patch(
   '/:id/status',
-  restrictTo(UserRole.OWNER, UserRole.MODERATOR),
+  restrictTo(UserRole.MODERATOR),
   validate(updateOrderStatusSchema),
   orderController.updateStatus,
 );

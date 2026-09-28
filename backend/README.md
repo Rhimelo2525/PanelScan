@@ -402,11 +402,11 @@ Checkout and order lifecycle. All routes require `Authorization: Bearer <token>`
 | GET    | `/:id`   | any  | Order details + line items. `CUSTOMER`: own only (`404` otherwise) |
 | POST   | `/`      | `CUSTOMER` | Check out the customer's **current cart** into a new order |
 | PATCH  | `/:id/cancel` | `CUSTOMER` | Cancel your own order, only while it's `PENDING` |
-| PATCH  | `/:id/status` | `OWNER`, `MODERATOR` | Advance/change an order's status |
+| PATCH  | `/:id/status` | `MODERATOR` | Advance/change an order's status (`OWNER` is view-only) |
 
 - `POST /` body: `{ "shippingAddress": "<10–500 chars>", "notes": "<optional, up to 1000 chars>" }`. There is **no line-item input** — the order is built entirely from whatever is currently in the customer's cart; an empty cart returns `400` ("Your cart is empty.").
 - Checkout is one database transaction: every cart line is re-validated against live inventory and product status (an inactive/soft-deleted/insufficient-stock item aborts the **entire** order — nothing partial is ever created), `OrderItem.productName`/`unitPrice` are snapshotted from the product at that moment (later product renames/repricing never rewrite historical orders), `Inventory.quantity` is decremented per line, and the cart is cleared.
-- `shippingFee` is currently **always `0`** — there is no shipping-cost calculation implemented in this codebase yet. `totalAmount = subtotal + shippingFee` (i.e. `totalAmount` currently always equals `subtotal`).
+- `shippingFee` starts at `0` and is set by the moderator's Lalamove shipping quote after approval (see the Delivery workflow below); `totalAmount = subtotal + shippingFee` is the one amount the customer pays through PayMongo. Checkout also creates the order's delivery record.
 - `orderNumber` format: `PS-YYYYMMDD-<6-char random suffix>`.
 - Status values: `PENDING → PROCESSING → SHIPPED → DELIVERED`, or `→ CANCELLED` from a non-terminal state. `DELIVERED` and `CANCELLED` are both terminal — any further `PATCH /:id/status` on either returns `400`.
 - Cancelling (either the customer's own `PENDING`-only cancel, or a staff status change to `CANCELLED`) restocks every line item's `Inventory.quantity` identically, via the same shared logic either way.
@@ -868,20 +868,36 @@ Response:
 
 ### Delivery — `/api/delivery`
 
-Shipment tracking for an order once it's on its way. 1:1 with `Order` (`Delivery.orderId` is unique). All routes require `Authorization: Bearer <token>`.
+Delivery is part of the order: the delivery record is created with the order at checkout, 1:1 (`Delivery.orderId` is unique). All routes require `Authorization: Bearer <token>`.
+
+**Order -> payment -> delivery workflow**
+
+| Step | Who | What happens | `Delivery.deliveryStatus` |
+|------|-----|--------------|---------------------------|
+| 1 | Customer | Checks out (`POST /api/orders`); the delivery record is created with the order. | `AWAITING_ORDER_APPROVAL` |
+| 2 | Moderator | Approves the order (`PATCH /api/orders/:id/approve`). | `AWAITING_QUOTE` |
+| 3 | Moderator | Selects a vehicle to get a Lalamove quote (`POST /orders/:orderId/vehicle`). The fee becomes `Order.shippingFee` and `Order.totalAmount = subtotal + shippingFee`; `Delivery.quotedAt` is set. Can be re-quoted until paid. | `AWAITING_PAYMENT` |
+| 4 | Customer | Pays products + shipping in ONE PayMongo GCash checkout (`POST /api/payments/create`). The backend computes the amount; payment is refused until the fee is quoted. | `AWAITING_PAYMENT` |
+| 5 | PayMongo | Signed `payment.paid` webhook marks the payment `PAID` - the only thing that does. | `READY_TO_BOOK` |
+| 6 | Moderator | Optionally changes the vehicle (re-quote; the paid amount never changes), then books Lalamove (`POST /orders/:orderId/book`). The fee Lalamove charges is saved as `Delivery.shippingFee` (final fee); if it differs from the paid estimate, staff are notified and the customer is not charged again. | `BOOKING` -> Lalamove status |
+| 7 | Lalamove | Webhook / refresh: driver, in transit, delivered. | `ASSIGNING_DRIVER`, `ON_GOING`, `PICKED_UP`, `COMPLETED` |
+
+Cancelling an order cancels its delivery while nothing is booked (`CANCELED`). Every step mirrors the order, payment and delivery rows to the backup database (`src/modules/order/order-backup.ts`).
 
 **Role permissions**
 
 | Role | Can | Cannot |
 |------|-----|--------|
-| `CUSTOMER` | View deliveries for their own orders (status, tracking info); request delivery; once approved, get a Lalamove quote and confirm a booking; refresh live status | Create, update, delete, mark delivered, cancel a booking, approve/decline |
-| `MODERATOR` | Full delivery management — create, update courier/tracking/address/schedule, mark delivered, view every delivery, delete (only while not yet delivered), approve/decline requests, set manual coordinates, cancel a live Lalamove booking | — |
-| `OWNER` | View every delivery (read-only — same philosophy as Booking/Chat); approve/decline requests; refresh live status (read-only against the provider) | Create, update, delete, mark delivered, cancel a booking |
+| `CUSTOMER` | View deliveries for their own orders (status, fees, vehicle, booking id, tracking); refresh live status. Nothing to request - delivery is created with the order. | Request delivery, choose a vehicle, get a quote, book, create, update, delete, mark delivered, cancel a booking |
+| `MODERATOR` | Full delivery management — get the shipping quote, select the vehicle and book Lalamove (after payment), create, update courier/tracking/address/schedule, mark delivered, view every delivery, delete (only while not yet delivered), set manual coordinates, cancel a live Lalamove booking | — |
+| `OWNER` | View every delivery, fee, payment and booking (read-only); refresh live status (read-only against the provider) | Approve orders, quote, select a vehicle, book, create, update, delete, mark delivered, cancel a booking, change order status |
 
 | Method | Endpoint | Role | Description |
 |--------|----------|------|-------------|
+| POST   | `/orders/:orderId/vehicle` | `MODERATOR` | Select a Lalamove vehicle and get a free quote. Before payment it sets the order's estimated shipping fee (and so the amount due); after payment it only changes the vehicle to book. |
+| POST   | `/orders/:orderId/book` | `MODERATOR` | Place the real Lalamove booking. Requires a `PAID` order payment. |
 | POST   | `/`      | `MODERATOR` | Create a delivery for an order. `scheduledDate` required and must be in the future. |
-| GET    | `/`      | any  | `CUSTOMER`: deliveries for their own orders only. `MODERATOR`/`OWNER`: every delivery. Supports `?status=scheduled\|delivered`, `?deliveryState=active\|completed\|cancelled` (grouped from the live Lalamove status, independent of `?status`), `?search=` (tracking number / courier / address), `?sortBy=scheduledDate\|createdAt` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`/`?limit=`. |
+| GET    | `/`      | any  | `CUSTOMER`: deliveries for their own orders only. `MODERATOR`/`OWNER`: every delivery. Supports `?status=scheduled\|delivered`, `?deliveryState=awaiting_approval\|awaiting_quote\|awaiting_payment\|to_book\|active\|completed\|cancelled` (one per workflow stage, independent of `?status`), `?search=` (order number / customer / booking id / tracking number / courier / address, or an order date such as `Sep 19` or `2026-09-19`), `?sortBy=scheduledDate\|createdAt` (default `createdAt`), `?sortOrder=asc\|desc` (default `desc`), `?page=`/`?limit=`. |
 | GET    | `/:id`   | any  | Single delivery. `CUSTOMER`: own order only (`404` otherwise). `MODERATOR`/`OWNER`: any. |
 | PATCH  | `/:id`   | `MODERATOR` | Update `courierName`/`trackingNumber`/`address`/`scheduledDate`. `orderId` can never be changed (not accepted by this endpoint at all). |
 | PATCH  | `/:id/delivered` | `MODERATOR` | Sets `deliveredAt` to now. `409` if already delivered. |
