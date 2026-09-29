@@ -146,7 +146,7 @@ export function AdminSalesPage() {
                     className="group inline-flex items-center gap-1.5 font-medium hover:text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {row.orderNumber}
-                    <Eye className="size-3.5 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
+                    <Eye className="size-5 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
                   </button>
                 ),
               },
