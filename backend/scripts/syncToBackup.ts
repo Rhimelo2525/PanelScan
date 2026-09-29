@@ -16,38 +16,7 @@
 import { prisma } from '../src/config/database';
 import { getBackupPrisma } from '../src/config/backupDatabase';
 import { upsertBackupRow } from '../src/utils/backupSync';
-
-// Dependency order matters: a row can only be inserted into the backup
-// database after any row it has a foreign key to already exists there.
-// This mirrors the parent-before-child ordering already used in
-// prisma/schema.prisma.
-const SYNC_ORDER = [
-  'user',
-  'customerAddress',
-  'category',
-  'product',
-  'productImage',
-  'inventory',
-  'cart',
-  'cartItem',
-  'order',
-  'orderItem',
-  'payment',
-  'delivery',
-  'deliveryPayment',
-  'installer',
-  'booking',
-  'measurement',
-  'feedback',
-  'chatRoom',
-  'chatParticipant',
-  'message',
-  'notification',
-  'project',
-  'request',
-  'refreshToken',
-  'activityLog',
-] as const;
+import { SYNC_ORDER, checkGeneratedClient, checkLiveBackupSchema } from '../src/utils/backupSchema';
 
 interface TableReport {
   table: string;
@@ -101,6 +70,19 @@ const main = async () => {
   if (!backupPrisma) {
     console.error('[backup-sync] BACKUP_DATABASE_URL is not configured (or the backup Prisma client has not been generated).');
     console.error('[backup-sync] Run "npm run prisma:backup:generate" and set BACKUP_DATABASE_URL in .env first. Aborting - no changes made.');
+    process.exitCode = 1;
+    return;
+  }
+
+  // Pre-flight: a backup schema that has drifted from the code makes every
+  // upsert of the affected table fail, so refuse to start and say why.
+  const drift = [...checkGeneratedClient(), ...(await checkLiveBackupSchema(backupPrisma))];
+  if (drift.length > 0) {
+    console.error('[backup-sync] The backup database schema is out of date:');
+    for (const problem of drift) console.error(`  - ${problem}`);
+    console.error('[backup-sync] Run "npm run prisma:backup:push" and "npm run prisma:backup:generate", then retry. Aborting - no changes made.');
+    await prisma.$disconnect();
+    await backupPrisma.$disconnect();
     process.exitCode = 1;
     return;
   }

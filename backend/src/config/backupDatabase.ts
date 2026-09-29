@@ -14,6 +14,7 @@ declare global {
 // structural type instead of importing the generated PrismaClient type.
 export interface BackupPrismaClient {
   $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
   $executeRawUnsafe(query: string, ...values: unknown[]): Promise<number>;
   $disconnect(): Promise<void>;
 }
