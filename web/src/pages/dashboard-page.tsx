@@ -80,7 +80,7 @@ export function DashboardPage() {
             <div className="flex flex-wrap gap-2">
               <Button asChild><Link to="/products">Browse panels</Link></Button>
               {isCustomer && <Button variant="outline" asChild><Link to="/orders">Your orders</Link></Button>}
-              {isCustomer && <Button variant="outline" asChild><Link to="/projects"><ScanLine data-icon="inline-start" aria-hidden="true" />My project</Link></Button>}
+              {isCustomer && <Button variant="outline" asChild><Link to="/projects"><ScanLine data-icon="inline-start" aria-hidden="true" />My Projects</Link></Button>}
             </div>
           </div>
         </Container>
@@ -138,7 +138,7 @@ export function DashboardPage() {
 
               <aside className="space-y-5">
                 <section className="surface-card p-6" aria-labelledby="projects-title">
-                  <div className="flex items-center gap-2"><ScanLine className="size-4 text-primary" aria-hidden="true" /><h2 id="projects-title" className="font-semibold">My project</h2></div>
+                  <div className="flex items-center gap-2"><ScanLine className="size-4 text-primary" aria-hidden="true" /><h2 id="projects-title" className="font-semibold">My Projects</h2></div>
                   <p className="mt-3 text-sm leading-6 text-muted-foreground">View measurements, estimates, and compatible previews saved by the PanelScan mobile app. AR measurement remains a mobile feature.</p>
                   <Button variant="outline" size="sm" className="mt-4 w-full" asChild><Link to="/projects">View project results</Link></Button>
                 </section>
