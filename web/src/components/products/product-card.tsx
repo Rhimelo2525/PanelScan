@@ -6,6 +6,7 @@ import { ProductPrice } from "@/components/products/product-price"
 import { ProductRatings } from "@/components/products/product-ratings"
 import { StockStatus } from "@/components/products/stock-status"
 import { Badge } from "@/components/ui/badge"
+import { formatDimensions } from "@/lib/dimensions"
 import { isPvcProduct, panelTypeLabel } from "@/products/panel-types"
 import type { Product } from "@/types/product"
 
@@ -25,7 +26,7 @@ function getPrimaryImage(product: Product) {
  */
 export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) {
   const Heading = headingLevel
-  const dimensions = product.width && product.height ? `${product.width} × ${product.height} cm` : null
+  const dimensions = formatDimensions(product.width, product.height, product.thickness)
   const isReferenceItem = !isPvcProduct(product)
 
   return (

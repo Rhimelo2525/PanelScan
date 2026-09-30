@@ -9,6 +9,7 @@ import { requestService } from '../request/request.service';
 import { parseDescription, serializeDescription } from '../request/request.types';
 import type { ChangeRequestPayload } from '../request/request.types';
 import { InventoryService, inventoryService } from './inventory.service';
+import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from './inventory.validation';
 
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
@@ -157,6 +158,9 @@ export class InventoryController {
     if (req.user?.role === 'MODERATOR') {
       const currentStock = product.inventory.quantity;
       const proposedStock = currentStock + req.body.quantity;
+      if (proposedStock > STOCK_QUANTITY_MAX) {
+        throw new AppError(`Adding ${req.body.quantity} would bring on-hand stock to ${proposedStock}. ${STOCK_QUANTITY_MESSAGE}`, 400);
+      }
       const summary = `Adjust stock for ${product.name} (${product.sku}): Add ${req.body.quantity} units (Current: ${currentStock}, Proposed: ${proposedStock}).`;
 
       const payload: ChangeRequestPayload = {

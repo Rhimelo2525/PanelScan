@@ -1,8 +1,35 @@
 import { z } from 'zod';
 
+import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
+
 const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const NUMERIC_STRING = /^\d+$/;
 const DECIMAL_STRING = /^\d+(\.\d+)?$/;
+
+/**
+ * Panel dimensions are limited by how many digits they have, not by size: the
+ * decimal point doesn't count, so width 2.9 and 99 are both 2 digits. Checked
+ * on the number the API receives, written out in plain decimal form (an
+ * exponent form such as 1e+21 is rejected rather than read as 3 digits).
+ */
+export const DIMENSION_DIGIT_LIMITS = { width: 2, height: 3, thickness: 2 } as const;
+export type DimensionField = keyof typeof DIMENSION_DIGIT_LIMITS;
+
+const DIMENSION_LABELS: Record<DimensionField, string> = { width: 'Width', height: 'Height', thickness: 'Thickness' };
+
+export const dimensionDigitMessage = (field: DimensionField): string =>
+  `${DIMENSION_LABELS[field]} can have at most ${DIMENSION_DIGIT_LIMITS[field]} digits.`;
+
+export const hasAllowedDimensionDigits = (field: DimensionField, value: number): boolean => {
+  const written = String(value);
+  return /^\d+(\.\d+)?$/.test(written) && written.replace('.', '').length <= DIMENSION_DIGIT_LIMITS[field];
+};
+
+const dimensionSchema = (field: DimensionField) =>
+  z
+    .number()
+    .positive(`${DIMENSION_LABELS[field]} must be greater than 0.`)
+    .refine((value) => hasAllowedDimensionDigits(field, value), dimensionDigitMessage(field));
 
 const productImageSchema = z.object({
   url: z.string().trim().url('Please provide a valid image URL.'),
@@ -24,15 +51,15 @@ export const createProductSchema = z.object({
     description: z.string().trim().max(2000, 'Description is too long.').optional(),
     sku: z.string().trim().min(2, 'SKU must be at least 2 characters.').max(50, 'SKU is too long.'),
     price: z.number().positive('Price must be greater than 0.'),
-    width: z.number().positive('Width must be greater than 0.').optional(),
-    height: z.number().positive('Height must be greater than 0.').optional(),
-    thickness: z.number().positive('Thickness must be greater than 0.').optional(),
+    width: dimensionSchema('width').optional(),
+    height: dimensionSchema('height').optional(),
+    thickness: dimensionSchema('thickness').optional(),
     unit: z.string().trim().max(20, 'Unit is too long.').optional(),
     material: z.string().trim().max(100, 'Material is too long.').optional(),
     isActive: z.boolean().optional(),
     isFeatured: z.boolean().optional(),
-    stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').optional(),
-    reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').optional(),
+    stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
+    reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
     images: z.array(productImageSchema).max(10, 'A product can have at most 10 images.').optional(),
   }),
 });
@@ -52,15 +79,15 @@ export const updateProductSchema = z.object({
       description: z.string().trim().max(2000, 'Description is too long.').optional(),
       sku: z.string().trim().min(2, 'SKU must be at least 2 characters.').max(50, 'SKU is too long.').optional(),
       price: z.number().positive('Price must be greater than 0.').optional(),
-      width: z.number().positive('Width must be greater than 0.').optional(),
-      height: z.number().positive('Height must be greater than 0.').optional(),
-      thickness: z.number().positive('Thickness must be greater than 0.').optional(),
+      width: dimensionSchema('width').optional(),
+      height: dimensionSchema('height').optional(),
+      thickness: dimensionSchema('thickness').optional(),
       unit: z.string().trim().max(20, 'Unit is too long.').optional(),
       material: z.string().trim().max(100, 'Material is too long.').optional(),
       isFeatured: z.boolean().optional(),
       isActive: z.boolean().optional(),
-      stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').optional(),
-      reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').optional(),
+      stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
+      reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
       images: z.array(productImageSchema).max(10, 'A product can have at most 10 images.').optional(),
     })
     .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' }),

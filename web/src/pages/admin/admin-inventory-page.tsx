@@ -14,6 +14,7 @@ import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
+import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE, StockQuantityInput } from "@/components/admin/stock-quantity-input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -198,10 +199,18 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
       toast.error("Stock quantity must be a non-negative whole number.")
       return
     }
+    if (parsedQty > STOCK_QUANTITY_MAX) {
+      toast.error(STOCK_QUANTITY_MESSAGE)
+      return
+    }
 
     const parsedReorder = Number(reorderLevel)
     if (!Number.isInteger(parsedReorder) || parsedReorder < 0) {
       toast.error("Reorder level must be a non-negative whole number.")
+      return
+    }
+    if (parsedReorder > STOCK_QUANTITY_MAX) {
+      toast.error(STOCK_QUANTITY_MESSAGE)
       return
     }
 
@@ -275,23 +284,19 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="stock-initial-qty">Initial physical stock *</Label>
-              <Input
+              <StockQuantityInput
                 id="stock-initial-qty"
-                type="number"
-                min="0"
                 required
                 value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
+                onValueChange={setQuantity}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="stock-reorder-lvl">Reorder threshold</Label>
-              <Input
+              <StockQuantityInput
                 id="stock-reorder-lvl"
-                type="number"
-                min="0"
                 value={reorderLevel}
-                onChange={(e) => setReorderLevel(e.target.value)}
+                onValueChange={setReorderLevel}
               />
             </div>
           </div>
@@ -352,6 +357,10 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
       toast.error("Enter a whole number greater than zero.")
       return
     }
+    if (parsed > STOCK_QUANTITY_MAX || (direction === "add" && record.quantity + parsed > STOCK_QUANTITY_MAX)) {
+      toast.error(direction === "add" && parsed <= STOCK_QUANTITY_MAX ? `Adding ${parsed} would bring on-hand stock to ${record.quantity + parsed}. ${STOCK_QUANTITY_MESSAGE}` : STOCK_QUANTITY_MESSAGE)
+      return
+    }
     if (!(await confirm({
       title: direction === "add" ? `Add ${parsed} unit(s) of stock?` : `Reduce stock by ${parsed} unit(s)?`,
       description: "The change is sent to the owner for approval before the stock changes.",
@@ -382,6 +391,10 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
     const parsed = Number(quantity)
     if (!Number.isInteger(parsed) || parsed < 0) {
       toast.error("Enter a non-negative whole number (0 or greater).")
+      return
+    }
+    if (parsed > STOCK_QUANTITY_MAX) {
+      toast.error(STOCK_QUANTITY_MESSAGE)
       return
     }
     if (parsed < record.reservedQty) {
@@ -447,7 +460,7 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
 
               <div className="space-y-2">
                 <Label htmlFor="stock-quantity">Stock quantity / Units</Label>
-                <Input id="stock-quantity" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={isSaving || isDeleting} />
+                <StockQuantityInput id="stock-quantity" value={quantity} onValueChange={setQuantity} disabled={isSaving || isDeleting} />
                 <p className="text-xs text-muted-foreground">Set new target on-hand stock directly, or add/reduce by units. Stock cannot go below reserved quantity.</p>
               </div>
 

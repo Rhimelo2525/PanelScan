@@ -34,6 +34,8 @@ import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { dimensionError, dimensionInputRejection, formatDimensions } from "@/lib/dimensions"
+import type { DimensionField } from "@/lib/dimensions"
 import { formatProductPrice } from "@/lib/format-price"
 import { useConfirm } from "@/components/confirm/use-confirm"
 import { getStockStatus, STOCK_STATUS_LABELS, STOCK_STATUS_OPTIONS } from "@/lib/stock-status"
@@ -386,9 +388,7 @@ function ProductDetailsSheet({ product, onClose }: { product: Product | null; on
             <Detail
               label="Dimensions"
               value={
-                product.width && product.height
-                  ? `${product.width} × ${product.height} × ${product.thickness ?? "—"} ${product.unit}`
-                  : "—"
+formatDimensions(product.width, product.height, product.thickness) ?? "—"
               }
             />
             <Detail label="Stock on hand" value={String(product.inventory?.quantity ?? 0)} />
@@ -418,7 +418,6 @@ function EditProductSheet({
   const [sku, setSku] = useState(product.sku)
   const [price, setPrice] = useState(product.price ?? "")
   const [material, setMaterial] = useState(product.material ?? "")
-  const [unit, setUnit] = useState(product.unit || "panel")
   const [width, setWidth] = useState(product.width ?? "")
   const [height, setHeight] = useState(product.height ?? "")
   const [thickness, setThickness] = useState(product.thickness ?? "")
@@ -489,6 +488,12 @@ function EditProductSheet({
       return
     }
 
+    const dimensionProblem = dimensionError("width", width) ?? dimensionError("height", height) ?? dimensionError("thickness", thickness)
+    if (dimensionProblem) {
+      setError(dimensionProblem)
+      return
+    }
+
     if (!(await confirm({
       title: `Save changes to ${product.name}?`,
       description: `The product listing will be updated for customers.${isModerator ? " It is sent to the owner for approval first." : ""}`,
@@ -512,7 +517,6 @@ function EditProductSheet({
         sku: sku.trim(),
         price: numPrice,
         material: material.trim() || undefined,
-        unit: unit.trim() || "panel",
         width: width ? Number(width) : undefined,
         height: height ? Number(height) : undefined,
         thickness: thickness ? Number(thickness) : undefined,
@@ -674,49 +678,10 @@ function EditProductSheet({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-4">
-            <div>
-              <Label htmlFor="edit-width" className="text-xs">Width</Label>
-              <Input
-                id="edit-width"
-                type="number"
-                step="0.1"
-                value={width}
-                onChange={(e) => setWidth(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-height" className="text-xs">Height</Label>
-              <Input
-                id="edit-height"
-                type="number"
-                step="0.1"
-                value={height}
-                onChange={(e) => setHeight(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-thickness" className="text-xs">Thickness</Label>
-              <Input
-                id="edit-thickness"
-                type="number"
-                step="0.1"
-                value={thickness}
-                onChange={(e) => setThickness(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-unit" className="text-xs">Unit</Label>
-              <Input
-                id="edit-unit"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="mt-1"
-              />
-            </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <DimensionInput id="edit-width" field="width" label="Width" value={width} onChange={setWidth} />
+            <DimensionInput id="edit-height" field="height" label="Height" value={height} onChange={setHeight} />
+            <DimensionInput id="edit-thickness" field="thickness" label="Thickness" value={thickness} onChange={setThickness} />
           </div>
 
           <div>
@@ -798,7 +763,6 @@ function AddProductSheet({
   const [sku, setSku] = useState("")
   const [price, setPrice] = useState("")
   const [material, setMaterial] = useState("")
-  const [unit, setUnit] = useState("panel")
   const [width, setWidth] = useState("")
   const [height, setHeight] = useState("")
   const [thickness, setThickness] = useState("")
@@ -821,7 +785,6 @@ function AddProductSheet({
     setSku("")
     setPrice("")
     setMaterial("")
-    setUnit("panel")
     setWidth("")
     setHeight("")
     setThickness("")
@@ -860,6 +823,12 @@ function AddProductSheet({
       return
     }
 
+    const dimensionProblem = dimensionError("width", width) ?? dimensionError("height", height) ?? dimensionError("thickness", thickness)
+    if (dimensionProblem) {
+      setError(dimensionProblem)
+      return
+    }
+
     if (!(await confirm({
       title: `Add ${name.trim()} to the catalogue?`,
       description: `A new product will be created.${isModerator ? " It is sent to the owner for approval first." : ""}`,
@@ -883,7 +852,7 @@ function AddProductSheet({
         sku: sku.trim(),
         price: numPrice,
         material: material.trim() || undefined,
-        unit: unit.trim() || "panel",
+        unit: "panel",
         width: width ? Number(width) : undefined,
         height: height ? Number(height) : undefined,
         thickness: thickness ? Number(thickness) : undefined,
@@ -1044,56 +1013,12 @@ function AddProductSheet({
                 className="mt-1.5"
               />
             </div>
-
-            <div>
-              <Label htmlFor="add-unit">Unit</Label>
-              <Input
-                id="add-unit"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                placeholder="panel"
-                className="mt-1.5"
-              />
-            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="add-width" className="text-xs">Width (cm)</Label>
-              <Input
-                id="add-width"
-                type="number"
-                step="0.1"
-                value={width}
-                onChange={(e) => setWidth(e.target.value)}
-                placeholder="60"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="add-height" className="text-xs">Height (cm)</Label>
-              <Input
-                id="add-height"
-                type="number"
-                step="0.1"
-                value={height}
-                onChange={(e) => setHeight(e.target.value)}
-                placeholder="240"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="add-thickness" className="text-xs">Thickness (cm)</Label>
-              <Input
-                id="add-thickness"
-                type="number"
-                step="0.1"
-                value={thickness}
-                onChange={(e) => setThickness(e.target.value)}
-                placeholder="1.2"
-                className="mt-1"
-              />
-            </div>
+            <DimensionInput id="add-width" field="width" label="Width" value={width} onChange={setWidth} placeholder="60" />
+            <DimensionInput id="add-height" field="height" label="Height" value={height} onChange={setHeight} placeholder="240" />
+            <DimensionInput id="add-thickness" field="thickness" label="Thickness" value={thickness} onChange={setThickness} placeholder="1.2" />
           </div>
 
           <div>
@@ -1120,6 +1045,41 @@ function AddProductSheet({
         </form>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/**
+ * Dimension field that only takes digits and one decimal point, up to the
+ * field's digit limit. A keystroke or paste that would break that is refused
+ * whole (the field keeps its value) and the reason is shown under it.
+ */
+function DimensionInput({ id, field, label, value, onChange, placeholder }: { id: string; field: DimensionField; label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeId = `${id}-notice`
+
+  return (
+    <div>
+      <Label htmlFor={id} className="text-xs">{label}</Label>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value.trim()
+          const rejection = dimensionInputRejection(field, next)
+          setNotice(rejection)
+          if (!rejection) onChange(next)
+        }}
+        onBlur={() => setNotice(null)}
+        placeholder={placeholder}
+        aria-invalid={Boolean(notice)}
+        aria-describedby={notice ? noticeId : undefined}
+        className="mt-1"
+      />
+      {notice && <p id={noticeId} className="mt-1 text-xs text-destructive">{notice}</p>}
+    </div>
   )
 }
 

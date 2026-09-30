@@ -7,12 +7,39 @@ import { notifyStockLevelChange } from '../notifications/notification.triggers';
 import type { StockChange } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { slugify } from '../../utils/slugify';
+import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
+import { DIMENSION_DIGIT_LIMITS, dimensionDigitMessage, hasAllowedDimensionDigits, type DimensionField } from '../product/product.validation';
 import { parseDescription, requestInclude, serializeDescription } from './request.types';
 import type { ChangeRequestPayload, PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
 import type { CreateRequestInput, UpdateRequestInput } from './request.validation';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
+
+/**
+ * A change request carries the proposed product as stored JSON, so the
+ * dimension digit limits are checked again when the owner approves it (the
+ * product API checks them when the request is made). Empty values keep their
+ * existing meaning of "no dimension".
+ */
+const assertDimensionDigits = (data: Partial<Record<DimensionField, unknown>>): void => {
+  for (const field of Object.keys(DIMENSION_DIGIT_LIMITS) as DimensionField[]) {
+    const value = data[field];
+    if (!value) continue;
+    if (!hasAllowedDimensionDigits(field, Number(value))) {
+      throw new AppError(dimensionDigitMessage(field), 400);
+    }
+  }
+};
+
+/** Stock figures in a stored request are re-checked against the 5-digit cap when it is approved. */
+const assertStockQuantity = (...values: unknown[]): void => {
+  for (const value of values) {
+    if (value !== undefined && value !== null && Number(value) > STOCK_QUANTITY_MAX) {
+      throw new AppError(STOCK_QUANTITY_MESSAGE, 400);
+    }
+  }
+};
 
 const humanizeType = (type: string): string => type.replace(/_/g, ' ').toLowerCase();
 
@@ -274,6 +301,7 @@ export class RequestService {
   private async applyApprovedChange(tx: Prisma.TransactionClient, payload: ChangeRequestPayload): Promise<void> {
     if (payload.action === 'ADD_PRODUCT' && payload.productData) {
       const data = payload.productData;
+      assertDimensionDigits(data);
       const category = await tx.category.findUnique({ where: { id: data.categoryId } });
       if (!category) {
         throw new AppError('Product category not found.', 404);
@@ -342,6 +370,7 @@ export class RequestService {
       }
 
       const { name, categoryId, sku, price, material, unit, width, height, thickness, isActive, isFeatured, description, images } = payload.updateData;
+      assertDimensionDigits({ width, height, thickness });
 
       if (sku) {
         const trimmedSku = sku.trim().toUpperCase();
@@ -417,6 +446,7 @@ export class RequestService {
       }
       if (payload.adjustData.targetQuantity !== undefined) {
         const target = payload.adjustData.targetQuantity;
+        assertStockQuantity(target);
         if (target < inventory.reservedQty) {
           throw new AppError(`Cannot reduce stock below reserved quantity (${inventory.reservedQty}).`, 400);
         }
@@ -443,6 +473,7 @@ export class RequestService {
       }
     } else if (payload.action === 'ADD_INVENTORY' && payload.productData) {
       const { productId, quantity, reorderLevel, warehouseLocation } = payload.productData;
+      assertStockQuantity(quantity, reorderLevel);
       const existing = await tx.inventory.findUnique({ where: { productId } });
       if (existing) {
         throw new AppError('Product already has an inventory record. Use Adjust instead.', 409);

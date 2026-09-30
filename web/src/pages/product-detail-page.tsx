@@ -107,13 +107,13 @@ export function ProductDetailPage() {
   }
 
   // Specs relevant to a panel: what it is, how big it is, and how it is sold.
-  // Values and units are shown exactly as the catalog stores them.
+  // Values are shown exactly as the catalog stores them; dimensions carry no unit label.
   const specifications = [
     { label: "Panel type", value: panelTypeLabel(product) },
     { label: "Finish / material", value: product.material },
-    { label: "Width", value: product.width ? `${product.width} cm` : null },
-    { label: "Length / height", value: product.height ? `${product.height} cm` : null },
-    { label: "Thickness", value: product.thickness ? `${product.thickness} cm` : null },
+    { label: "Width", value: product.width },
+    { label: "Length / height", value: product.height },
+    { label: "Thickness", value: product.thickness },
     { label: "Sold per", value: product.unit },
     { label: "SKU", value: product.sku },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value))
