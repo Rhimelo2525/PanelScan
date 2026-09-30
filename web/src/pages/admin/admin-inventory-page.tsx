@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { addStock, adjustStock, createInventory, deleteInventory, getAvailableProductsForRecordStock, getInventory, getInventoryReport, reduceStock } from "@/api/admin"
-import { availableStock, formatCount, formatDate, formatMoney, stockStatus } from "@/admin/admin-format"
+import { availableStock, formatCount, formatDate, formatMoney } from "@/admin/admin-format"
+import { useConfirm } from "@/components/confirm/use-confirm"
+import { getStockStatus, STOCK_STATUS_LABELS, STOCK_STATUS_OPTIONS } from "@/lib/stock-status"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { useAuth } from "@/auth/use-auth"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -57,7 +59,7 @@ export function AdminInventoryPage() {
     const term = search.trim().toLowerCase()
     return records.filter((record) => {
       const matchesTerm = term === "" || record.product.name.toLowerCase().includes(term) || record.product.sku.toLowerCase().includes(term)
-      const matchesStatus = statusFilter === "" || stockStatus(record) === statusFilter
+      const matchesStatus = statusFilter === "" || getStockStatus(record) === statusFilter
       return matchesTerm && matchesStatus
     })
   }, [records, search, statusFilter])
@@ -100,7 +102,7 @@ export function AdminInventoryPage() {
               label="Stock status"
               value={statusFilter}
               allLabel="All stock levels"
-              options={[{ value: "HEALTHY", label: "Healthy" }, { value: "LOW_STOCK", label: "Low stock" }, { value: "OUT_OF_STOCK", label: "Out of stock" }]}
+              options={STOCK_STATUS_OPTIONS}
               onChange={setStatusFilter}
             />
           </FilterBar>
@@ -125,7 +127,7 @@ export function AdminInventoryPage() {
             columns={[
               { key: "product", header: "Product", primary: true, cell: (row) => <span><span className="block font-medium">{row.product.name}</span><span className="block text-xs text-muted-foreground">{row.product.sku}</span></span> },
               { key: "type", header: "Type", cell: (row) => <span className="text-muted-foreground">{panelLineForSku(row.product.sku)}</span> },
-              { key: "status", header: "Status", cell: (row) => <StatusBadge status={stockStatus(row)} /> },
+              { key: "status", header: "Status", cell: (row) => { const status = getStockStatus(row); return <StatusBadge status={status} label={STOCK_STATUS_LABELS[status]} /> } },
               { key: "quantity", header: "On hand", numeric: true, cell: (row) => formatCount(row.quantity) },
               { key: "reserved", header: "Reserved", numeric: true, secondary: true, cell: (row) => formatCount(row.reservedQty) },
               { key: "available", header: "Available", numeric: true, cell: (row) => <span className="font-medium">{formatCount(availableStock(row))}</span> },
@@ -158,6 +160,7 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
   const [reorderLevel, setReorderLevel] = useState("10")
   const [warehouseLocation, setWarehouseLocation] = useState("Main Warehouse")
   const [isSaving, setIsSaving] = useState(false)
+  const confirm = useConfirm()
 
   useEffect(() => {
     if (open) {
@@ -201,6 +204,17 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
       toast.error("Reorder level must be a non-negative whole number.")
       return
     }
+
+    if (!(await confirm({
+      title: "Record this stock?",
+      description: "A stock record is submitted for owner approval before it takes effect.",
+      details: [
+        { label: "Product", value: products.find((p) => p.id === productId)?.name ?? "—" },
+        { label: "Quantity", value: String(parsedQty) },
+        { label: "Reorder level", value: String(parsedReorder) },
+      ],
+      confirmLabel: "Submit",
+    }))) return
 
     setIsSaving(true)
     try {
@@ -322,6 +336,7 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const confirm = useConfirm()
 
   // Initialize input to current quantity when record is opened
   useEffect(() => {
@@ -337,6 +352,16 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
       toast.error("Enter a whole number greater than zero.")
       return
     }
+    if (!(await confirm({
+      title: direction === "add" ? `Add ${parsed} unit(s) of stock?` : `Reduce stock by ${parsed} unit(s)?`,
+      description: "The change is sent to the owner for approval before the stock changes.",
+      details: [
+        { label: "Product", value: record.product.name },
+        { label: "On hand now", value: String(record.quantity) },
+        { label: "After approval", value: String(direction === "add" ? record.quantity + parsed : Math.max(0, record.quantity - parsed)) },
+      ],
+      confirmLabel: "Submit Request",
+    }))) return
     setIsSaving(true)
     try {
       if (direction === "add") await addStock(record.productId, parsed)
@@ -363,6 +388,15 @@ function StockAdjustSheet({ record, onClose, onDone }: { record: InventoryRecord
       toast.error(`Cannot set stock below reserved quantity (${record.reservedQty}).`)
       return
     }
+    if (!(await confirm({
+      title: `Set on-hand stock to ${parsed}?`,
+      description: "The change is sent to the owner for approval before the stock changes.",
+      details: [
+        { label: "Product", value: record.product.name },
+        { label: "Stock", value: `${record.quantity} → ${parsed}` },
+      ],
+      confirmLabel: "Submit Request",
+    }))) return
     setIsSaving(true)
     try {
       await adjustStock(record.productId, parsed)

@@ -179,6 +179,8 @@ describe('Notification triggers', () => {
         lastName: 'Reyes',
         email: `ana.${Date.now()}@example.com`,
         password: 'P@nelScan2026',
+        phone: '09171234567',
+        birthdate: '1995-06-15',
         acceptedTerms: true,
       });
       expect([200, 201]).toContain(response.status);

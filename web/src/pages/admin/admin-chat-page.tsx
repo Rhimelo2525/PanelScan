@@ -1,5 +1,5 @@
 import { MessageSquare, Send } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { getConversations, getMessages, sendMessage } from "@/api/admin"
@@ -11,6 +11,7 @@ import { useAuth } from "@/auth/use-auth"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import { CHAT_READ_EVENT, handleComposerKeyDown, sortConversationsByActivity } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { ChatConversation } from "@/types/admin"
@@ -27,11 +28,17 @@ export function AdminChatPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
   const [isSending, setIsSending] = useState(false)
+  // Guards against a second send before the first finishes (e.g. Enter pressed twice quickly).
+  const sendingRef = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const conversations = useAdminResource((signal) => getConversations({ limit: 30 }, signal), [], { pollIntervalMs: 20_000 })
-  const rooms = (conversations.data?.conversations ?? []).slice().sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-  const activeId = selectedId ?? rooms[0]?.id ?? null
+  // Conversation LIST only: latest activity at the top. The thread below keeps its own oldest-to-newest order.
+  const rooms = sortConversationsByActivity(conversations.data?.conversations ?? [])
+  // Nothing is opened automatically: opening a conversation marks it read, so
+  // that only happens when a staff member actually selects it.
+  const activeId = selectedId
+  const activeRoomUnread = rooms.find((room) => room.id === activeId)?.unreadCount ?? 0
   const messages = useAdminResource(async (signal) => {
     if (!activeId) return []
     const result = await getMessages(activeId, { limit: 50 }, signal)
@@ -43,17 +50,32 @@ export function AdminChatPage() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ block: "nearest" }) }, [messages.data])
 
+  // Loading the open conversation's messages marks them read on the server.
+  // Once that has happened, refresh the list (its dot) and the sidebar's
+  // "Support chat" dot, instead of waiting for their next poll.
+  // Silent (no loading skeleton): only the list data is swapped in place.
+  const { setData: setConversationsData } = conversations
+  const refreshConversations = useCallback(() => getConversations({ limit: 30 }).then(setConversationsData).catch(() => {}), [setConversationsData])
+  useEffect(() => {
+    if (!activeId || !messages.data || activeRoomUnread === 0) return
+    void refreshConversations()
+    window.dispatchEvent(new Event(CHAT_READ_EVENT))
+  }, [activeId, messages.data, activeRoomUnread, refreshConversations])
+
   async function submit() {
-    if (!activeId || draft.trim().length === 0) return
+    if (!activeId || draft.trim().length === 0 || sendingRef.current) return
+    sendingRef.current = true
     setIsSending(true)
     try {
       await sendMessage(activeId, draft.trim())
       setDraft("")
       messages.reload()
-      conversations.reload()
+      // Moves this conversation to the top of the list without blanking the page.
+      void refreshConversations()
     } catch (error) {
       toast.error("Message not sent", { description: getAdminErrorMessage(error) })
     } finally {
+      sendingRef.current = false
       setIsSending(false)
     }
   }
@@ -82,7 +104,10 @@ export function AdminChatPage() {
                   className={cn("w-full rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-secondary", room.id === activeId && "bg-secondary font-medium")}
                 >
                   <span className="block truncate">{room.subject ?? "Customer enquiry"}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">{participantSummary(room)}</span>
+                  <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {(room.unreadCount ?? 0) > 0 && room.id !== activeId && <span className="size-2 shrink-0 rounded-full bg-destructive" role="status" aria-label="Unread messages" />}
+                    <span className="truncate">{participantSummary(room)}</span>
+                  </span>
                 </button>
               </li>
             ))}
@@ -90,7 +115,9 @@ export function AdminChatPage() {
 
           <section className="flex min-h-[28rem] flex-col surface-card" aria-label="Conversation messages">
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
-              {messages.isLoading ? <Skeleton className="h-40 w-full" /> : messages.error ? <ErrorState message={messages.error} onRetry={messages.reload} /> : (messages.data ?? []).length === 0 ? (
+              {!activeId ? (
+                <p className="py-10 text-center text-sm text-muted-foreground">Select a conversation to read it.</p>
+              ) : messages.isLoading ? <Skeleton className="h-40 w-full" /> : messages.error ? <ErrorState message={messages.error} onRetry={messages.reload} /> : (messages.data ?? []).length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">No messages in this conversation yet.</p>
               ) : (
                 (messages.data ?? []).map((message) => {
@@ -106,10 +133,10 @@ export function AdminChatPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            {canReply ? (
+            {!activeId ? null : canReply ? (
               <div className="border-t border-border p-3">
                 <label htmlFor="chat-draft" className="sr-only">Message</label>
-                <Textarea id="chat-draft" rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Write a reply" maxLength={2000} />
+                <Textarea id="chat-draft" rows={2} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => handleComposerKeyDown(event, () => void submit())} placeholder="Write a reply" maxLength={2000} />
                 <div className="mt-2 flex justify-end">
                   <Button size="sm" onClick={() => void submit()} disabled={isSending || draft.trim().length === 0}><Send data-icon="inline-start" aria-hidden="true" />Send reply</Button>
                 </div>

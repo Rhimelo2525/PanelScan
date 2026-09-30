@@ -3,6 +3,7 @@ export type UserRole = "OWNER" | "MODERATOR" | "CUSTOMER"
 export interface AuthUser {
   id: string
   firstName: string
+  middleInitial?: string | null
   lastName: string
   email: string
   phone: string | null
@@ -30,16 +31,19 @@ export interface LoginInput {
 
 export interface RegisterInput {
   firstName: string
+  middleInitial?: string
   lastName: string
   email: string
   password: string
-  phone?: string
-  birthdate?: string
+  phone: string
+  birthdate: string
   acceptedTerms: boolean
 }
 
 export interface UpdateProfileInput {
   firstName?: string
+  /** null clears it. */
+  middleInitial?: string | null
   lastName?: string
   phone?: string
   birthdate?: string | null

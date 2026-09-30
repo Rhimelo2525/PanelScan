@@ -57,7 +57,7 @@ describe('Customer profile', () => {
       expect(response.body.data.user).toMatchObject({
         firstName: 'Maria',
         lastName: 'Santos',
-        phone: '+63 917 123 4567',
+        phone: '+639171234567',
         birthdate: '1990-05-20',
         address: '45 Mabini Ave, Quezon City',
       });
@@ -76,9 +76,22 @@ describe('Customer profile', () => {
 
       expect(response.status).toBe(200);
       const stored = await prisma.user.findUnique({ where: { id: user.id } });
-      expect(stored?.phone).toBe('09171234567');
+      // A local 0917… number is accepted but always stored as +63.
+      expect(stored?.phone).toBe('+639171234567');
       expect(stored?.firstName).toBe('Ana');
       expect(stored?.lastName).toBe('Reyes');
+    });
+
+    it('sets and clears the middle initial', async () => {
+      const { token, user } = await createCustomer({ email: 'profile-middle@panelscan.test' });
+
+      const set = await request(app).patch('/api/auth/me').set(authHeader(token)).send({ middleInitial: 'r.' });
+      expect(set.status).toBe(200);
+      expect(set.body.data.user.middleInitial).toBe('R');
+
+      const cleared = await request(app).patch('/api/auth/me').set(authHeader(token)).send({ middleInitial: null });
+      expect(cleared.status).toBe(200);
+      expect((await prisma.user.findUnique({ where: { id: user.id } }))?.middleInitial).toBeNull();
     });
 
     it('clears birthdate and address when sent null / an empty string', async () => {
@@ -126,6 +139,10 @@ describe('Customer profile', () => {
       ['only an email', { email: 'x@panelscan.test' }],
       ['a too-short first name', { firstName: 'A' }],
       ['an invalid phone number', { phone: 'not-a-phone' }],
+      ['a phone with 9 digits after +63', { phone: '+63 912 345 678' }],
+      ['a phone with 11 digits after +63', { phone: '+63 912 345 67895' }],
+      ['a phone with letters', { phone: '+63 912 ABC 6789' }],
+      ['a phone with a duplicated +63', { phone: '+63 +63 912 345 6789' }],
       ['a malformed birthdate', { birthdate: '20/05/1990' }],
       ['an impossible birthdate', { birthdate: '2023-02-31' }],
       ['a birthdate before 1900', { birthdate: '1899-12-31' }],
@@ -161,6 +178,7 @@ describe('Customer profile', () => {
       email: 'register-profile@panelscan.test',
       password: 'P@nelScan2026',
       phone: '09123456789',
+      birthdate: '1995-06-15',
       acceptedTerms: true,
     };
 
@@ -171,11 +189,67 @@ describe('Customer profile', () => {
       expect(response.body.data.user.birthdate).toBe('1995-07-14');
     });
 
-    it('still works without a birthdate (existing clients)', async () => {
-      const response = await request(app).post('/api/auth/register').send(registration);
+    // The form requires these; the API does too, so it can't be used to skip them.
+    it.each([
+      ['first name', 'firstName'],
+      ['last name', 'lastName'],
+      ['birthdate', 'birthdate'],
+      ['email address', 'email'],
+      ['contact number', 'phone'],
+    ] as const)('rejects a registration missing the %s and creates no account', async (_label, field) => {
+      const body: Partial<typeof registration> = { ...registration };
+      delete body[field];
+      const response = await request(app).post('/api/auth/register').send(body);
+
+      expect(response.status).toBe(400);
+      expect(await prisma.user.count({ where: { email: registration.email } })).toBe(0);
+    });
+
+    it.each([
+      ['an empty contact number', { phone: '' }],
+      ['an incomplete contact number', { phone: '+63 912 345 678' }],
+      ['an invalid email address', { email: 'not-an-email' }],
+      ['an empty first name', { firstName: '   ' }],
+      ['a first name with numbers', { firstName: '123123' }],
+      ['a first name mixing letters and numbers', { firstName: 'Juan2' }],
+      ['a last name with numbers', { lastName: 'Dela Cruz 3' }],
+      ['a last name with symbols', { lastName: 'Cruz!' }],
+      ['a numeric middle initial', { middleInitial: '123123' }],
+      ['an invalid middle initial', { middleInitial: 'M1' }],
+      ['a too-long middle initial', { middleInitial: 'ABCD' }],
+    ])('rejects %s', async (_label, override) => {
+      const response = await request(app).post('/api/auth/register').send({ ...registration, ...override });
+      expect(response.status).toBe(400);
+    });
+
+    it('accepts real-world names with spaces, hyphens, apostrophes, periods and ñ', async () => {
+      const response = await request(app)
+        .post('/api/auth/register')
+        .send({ ...registration, firstName: 'Ma. Cristina', lastName: "Dela Cruz-O'Neil Peñaflor" });
 
       expect(response.status).toBe(201);
-      expect(response.body.data.user.birthdate).toBeNull();
+      expect(response.body.data.user.lastName).toBe("Dela Cruz-O'Neil Peñaflor");
+    });
+
+    it('creates the account without a middle initial', async () => {
+      const response = await request(app).post('/api/auth/register').send({ ...registration, middleInitial: '' });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.user.middleInitial).toBeNull();
+    });
+
+    it.each([
+      ['M.', 'M'],
+      ['m', 'M'],
+      ['D. C.', 'DC'],
+    ])('saves the middle initial %s as %s', async (input, stored) => {
+      const response = await request(app).post('/api/auth/register').send({ ...registration, middleInitial: input });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.user.middleInitial).toBe(stored);
+      const saved = await prisma.user.findUnique({ where: { email: registration.email } });
+      expect(saved?.middleInitial).toBe(stored);
+      expect(saved?.phone).toBe('+639123456789');
     });
 
     it('rejects an invalid birthdate', async () => {

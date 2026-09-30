@@ -25,7 +25,7 @@ Public pages use SiteLayout; previews have their own workspace. Preview sections
 
 | Boundary | Implementation and lifetime |
 | --- | --- |
-| Auth | Context plus `sessionStorage` key `panelscan.session`; restoration calls the API |
+| Auth | Context plus per-tab `sessionStorage` key `panelscan.session`; restoration calls the API. One account per browser: a non-secret `localStorage` lease (`panelscan.active-account`, user id + per-tab expiry) is checked on every sign-in, and logout is broadcast to all tabs (`auth/active-account.ts`) |
 | Cart | Context reflecting API responses; serialized mutations, per-product pending state, reset on user change |
 | Products/business/support/ratings | Four module-memory stores in `preview/`, subscribed through `useSyncExternalStore` |
 | Moderator records | Component-local `useState`; resets on section unmount |

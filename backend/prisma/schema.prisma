@@ -116,6 +116,9 @@ enum DeliveryApprovalStatus {
 model User {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firstName String   @map("first_name")
+  // Optional; stored as letters only ("M", or "DC" for a compound middle
+  // name) and shown with periods ("M."). Null for accounts that never set one.
+  middleInitial String? @map("middle_initial")
   lastName  String   @map("last_name")
   email     String   @unique
   password  String?

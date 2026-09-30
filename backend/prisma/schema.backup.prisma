@@ -113,6 +113,7 @@ enum DeliveryApprovalStatus {
 model User {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firstName String   @map("first_name")
+  middleInitial String? @map("middle_initial")
   lastName  String   @map("last_name")
   email     String   @unique
   password  String?

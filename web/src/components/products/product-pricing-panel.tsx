@@ -9,7 +9,8 @@ import { useCart } from "@/cart/use-cart"
 import { QuantityControl } from "@/components/cart/quantity-control"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatProductPrice } from "@/lib/format-price"
+import { useConfirm } from "@/components/confirm/use-confirm"
+import { formatMinorUnits, formatProductPrice, parsePriceToMinorUnits } from "@/lib/format-price"
 import type { CartItem } from "@/types/cart"
 import type { Product } from "@/types/product"
 
@@ -22,6 +23,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
   const { user, isAuthenticated, isLoading } = useAuth()
   const { addItem, getItemQuantity, pendingProductIds } = useCart()
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const existingQuantity = getItemQuantity(product.id)
   const availableQuantity = product.inventory ? Math.max(0, product.inventory.quantity - product.inventory.reservedQty) : 0
   const remainingQuantity = Math.max(0, availableQuantity - existingQuantity)
@@ -52,6 +54,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
       )
       return
     }
+    if (!(await confirm({ title: "Add this product to your cart?", details: orderLineDetails(), confirmLabel: "Add to Cart" }))) return
     try {
       await addItem(product.id, quantity)
       toast.success(`${product.name} added to your cart.`, {
@@ -65,7 +68,17 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
     }
   }
 
-  function handleProceedToCheckout() {
+  /** Product, quantity and subtotal shown before adding to the cart or checking out. */
+  function orderLineDetails() {
+    const unitPrice = parsePriceToMinorUnits(product.price)
+    return [
+      { label: "Product", value: product.name },
+      { label: "Quantity", value: `${quantity} × ${product.unit}` },
+      { label: "Subtotal", value: unitPrice === null ? formatProductPrice(product.price) : formatMinorUnits(unitPrice * quantity) },
+    ]
+  }
+
+  async function handleProceedToCheckout() {
     if (!product.isActive || product.deletedAt || availableQuantity <= 0) {
       toast.error("This product is currently out of stock.")
       return
@@ -74,6 +87,12 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
       toast.error(`Only ${availableQuantity} items are available.`)
       return
     }
+    if (!(await confirm({
+      title: "Proceed to checkout?",
+      description: "You will review delivery details and place the order on the next page. The shipping fee is added after a moderator books delivery.",
+      details: orderLineDetails(),
+      confirmLabel: "Proceed to Checkout",
+    }))) return
 
     const directItem: CartItem = {
       id: `direct-${product.id}`,
@@ -143,7 +162,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
                   variant="outline"
                   className="w-full"
                   disabled={!canDirectCheckout || isPending}
-                  onClick={handleProceedToCheckout}
+                  onClick={() => void handleProceedToCheckout()}
                 >
                   Proceed to Checkout
                   <ArrowRight data-icon="inline-end" aria-hidden="true" />

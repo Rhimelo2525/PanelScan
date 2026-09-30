@@ -7,7 +7,7 @@ import { updateProfile } from "@/api/auth"
 import { getAccountErrorMessage } from "@/auth/errors"
 import { ADDRESS_MAX_LENGTH, validateProfile } from "@/auth/profile-validation"
 import type { ProfileErrors, ProfileField, ProfileValues } from "@/auth/profile-validation"
-import { calculateAge, dateInputValue } from "@/auth/registration-validation"
+import { calculateAge, dateInputValue, formatMiddleInitial, normalizeMiddleInitial, sanitizeNameInput } from "@/auth/registration-validation"
 import { useAuth } from "@/auth/use-auth"
 import { BirthdateInput } from "@/components/auth/birthdate-input"
 import { FormError } from "@/components/auth/form-error"
@@ -15,21 +15,24 @@ import { EmailStatusBadge } from "@/components/profile/email-status-badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PhoneInput } from "@/components/ui/phone-input"
 import { Textarea } from "@/components/ui/textarea"
+import { toPhoneFieldValue } from "@/lib/phone"
 import type { AuthUser } from "@/types/auth"
 
 function toValues(user: AuthUser): ProfileValues {
   return {
     firstName: user.firstName,
+    middleInitial: formatMiddleInitial(user.middleInitial),
     lastName: user.lastName,
     birthdate: user.birthdate ?? "",
-    phone: user.phone ?? "",
+    phone: toPhoneFieldValue(user.phone),
     address: user.address ?? "",
   }
 }
 
 interface TextFieldProps {
-  field: "firstName" | "lastName" | "phone"
+  field: "firstName" | "middleInitial" | "lastName" | "phone"
   label: string
   value: string
   error?: string
@@ -45,7 +48,9 @@ function TextField({ field, label, value, error, onChange, autoComplete, type = 
   return (
     <div>
       <Label htmlFor={`profile-${field}`}>{label}</Label>
-      <Input id={`profile-${field}`} name={field} type={type} inputMode={inputMode} autoComplete={autoComplete} value={value} onChange={(event) => onChange(field, event.target.value)} className="mt-2 h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} maxLength={maxLength} />
+      {field === "phone"
+        ? <PhoneInput id={`profile-${field}`} name={field} autoComplete={autoComplete} value={value} onChange={(next) => onChange(field, next)} className="mt-2" inputClassName="h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} />
+        : <Input id={`profile-${field}`} name={field} type={type} inputMode={inputMode} autoComplete={autoComplete} value={value} onChange={(event) => onChange(field, event.target.value)} className="mt-2 h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} maxLength={maxLength} />}
       {error && <p id={errorId} className="motion-swap mt-1.5 text-xs text-destructive">{error}</p>}
     </div>
   )
@@ -79,7 +84,7 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
   const age = calculateAge(values.birthdate)
 
   function updateValue(field: ProfileField, value: string) {
-    setValues((current) => ({ ...current, [field]: value }))
+    setValues((current) => ({ ...current, [field]: sanitizeNameInput(field, value) }))
     setErrors((current) => (current[field] ? { ...current, [field]: undefined } : current))
   }
 
@@ -101,6 +106,7 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
       const phone = values.phone.trim()
       const updated = await updateProfile({
         firstName: values.firstName.trim(),
+        middleInitial: values.middleInitial.trim() ? normalizeMiddleInitial(values.middleInitial) : null,
         lastName: values.lastName.trim(),
         ...(phone ? { phone } : {}),
         birthdate: values.birthdate || null,
@@ -118,9 +124,10 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-5">
       {submissionError && <FormError message={submissionError} />}
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
         <TextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={50} />
         <TextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={50} />
+        <TextField field="middleInitial" label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={6} />
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -146,7 +153,7 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
         </div>
       </div>
 
-      <TextField field="phone" label="Contact number" value={values.phone} error={errors.phone} onChange={updateValue} type="tel" inputMode="tel" autoComplete="tel" maxLength={20} />
+      <TextField field="phone" label="Contact number" value={values.phone} error={errors.phone} onChange={updateValue} autoComplete="tel" maxLength={16} />
 
       <div>
         <Label htmlFor="profile-address">Address</Label>

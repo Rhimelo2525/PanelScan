@@ -5,6 +5,7 @@ import { Link } from "react-router-dom"
 import { getOrders } from "@/api/orders"
 import { getMyBookings, getMyConversations } from "@/api/support"
 import type { Booking } from "@/api/support"
+import { formatMiddleInitial } from "@/auth/registration-validation"
 import { useAuth } from "@/auth/use-auth"
 import { useCart } from "@/cart/use-cart"
 import { Container } from "@/components/layout/container"
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatProductPrice } from "@/lib/format-price"
+import { formatPhoneForDisplay } from "@/lib/phone"
 import { formatOrderDate } from "@/orders/order-format"
 import type { Order } from "@/types/order"
 
@@ -74,7 +76,7 @@ export function DashboardPage() {
               <CustomerAvatar user={user} className="size-14" fallbackClassName="text-lg" />
               <div>
                 <p className="section-eyebrow">Your PanelScan</p>
-                <h1 className="type-h2 mt-2">{user.firstName} {user.lastName}</h1>
+                <h1 className="type-h2 mt-2">{[user.firstName, formatMiddleInitial(user.middleInitial), user.lastName].filter(Boolean).join(" ")}</h1>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -175,7 +177,7 @@ export function DashboardPage() {
                   <div className="flex items-center gap-2"><LayoutGrid className="size-4 text-primary" aria-hidden="true" /><h2 id="account-title" className="font-semibold">Account</h2></div>
                   <dl className="mt-4 space-y-3 text-sm">
                     <div><dt className="flex items-center gap-2 text-xs text-muted-foreground"><Mail className="size-3.5" aria-hidden="true" />Email</dt><dd className="mt-1 break-all">{user.email}{user.emailVerified === false && <> <Link to="/profile" className="whitespace-nowrap text-xs font-medium text-primary underline-offset-4 hover:underline">Verify email</Link></>}</dd></div>
-                    {user.phone && <div><dt className="flex items-center gap-2 text-xs text-muted-foreground"><Phone className="size-3.5" aria-hidden="true" />Phone</dt><dd className="mt-1">{user.phone}</dd></div>}
+                    {user.phone && <div><dt className="flex items-center gap-2 text-xs text-muted-foreground"><Phone className="size-3.5" aria-hidden="true" />Phone</dt><dd className="mt-1">{formatPhoneForDisplay(user.phone)}</dd></div>}
                   </dl>
                   <Button variant="outline" size="sm" className="mt-4 w-full" asChild><Link to="/profile">Manage profile</Link></Button>
                 </section>

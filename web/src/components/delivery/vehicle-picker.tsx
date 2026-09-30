@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 
 import { ApiRequestError } from "@/api/client"
 import { getVehicleTypes, selectDeliveryVehicle } from "@/api/delivery"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { VehicleIcon } from "@/components/delivery/vehicle-icon"
 import { Button } from "@/components/ui/button"
 import { sortVehicleTypes, vehicleLabel } from "@/lib/delivery/vehicle-label"
@@ -37,6 +38,7 @@ export function VehiclePicker({
   const [selected, setSelected] = useState(currentVehicle ?? "")
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
+  const confirm = useConfirm()
 
   useEffect(() => {
     const controller = new AbortController()
@@ -55,6 +57,12 @@ export function VehiclePicker({
   }, [loadKey])
 
   async function handleSelect() {
+    if (!(await confirm({
+      title: `${actionLabel}?`,
+      description: hint,
+      details: [{ label: "Vehicle", value: (() => { const vehicle = vehicles.find((v) => v.key === selected); return vehicle ? vehicleLabel(vehicle) : selected })() }],
+      confirmLabel: actionLabel,
+    }))) return
     setIsSaving(true)
     setError("")
     try {

@@ -1,5 +1,7 @@
-import { CircleCheck, CircleHelp, CircleX, TriangleAlert } from "lucide-react"
+import { CircleCheck, CircleX, OctagonAlert, TriangleAlert } from "lucide-react"
 
+import { getStockStatus, STOCK_STATUS_LABELS } from "@/lib/stock-status"
+import type { StockStatus as StockStatusValue } from "@/lib/stock-status"
 import { cn } from "@/lib/utils"
 import type { ProductInventory } from "@/types/product"
 
@@ -8,29 +10,33 @@ interface StockStatusProps {
   compact?: boolean
 }
 
-function getStockLabel(inventory: ProductInventory | null): string {
-  if (!inventory) return "Out of stock"
-  const available = inventory.quantity - inventory.reservedQty
-  if (available <= 0) return "Out of stock"
-  if (available <= inventory.reorderLevel) return "Low stock"
-  return "In stock"
+const icons: Record<StockStatusValue, typeof CircleCheck> = {
+  IN_STOCK: CircleCheck,
+  LOW_STOCK: TriangleAlert,
+  CRITICAL: OctagonAlert,
+  OUT_OF_STOCK: CircleX,
 }
 
+const tones: Record<StockStatusValue, string> = {
+  IN_STOCK: "text-emerald-800",
+  LOW_STOCK: "text-amber-800",
+  CRITICAL: "text-orange-700",
+  OUT_OF_STOCK: "text-destructive",
+}
+
+/** Customer-facing stock badge; the status comes from the shared rule in lib/stock-status. */
 export function StockStatus({ inventory, compact = false }: StockStatusProps) {
-  const label = getStockLabel(inventory)
-  const Icon = label === "In stock" ? CircleCheck : label === "Low stock" ? TriangleAlert : label === "Out of stock" ? CircleX : CircleHelp
+  const status = getStockStatus(inventory)
+  const Icon = icons[status]
 
   return (
     <span className={cn(
       "inline-flex w-fit items-center gap-1.5 text-xs font-medium",
-      label === "In stock" && "text-emerald-800",
-      label === "Low stock" && "text-amber-800",
-      label === "Out of stock" && "text-destructive",
-      label === "Availability on request" && "text-muted-foreground",
+      tones[status],
       !compact && "rounded-full surface-card px-2.5 py-1.5",
     )}>
       <Icon className="size-3.5" aria-hidden="true" />
-      {label}
+      {STOCK_STATUS_LABELS[status]}
     </span>
   )
 }

@@ -1,7 +1,7 @@
 import { MapPin } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
+import { formatPhoneForDisplay } from "@/lib/phone"
 import type { SavedAddress } from "@/types/address"
 
 /** Label, default badge, readable address, and recipient - identical in the profile list and the checkout picker. */

@@ -13,14 +13,18 @@ import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
 import { useAuth } from "@/auth/use-auth"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PhoneInput } from "@/components/ui/phone-input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { PasswordInput } from "@/components/auth/password-input"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { checkPasswordRequirements, validatePasswordPolicy, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH } from "@/auth/password-policy"
+import { isValidPersonName, personNameMessage, sanitizeNameInput } from "@/auth/registration-validation"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { PHILIPPINE_PHONE_MESSAGE, formatPhoneForDisplay, isValidPhilippinePhone } from "@/lib/phone"
 import type { AdminUser } from "@/types/admin"
 
 /**
@@ -92,7 +96,7 @@ export function AdminTeamPage() {
               { key: "name", header: "Name", primary: true, cell: (row) => <span><span className="block font-medium">{row.firstName} {row.lastName}</span><span className="block text-xs break-all text-muted-foreground">{row.email}</span></span> },
               { key: "role", header: "Role", cell: (row) => <StatusBadge status={row.role === "CUSTOMER" ? "INACTIVE" : "ACTIVE"} label={row.role.charAt(0) + row.role.slice(1).toLowerCase()} /> },
               { key: "status", header: "Access", cell: (row) => <StatusBadge status={row.isActive ? "ACTIVE" : "INACTIVE"} label={row.isActive ? "Active" : "Restricted"} /> },
-              { key: "phone", header: "Phone", secondary: true, cell: (row) => row.phone ?? "—" },
+              { key: "phone", header: "Phone", secondary: true, cell: (row) => row.phone ? formatPhoneForDisplay(row.phone) : "—" },
               { key: "created", header: "Joined", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.createdAt)}</span> },
             ]}
             rowAction={(row) => row.isActive && row.id !== user?.id
@@ -117,8 +121,10 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
   const [phone, setPhone] = useState("")
   const [errorPassword, setErrorPassword] = useState<string | undefined>()
   const [errorConfirmPassword, setErrorConfirmPassword] = useState<string | undefined>()
+  const [errorPhone, setErrorPhone] = useState<string | undefined>()
   const [isSaving, setIsSaving] = useState(false)
   const [isPasswordFocused, setIsPasswordFocused] = useState(false)
+  const confirm = useConfirm()
 
   const passwordRequirements = useMemo(() => checkPasswordRequirements(password), [password])
   const isPasswordAllMet = useMemo(() => Object.values(passwordRequirements).every(Boolean), [passwordRequirements])
@@ -133,6 +139,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
     setPhone("")
     setErrorPassword(undefined)
     setErrorConfirmPassword(undefined)
+    setErrorPhone(undefined)
     setIsPasswordFocused(false)
   }
 
@@ -140,9 +147,24 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
     e.preventDefault()
     setErrorPassword(undefined)
     setErrorConfirmPassword(undefined)
+    setErrorPhone(undefined)
 
     if (!firstName.trim() || !lastName.trim() || !email.trim() || !password) {
       toast.error("Please fill in all required fields.")
+      return
+    }
+
+    for (const [label, value] of [["First name", firstName], ["Last name", lastName]] as const) {
+      if (value.trim().length < 2 || !isValidPersonName(value)) {
+        toast.error(value.trim().length < 2 ? `${label} must be at least 2 characters.` : personNameMessage(label))
+        return
+      }
+    }
+
+    // Optional, but when given it must be a complete number.
+    if (phone && !isValidPhilippinePhone(phone)) {
+      setErrorPhone(PHILIPPINE_PHONE_MESSAGE)
+      toast.error(PHILIPPINE_PHONE_MESSAGE)
       return
     }
 
@@ -163,6 +185,13 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
       toast.error("Passwords do not match.")
       return
     }
+
+    if (!(await confirm({
+      title: "Create this moderator account?",
+      description: "They will be able to sign in with the temporary password and manage orders, deliveries, and inventory.",
+      details: [{ label: "Name", value: `${firstName.trim()} ${lastName.trim()}` }, { label: "Email", value: email.trim() }],
+      confirmLabel: "Create Account",
+    }))) return
 
     setIsSaving(true)
     try {
@@ -196,11 +225,11 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="mod-first-name">First name *</Label>
-              <Input id="mod-first-name" required value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              <Input id="mod-first-name" required value={firstName} onChange={(e) => setFirstName(sanitizeNameInput("firstName", e.target.value))} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="mod-last-name">Last name *</Label>
-              <Input id="mod-last-name" required value={lastName} onChange={(e) => setLastName(e.target.value)} />
+              <Input id="mod-last-name" required value={lastName} onChange={(e) => setLastName(sanitizeNameInput("lastName", e.target.value))} />
             </div>
           </div>
 
@@ -248,7 +277,8 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
 
           <div className="space-y-1.5">
             <Label htmlFor="mod-phone">Phone number (optional)</Label>
-            <Input id="mod-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+63 912 345 6789" />
+            <PhoneInput id="mod-phone" value={phone} onChange={(next) => { setPhone(next); setErrorPhone(undefined) }} aria-invalid={Boolean(errorPhone)} aria-describedby={errorPhone ? "mod-phone-error" : undefined} />
+            {errorPhone && <p id="mod-phone-error" className="text-xs text-destructive">{errorPhone}</p>}
           </div>
 
           <div className="flex gap-2 pt-4">

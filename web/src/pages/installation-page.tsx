@@ -11,6 +11,7 @@ import { useAuth } from "@/auth/use-auth"
 import { Container } from "@/components/layout/container"
 import { StatusBadge } from "@/components/admin/status-badge"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { DatePickerInput } from "@/components/ui/date-picker-input"
 import { Label } from "@/components/ui/label"
@@ -36,6 +37,7 @@ export function InstallationPage() {
   useDocumentTitle("Installation | PanelScan")
   const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const [bookings, setBookings] = useState<Booking[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -107,6 +109,15 @@ export function InstallationPage() {
       toast.error("Enter the full installation address (at least 10 characters).")
       return
     }
+    if (!(await confirm({
+      title: "Submit this installation request?",
+      description: "The PanelScan team will review it and confirm your schedule.",
+      details: [
+        { label: "Preferred date", value: new Date(`${scheduledDate}T09:00:00`).toLocaleDateString("en-PH", { dateStyle: "medium" }) },
+        { label: "Address", value: address.trim() },
+      ],
+      confirmLabel: "Submit Request",
+    }))) return
     setIsSaving(true)
     try {
       await requestInstallation({

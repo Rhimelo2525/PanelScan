@@ -14,6 +14,7 @@ describe('Auth module', () => {
         email: 'justin.register@panelscan.test',
         password: 'P@nelScan2026',
         phone: '09123456789',
+        birthdate: '1995-06-15',
         acceptedTerms: true,
       });
 
@@ -39,6 +40,8 @@ describe('Auth module', () => {
         email: 'sneaky@panelscan.test',
         password: 'P@nelScan2026',
         role: 'OWNER',
+        phone: '09171234567',
+        birthdate: '1995-06-15',
         acceptedTerms: true,
       });
 
@@ -52,6 +55,8 @@ describe('Auth module', () => {
         lastName: 'User',
         email: 'dup@panelscan.test',
         password: 'P@nelScan2026',
+        phone: '09171234567',
+        birthdate: '1995-06-15',
         acceptedTerms: true,
       };
 

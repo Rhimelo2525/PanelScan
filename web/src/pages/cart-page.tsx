@@ -9,6 +9,7 @@ import { CartEmptyState, CartErrorState, CartPageSkeleton } from "@/components/c
 import { CartSummary } from "@/components/cart/cart-summary"
 import { Container } from "@/components/layout/container"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useDocumentTitle } from "@/hooks/use-document-title"
@@ -33,12 +34,20 @@ export function CartPage() {
     selectedItems,
     selectedItemCount,
   } = useCart()
+  const confirm = useConfirm()
 
   const isAllSelected = items.length > 0 && items.every((item) => selectedProductIds.has(item.productId))
   const isNoneSelected = items.length === 0 || selectedItems.length === 0
   const isIndeterminate = !isAllSelected && !isNoneSelected
 
   async function handleUpdate(productId: string, quantity: number, productName: string) {
+    // Lowering the quantity to 0 removes the product from the cart.
+    if (quantity <= 0 && !(await confirm({
+      title: "Remove this item?",
+      description: `Are you sure you want to remove ${productName} from your cart?`,
+      confirmLabel: "Remove",
+      destructive: true,
+    }))) return
     try {
       await updateItem(productId, quantity)
       if (quantity <= 0) {
@@ -119,9 +128,9 @@ export function CartPage() {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Remove selected items?</AlertDialogTitle>
+                      <AlertDialogTitle>{isAllSelected ? "Clear your cart?" : "Remove selected items?"}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to remove the selected items from your cart?
+                        {isAllSelected ? "Are you sure you want to remove all items from your cart?" : "Are you sure you want to remove the selected items from your cart?"}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

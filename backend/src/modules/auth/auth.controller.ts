@@ -4,6 +4,7 @@ import { env } from '../../config/env';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/AppError';
+import { DISPOSABLE_EMAIL_MESSAGE } from '../../utils/disposableEmail';
 import { AuthService, authService } from './auth.service';
 import { GoogleAuthService, googleAuthService, type VerifiedGoogleProfile } from './googleAuth.service';
 import { VerificationService, verificationService } from './verification.service';
@@ -190,6 +191,8 @@ export class AuthController {
       const status = err?.statusCode || 500;
       if (status === 403) {
         res.redirect(`${frontendUrl}/login?error=deactivated`);
+      } else if (err?.message === DISPOSABLE_EMAIL_MESSAGE) {
+        res.redirect(`${frontendUrl}/login?error=disposable_email`);
       } else if (err?.message?.includes('verified')) {
         res.redirect(`${frontendUrl}/login?error=unverified_email`);
       } else {

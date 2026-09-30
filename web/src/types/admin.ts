@@ -350,6 +350,10 @@ export interface ChatConversation {
   createdAt: string
   updatedAt: string
   participants: ChatParticipant[]
+  /** From the conversation list endpoint: preview of the newest message. */
+  latestMessage?: ChatMessage | null
+  /** From the conversation list endpoint: messages still unread for the signed-in user (for staff: the customer's). */
+  unreadCount?: number
 }
 
 export interface AdminListQuery {

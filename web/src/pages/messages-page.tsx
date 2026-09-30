@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatOrderDate } from "@/orders/order-format"
+import { handleComposerKeyDown, sortConversationsByActivity } from "@/lib/chat"
 import { cn } from "@/lib/utils"
 import type { ChatConversation, ChatMessage } from "@/types/admin"
 
@@ -37,12 +38,14 @@ export function MessagesPage() {
   const [isStarting, setIsStarting] = useState(false)
   const [threadKey, setThreadKey] = useState(0)
   const threadEndRef = useRef<HTMLDivElement>(null)
+  // Guards against a second send before the first finishes (e.g. Enter pressed twice quickly).
+  const sendingRef = useRef(false)
 
   useEffect(() => {
     const controller = new AbortController()
     getMyConversations(controller.signal)
       .then((result) => {
-        const sorted = [...result].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        const sorted = sortConversationsByActivity(result)
         setConversations(sorted)
         setActiveId((current) => current ?? sorted[0]?.id ?? null)
       })
@@ -79,7 +82,7 @@ export function MessagesPage() {
     useCallback(() => {
       return getMyConversations()
         .then((result) => {
-          const sorted = [...result].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+          const sorted = sortConversationsByActivity(result)
           setConversations(sorted)
           setActiveId((current) => current ?? sorted[0]?.id ?? null)
         })
@@ -100,7 +103,7 @@ export function MessagesPage() {
     setIsStarting(true)
     try {
       const conversation = await createConversation(subject.trim() || undefined)
-      setConversations((current) => [...current, conversation])
+      setConversations((current) => [conversation, ...current])
       setActiveId(conversation.id)
       setMessages([])
       setSubject("")
@@ -113,15 +116,19 @@ export function MessagesPage() {
   }
 
   async function handleSend() {
-    if (!activeId || draft.trim().length === 0) return
+    if (!activeId || draft.trim().length === 0 || sendingRef.current) return
+    sendingRef.current = true
     setIsSending(true)
     try {
       await postMessage(activeId, draft.trim())
       setDraft("")
       setThreadKey((value) => value + 1)
+      // The conversation just had activity: move it to the top of the list.
+      getMyConversations().then((result) => setConversations(sortConversationsByActivity(result))).catch(() => {})
     } catch {
       toast.error("Message not sent", { description: "Please try again in a moment." })
     } finally {
+      sendingRef.current = false
       setIsSending(false)
     }
   }
@@ -221,7 +228,7 @@ export function MessagesPage() {
 
                 <div className="border-t border-border p-3">
                   <Label htmlFor="message-draft" className="sr-only">Message</Label>
-                  <Textarea id="message-draft" rows={3} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Type your message" maxLength={2000} />
+                  <Textarea id="message-draft" rows={3} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => handleComposerKeyDown(event, () => void handleSend())} placeholder="Type your message" maxLength={2000} />
                   <div className="mt-2 flex items-center justify-between gap-3">
                     <p className="text-xs text-muted-foreground">Replies arrive from the PanelScan team. Refresh to check for new messages.</p>
                     <Button size="sm" onClick={() => void handleSend()} disabled={isSending || draft.trim().length === 0}>

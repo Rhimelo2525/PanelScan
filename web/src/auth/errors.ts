@@ -1,6 +1,8 @@
 import { ApiRequestError } from "@/api/client"
+import { ActiveAccountConflictError } from "@/auth/active-account"
 
 export function getLoginErrorMessage(error: unknown): string {
+  if (error instanceof ActiveAccountConflictError) return error.message
   if (!(error instanceof ApiRequestError)) return "We couldn't sign you in. Please try again."
   if (error.status === 401) return "The email or password you entered is incorrect."
   if (error.status === 403) return "This account is currently unavailable. Please contact support."
@@ -35,7 +37,16 @@ export function getProfilePictureErrorMessage(error: unknown, fallback = "We cou
   return getAccountErrorMessage(error, fallback)
 }
 
+/** Must match DISPOSABLE_EMAIL_MESSAGE in the API (utils/disposableEmail.ts); the API is what enforces it. */
+export const DISPOSABLE_EMAIL_MESSAGE = "Temporary or disposable email addresses are not supported. Please use a permanent email address."
+
+/** The API rejected the address as a temporary/disposable mailbox, so the message belongs under the email field. */
+export function isDisposableEmailError(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.status === 400 && error.message === DISPOSABLE_EMAIL_MESSAGE
+}
+
 export function getRegisterErrorMessage(error: unknown): string {
+  if (error instanceof ActiveAccountConflictError) return error.message
   if (!(error instanceof ApiRequestError)) return "We couldn't create your account. Please try again."
   if (error.status === 409) return "An account with this email already exists."
   if (error.status === 0) return error.message

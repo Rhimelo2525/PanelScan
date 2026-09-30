@@ -4,6 +4,7 @@ import { env } from '../../config/env';
 import { prisma } from '../../config/database';
 import { notifyOwnersOfNewCustomer, notifyUser } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '../../utils/disposableEmail';
 import { signToken } from '../../utils/jwt';
 import { comparePassword, hashPassword } from '../../utils/password';
 import { generateRefreshToken, hashRefreshToken } from '../../utils/refreshToken';
@@ -41,6 +42,7 @@ interface RefreshResult {
 const sanitizeUser = (user: User): SanitizedUser => ({
   id: user.id,
   firstName: user.firstName,
+  middleInitial: user.middleInitial,
   lastName: user.lastName,
   email: user.email,
   phone: user.phone,
@@ -62,6 +64,13 @@ const sanitizeUser = (user: User): SanitizedUser => ({
 
 export class AuthService {
   async register(input: RegisterInput): Promise<AuthResult> {
+    // Checked before anything is written: no account, and so no verification
+    // code, is ever created for a temporary address. Also runs before the
+    // duplicate check so the answer doesn't reveal whether it has an account.
+    if (isDisposableEmail(input.email)) {
+      throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
+    }
+
     const existingUser = await prisma.user.findUnique({ where: { email: input.email } });
     if (existingUser) {
       throw new AppError('An account with this email already exists.', 409);
@@ -72,6 +81,7 @@ export class AuthService {
     const user = await prisma.user.create({
       data: {
         firstName: input.firstName,
+        middleInitial: input.middleInitial,
         lastName: input.lastName,
         email: input.email,
         password: hashedPassword,
@@ -153,6 +163,10 @@ export class AuthService {
     }
 
     // CASE B: New Google customer
+    // Same rule as email registration; existing accounts above are unaffected.
+    if (isDisposableEmail(email)) {
+      throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
+    }
     // A brand-new account created via Google customer login receives CUSTOMER role only.
     // Do NOT automatically mark a Google customer as having accepted Terms/Privacy without explicit user action.
     user = await prisma.user.create({
@@ -193,6 +207,7 @@ export class AuthService {
     const data: Prisma.UserUpdateInput = {};
     if (input.firstName !== undefined) data.firstName = input.firstName;
     if (input.lastName !== undefined) data.lastName = input.lastName;
+    if (input.middleInitial !== undefined) data.middleInitial = input.middleInitial;
     if (input.phone !== undefined) data.phone = input.phone;
     if (input.birthdate !== undefined) {
       data.birthdate = input.birthdate === null ? null : new Date(`${input.birthdate}T00:00:00.000Z`);

@@ -1,8 +1,8 @@
+import { availableQuantity } from "@/lib/stock-status"
 import type { CartProduct } from "@/types/cart"
 
 export function getAvailableQuantity(product: Pick<CartProduct, "inventory">): number {
-  if (!product.inventory) return 0
-  return Math.max(0, product.inventory.quantity - product.inventory.reservedQty)
+  return availableQuantity(product.inventory)
 }
 
 export function isCartProductAvailable(product: CartProduct): boolean {

@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { createPayment } from "@/api/payments"
+import { useConfirm } from "@/components/confirm/use-confirm"
+import { formatProductPrice } from "@/lib/format-price"
 import { resolveCheckoutUrl } from "@/payments/checkout-url"
 import { getPaymentErrorMessage } from "@/payments/payment-errors"
 import { storePaymentHandoff } from "@/payments/payment-handoff"
@@ -9,6 +11,10 @@ import { storePaymentHandoff } from "@/payments/payment-handoff"
 interface PayableOrder {
   id: string
   orderNumber: string
+  /** When known, shown in the confirmation before leaving for GCash. */
+  subtotal?: string | null
+  shippingFee?: string | null
+  totalAmount?: string | null
 }
 
 /**
@@ -21,9 +27,24 @@ interface PayableOrder {
 export function useStartPayment() {
   const [isStarting, setIsStarting] = useState(false)
   const lockRef = useRef(false)
+  const confirm = useConfirm()
 
   const startPayment = useCallback(async (order: PayableOrder) => {
     if (lockRef.current) return
+    // The backend computes the amount from the order (products + shipping fee);
+    // the figures here are only what the customer sees before confirming.
+    const confirmed = await confirm({
+      title: order.totalAmount ? `Pay ${formatProductPrice(order.totalAmount)} with GCash?` : "Continue to payment?",
+      description: "You will leave PanelScan for PayMongo’s secure GCash checkout. One payment covers your products and the delivery fee.",
+      details: [
+        { label: "Order", value: order.orderNumber },
+        ...(order.subtotal ? [{ label: "Products", value: formatProductPrice(order.subtotal) }] : []),
+        ...(order.shippingFee ? [{ label: "Shipping fee", value: formatProductPrice(order.shippingFee) }] : []),
+        ...(order.totalAmount ? [{ label: "Total to pay", value: formatProductPrice(order.totalAmount) }] : []),
+      ],
+      confirmLabel: "Continue to GCash",
+    })
+    if (!confirmed || lockRef.current) return
     lockRef.current = true
     setIsStarting(true)
 
@@ -55,7 +76,7 @@ export function useStartPayment() {
       lockRef.current = false
       setIsStarting(false)
     }
-  }, [])
+  }, [confirm])
 
   return { startPayment, isStarting }
 }

@@ -1,8 +1,10 @@
 import { validatePasswordPolicy } from "./password-policy"
-import { calculateAge } from "./registration-validation"
+import { MIDDLE_INITIAL_MESSAGE, calculateAge, isValidMiddleInitial, isValidPersonName, personNameMessage } from "./registration-validation"
+import { PHILIPPINE_PHONE_MESSAGE, isValidPhilippinePhone } from "@/lib/phone"
 
 export interface ProfileValues {
   firstName: string
+  middleInitial: string
   lastName: string
   birthdate: string
   phone: string
@@ -23,9 +25,6 @@ export type ChangePasswordErrors = Partial<Record<ChangePasswordField, string>>
 
 export const ADDRESS_MAX_LENGTH = 255
 
-// Same rules the API enforces (auth.validation.ts), so a save that passes here is not rejected there.
-const phonePattern = /^\+?[0-9\s\-()]{7,20}$/
-
 /**
  * `hadPhone` / `hadBirthdate`: a saved contact number or birthday can be
  * corrected but not removed, while an account that never had one may leave it
@@ -40,11 +39,15 @@ export function validateProfile(values: ProfileValues, options: { hadPhone: bool
   if (!firstName) errors.firstName = "First name is required."
   else if (firstName.length < 2) errors.firstName = "First name must be at least 2 characters."
   else if (firstName.length > 50) errors.firstName = "First name must not exceed 50 characters."
+  else if (!isValidPersonName(firstName)) errors.firstName = personNameMessage("First name")
+
+  if (values.middleInitial.trim() && !isValidMiddleInitial(values.middleInitial)) errors.middleInitial = MIDDLE_INITIAL_MESSAGE
 
   const lastName = values.lastName.trim()
   if (!lastName) errors.lastName = "Last name is required."
   else if (lastName.length < 2) errors.lastName = "Last name must be at least 2 characters."
   else if (lastName.length > 50) errors.lastName = "Last name must not exceed 50 characters."
+  else if (!isValidPersonName(lastName)) errors.lastName = personNameMessage("Last name")
 
   // calculateAge is null for an unparseable, impossible or future date.
   if (!values.birthdate) {
@@ -56,8 +59,8 @@ export function validateProfile(values: ProfileValues, options: { hadPhone: bool
   const phone = values.phone.trim()
   if (!phone) {
     if (options.hadPhone) errors.phone = "Contact number is required."
-  } else if (!phonePattern.test(phone)) {
-    errors.phone = "Enter a valid contact number."
+  } else if (!isValidPhilippinePhone(phone)) {
+    errors.phone = PHILIPPINE_PHONE_MESSAGE
   }
 
   if (values.address.trim().length > ADDRESS_MAX_LENGTH) errors.address = `Address must not exceed ${ADDRESS_MAX_LENGTH} characters.`

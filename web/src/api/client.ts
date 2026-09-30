@@ -33,6 +33,8 @@ interface ApiRequestOptions {
   signal?: AbortSignal
   authenticated?: boolean
   retryAfterRefresh?: boolean
+  /** Sends this token instead of the stored session's (e.g. to revoke a session that was never stored). */
+  accessToken?: string
   /** "blob" returns the raw body of a successful response (e.g. an image) instead of parsing the JSON envelope. Errors are always JSON. */
   responseType?: "json" | "blob"
 }
@@ -129,7 +131,9 @@ async function request<T>(path: string, options: ApiRequestOptions, accessToken?
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   let accessToken: string | undefined
 
-  if (options.authenticated) {
+  if (options.authenticated && options.accessToken) {
+    accessToken = options.accessToken
+  } else if (options.authenticated) {
     accessToken = getSessionTokens()?.accessToken
     if (!accessToken && getSessionTokens()?.refreshToken) accessToken = (await refreshAccessToken()) ?? undefined
   }

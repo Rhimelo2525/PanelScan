@@ -35,14 +35,16 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatProductPrice } from "@/lib/format-price"
+import { useConfirm } from "@/components/confirm/use-confirm"
+import { getStockStatus, STOCK_STATUS_LABELS, STOCK_STATUS_OPTIONS } from "@/lib/stock-status"
+import type { StockStatus } from "@/lib/stock-status"
 import type { Category } from "@/types/category"
 import type { Product } from "@/types/product"
 
-function stockStatus(product: Product): "HEALTHY" | "LOW_STOCK" | "OUT_OF_STOCK" {
-  const available = Math.max(0, (product.inventory?.quantity ?? 0) - (product.inventory?.reservedQty ?? 0))
-  if (available === 0) return "OUT_OF_STOCK"
-  if (available <= (product.inventory?.reorderLevel ?? 0)) return "LOW_STOCK"
-  return "HEALTHY"
+/** Same shared rule the customer pages and the Inventory page use. */
+function StockBadge({ product }: { product: Product }) {
+  const status = getStockStatus(product.inventory)
+  return <StatusBadge status={status} label={STOCK_STATUS_LABELS[status]} />
 }
 
 export function AdminProductsPage() {
@@ -90,7 +92,7 @@ export function AdminProductsPage() {
         (product.description?.toLowerCase().includes(term) ?? false)
 
       const matchesCategory = categoryFilter === "" || product.categoryId === categoryFilter
-      const matchesStock = stockFilter === "" || stockStatus(product) === stockFilter
+      const matchesStock = stockFilter === "" || getStockStatus(product.inventory) === stockFilter
       const matchesStatus =
         statusFilter === "" || (statusFilter === "ACTIVE" ? product.isActive : !product.isActive)
 
@@ -100,9 +102,11 @@ export function AdminProductsPage() {
 
   // Summary metrics
   const totalCount = products.length
-  const healthyCount = products.filter((p) => stockStatus(p) === "HEALTHY").length
-  const lowStockCount = products.filter((p) => stockStatus(p) === "LOW_STOCK").length
-  const outOfStockCount = products.filter((p) => stockStatus(p) === "OUT_OF_STOCK").length
+  const countWithStatus = (status: StockStatus) => products.filter((p) => getStockStatus(p.inventory) === status).length
+  const inStockCount = countWithStatus("IN_STOCK")
+  const lowStockCount = countWithStatus("LOW_STOCK")
+  const criticalCount = countWithStatus("CRITICAL")
+  const outOfStockCount = countWithStatus("OUT_OF_STOCK")
 
   const columns: Column<Product>[] = [
     {
@@ -157,7 +161,7 @@ export function AdminProductsPage() {
       cell: (product) => (
         <div className="flex flex-wrap items-center gap-1.5">
           <StatusBadge status={product.isActive ? "ACTIVE" : "DRAFT"} />
-          <StatusBadge status={stockStatus(product)} />
+          <StockBadge product={product} />
         </div>
       ),
     },
@@ -199,18 +203,18 @@ export function AdminProductsPage() {
               icon={Package}
             />
             <MetricCard
-              label="Healthy stock"
-              value={String(healthyCount)}
+              label="In Stock"
+              value={String(inStockCount)}
               isLoading={productResource.isLoading}
             />
             <MetricCard
-              label="Low stock"
+              label="Low Stock"
               value={String(lowStockCount)}
-              hint="At or below reorder level"
+              hint={`Critical: ${criticalCount} (at or below half the reorder level)`}
               isLoading={productResource.isLoading}
             />
             <MetricCard
-              label="Out of stock"
+              label="Out of Stock"
               value={String(outOfStockCount)}
               hint="Requires immediate replenishment"
               isLoading={productResource.isLoading}
@@ -240,11 +244,7 @@ export function AdminProductsPage() {
               label="Stock status"
               value={stockFilter}
               allLabel="All stock levels"
-              options={[
-                { value: "HEALTHY", label: "Healthy" },
-                { value: "LOW_STOCK", label: "Low stock" },
-                { value: "OUT_OF_STOCK", label: "Out of stock" },
-              ]}
+              options={STOCK_STATUS_OPTIONS}
               onChange={setStockFilter}
             />
             <FilterSelect
@@ -370,7 +370,7 @@ function ProductDetailsSheet({ product, onClose }: { product: Product | null; on
           <div>
             <div className="flex flex-wrap gap-2">
               <StatusBadge status={product.isActive ? "ACTIVE" : "DRAFT"} />
-              <StatusBadge status={stockStatus(product)} />
+              <StockBadge product={product} />
             </div>
             <h2 className="mt-4 text-xl font-semibold">{product.name}</h2>
             {product.description && (
@@ -432,6 +432,7 @@ function EditProductSheet({
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -487,6 +488,13 @@ function EditProductSheet({
       setError("Price must be a positive number in Philippine Peso.")
       return
     }
+
+    if (!(await confirm({
+      title: `Save changes to ${product.name}?`,
+      description: `The product listing will be updated for customers.${isModerator ? " It is sent to the owner for approval first." : ""}`,
+      details: [{ label: "Name", value: name.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }, { label: "Listing", value: isActive ? "Active" : "Hidden" }],
+      confirmLabel: "Save Changes",
+    }))) return
 
     setIsSaving(true)
     setError(null)
@@ -798,6 +806,7 @@ function AddProductSheet({
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -850,6 +859,13 @@ function AddProductSheet({
       setError("Price must be a positive number in Philippine Peso.")
       return
     }
+
+    if (!(await confirm({
+      title: `Add ${name.trim()} to the catalogue?`,
+      description: `A new product will be created.${isModerator ? " It is sent to the owner for approval first." : ""}`,
+      details: [{ label: "SKU", value: sku.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }],
+      confirmLabel: "Add Product",
+    }))) return
 
     setIsSaving(true)
     setError(null)

@@ -5,7 +5,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
 import { exchangeGoogleTicket } from "@/api/auth"
 import { apiBaseUrl } from "@/api/client"
-import { getLoginErrorMessage } from "@/auth/errors"
+import { DISPOSABLE_EMAIL_MESSAGE, getLoginErrorMessage } from "@/auth/errors"
 import { getSafeRedirect, resolveLoginDestination } from "@/auth/redirect"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -75,6 +75,8 @@ export function LoginPage() {
         setSubmissionError("Google sign-in session expired or was invalid. Please try again.")
       } else if (errorParam === "deactivated") {
         setSubmissionError("This account has been deactivated. Please contact support.")
+      } else if (errorParam === "disposable_email") {
+        setSubmissionError(DISPOSABLE_EMAIL_MESSAGE)
       } else if (errorParam === "unverified_email") {
         setSubmissionError("Your Google account email is not verified. Please verify your email with Google.")
       } else {
@@ -84,7 +86,9 @@ export function LoginPage() {
       return
     }
 
-    if (ticket) {
+    // Wait for any stored session to be restored; a tab that is already signed in
+    // is redirected below and never exchanges the ticket for a second account.
+    if (ticket && !isRestoring && !isAuthenticated) {
       setIsSubmitting(true)
       exchangeGoogleTicket(ticket)
         .then((result) => {
@@ -100,7 +104,7 @@ export function LoginPage() {
           setIsSubmitting(false)
         })
     }
-  }, [location.pathname, location.search, location.state, requestedPath, applySession, navigate])
+  }, [location.pathname, location.search, location.state, requestedPath, applySession, navigate, isRestoring, isAuthenticated])
 
   if (isRestoring) {
     return (

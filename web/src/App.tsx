@@ -11,6 +11,7 @@ import { NotificationsProvider } from "@/notifications/notifications-provider"
 import { SiteLayout } from "@/components/layout/site-layout"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Toaster } from "@/components/ui/sonner"
+import { ConfirmProvider } from "@/components/confirm/confirm-provider"
 
 const HomePage = lazy(() => import("@/pages/home-page").then((module) => ({ default: module.HomePage })))
 const ProductsPage = lazy(() => import("@/pages/products-page").then((module) => ({ default: module.ProductsPage })))
@@ -65,6 +66,7 @@ function App() {
       <AuthProvider>
         <CartProvider>
           <NotificationsProvider>
+          <ConfirmProvider>
             <Routes>
               <Route element={<AdminRoute />}>
                 <Route path="admin" element={<Suspense fallback={<AdminPageFallback />}><AdminLayout /></Suspense>}>
@@ -123,6 +125,7 @@ function App() {
               </Route>
             </Routes>
             <Toaster position="top-right" richColors closeButton />
+          </ConfirmProvider>
           </NotificationsProvider>
         </CartProvider>
       </AuthProvider>

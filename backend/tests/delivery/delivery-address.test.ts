@@ -13,6 +13,7 @@ import { formatPhilippineDeliveryAddress } from '../../src/modules/delivery/util
 import {
   isValidPhilippinePhone,
   normalizePhilippinePhone,
+  parsePhilippinePhone,
 } from '../../src/modules/delivery/utils/phone-normalizer.js';
 import { geocodingService } from '../../src/modules/delivery/services/geocoding.service.js';
 import { lalamoveProvider } from '../../src/modules/delivery/providers/lalamove.provider.js';
@@ -131,6 +132,29 @@ describe('Delivery Address & Lalamove Integration Readiness', () => {
       expect(isValidPhilippinePhone('+639171234567')).toBe(true);
       expect(isValidPhilippinePhone('12345')).toBe(false);
       expect(isValidPhilippinePhone('')).toBe(false);
+    });
+
+    it('parses the standard +63 XXX XXX XXXX format to the stored form', () => {
+      expect(parsePhilippinePhone('+63 912 345 6789')).toBe('+639123456789');
+      expect(parsePhilippinePhone('+639123456789')).toBe('+639123456789');
+      expect(parsePhilippinePhone('0912 345 6789')).toBe('+639123456789');
+    });
+
+    it.each([
+      ['9 digits after +63', '+63 912 345 678'],
+      ['11 digits after +63', '+63 912 345 67895'],
+      ['a trailing extra digit', '+63 912 345 6789 5'],
+      ['letters in the first group', '+63 ABC 345 6789'],
+      ['letters in the middle group', '+63 912 ABC 6789'],
+      ['a duplicated +63 prefix', '+63 +63 912 345 6789'],
+      ['a leading 0 after +63 (11 digits)', '+63 0912 345 6789'],
+      ['another country code', '+1 912 345 6789'],
+      ['a hidden zero-width character', '+63 912​345 6789'],
+      ['a trailing letter', '+63 912 345 6789a'],
+      ['a number not starting with 9', '+63 245 345 6789'],
+    ])('rejects %s', (_label, value) => {
+      expect(parsePhilippinePhone(value)).toBeNull();
+      expect(isValidPhilippinePhone(value)).toBe(false);
     });
   });
 

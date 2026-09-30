@@ -63,7 +63,7 @@ describe('Installer module', () => {
       expect(dbInstaller?.firstName).toBe('Juan');
       expect(dbInstaller?.lastName).toBe('Dela Cruz');
       expect(dbInstaller?.email).toBe('juan.delacruz@panelscan.test');
-      expect(dbInstaller?.phone).toBe('09171234567');
+      expect(dbInstaller?.phone).toBe('+639171234567');
       expect(dbInstaller?.specialty).toBe('Wall Panels');
       expect(dbInstaller?.isActive).toBe(true);
       expect(dbInstaller?.createdAt).toBeInstanceOf(Date);
@@ -139,7 +139,7 @@ describe('Installer module', () => {
       const dbInstaller = await prisma.installer.findUnique({ where: { id: installer.id } });
       expect(dbInstaller?.firstName).toBe('Updated');
       expect(dbInstaller?.lastName).toBe('Surname');
-      expect(dbInstaller?.phone).toBe('09170001111');
+      expect(dbInstaller?.phone).toBe('+639170001111');
       expect(dbInstaller?.specialty).toBe('Ceiling Panels');
     });
 

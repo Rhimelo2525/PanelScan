@@ -11,6 +11,7 @@ import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { StatusBadge } from "@/components/admin/status-badge"
 import { useAuth } from "@/auth/use-auth"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -93,6 +94,7 @@ export function AdminProjectsPage() {
 function ProjectSheet({ project, isOwner, onClose, onSaved }: { project: AdminProject | null; isOwner: boolean; onClose: () => void; onSaved: () => void }) {
   const [notes, setNotes] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const confirm = useConfirm()
   const [notesProjectId, setNotesProjectId] = useState<string | null>(null)
   // Moderator options are only fetchable by an owner (GET /users is owner-only).
   const staff = useAdminResource(async (signal) => (isOwner && project ? (await getUsers(signal)).users.filter((candidate) => candidate.role === "MODERATOR" && candidate.isActive) : []), [isOwner, project?.id])
@@ -136,7 +138,15 @@ function ProjectSheet({ project, isOwner, onClose, onSaved }: { project: AdminPr
 
             <div className="space-y-2">
               <Label htmlFor="project-status">Update status</Label>
-              <Select value={project.status} onValueChange={(next) => void run(() => updateProjectStatus(project.id, next as ProjectStatus), "Project status updated.")}>
+              <Select value={project.status} onValueChange={(next) => void (async () => {
+                if (!(await confirm({
+                  title: "Change the project status?",
+                  details: [{ label: "Status", value: `${project.status.charAt(0) + project.status.slice(1).toLowerCase().replace("_", " ")} → ${next.charAt(0) + next.slice(1).toLowerCase().replace("_", " ")}` }],
+                  confirmLabel: "Update Status",
+                  destructive: next === "CANCELLED",
+                }))) return
+                await run(() => updateProjectStatus(project.id, next as ProjectStatus), "Project status updated.")
+              })()}>
                 <SelectTrigger id="project-status" className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>{PROJECT_STATUSES.map((value) => <SelectItem key={value} value={value}>{value.charAt(0) + value.slice(1).toLowerCase().replace("_", " ")}</SelectItem>)}</SelectContent>
               </Select>
@@ -152,7 +162,15 @@ function ProjectSheet({ project, isOwner, onClose, onSaved }: { project: AdminPr
             {isOwner && (
               <div className="space-y-2 border-t border-border pt-5">
                 <Label htmlFor="project-assign">Assign moderator</Label>
-                <Select value={project.moderatorId ?? ""} onValueChange={(next) => void run(() => assignProject(project.id, { moderatorId: next }), "Project reassigned.")}>
+                <Select value={project.moderatorId ?? ""} onValueChange={(next) => void (async () => {
+                  const moderator = (staff.data ?? []).find((candidate) => candidate.id === next)
+                  if (!(await confirm({
+                    title: "Reassign this project?",
+                    details: [{ label: "Assign to", value: moderator ? fullName(moderator) : "—" }],
+                    confirmLabel: "Reassign",
+                  }))) return
+                  await run(() => assignProject(project.id, { moderatorId: next }), "Project reassigned.")
+                })()}>
                   <SelectTrigger id="project-assign" className="w-full"><SelectValue placeholder={staff.isLoading ? "Loading moderators…" : "Select a moderator"} /></SelectTrigger>
                   <SelectContent>{(staff.data ?? []).map((moderator) => <SelectItem key={moderator.id} value={moderator.id}>{fullName(moderator)}</SelectItem>)}</SelectContent>
                 </Select>

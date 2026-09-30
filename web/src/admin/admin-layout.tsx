@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 
 import { adminNavGroups, navGroupsForRole } from "@/admin/admin-nav"
+import { useSupportChatUnread } from "@/admin/use-support-chat-unread"
 import { useAuth } from "@/auth/use-auth"
 import { BrandMark } from "@/components/layout/brand"
 import { NotificationBell } from "@/components/notifications/notification-bell"
@@ -22,7 +23,17 @@ export function AdminLayout() {
 
   useEffect(() => { setIsMobileNavOpen(false) }, [location.pathname])
 
+  // Only the staff roles that can see Support chat ever ask for its unread state.
+  const hasUnreadChat = useSupportChatUnread(user?.role === "OWNER" || user?.role === "MODERATOR")
+
   if (!user) return null
+
+  const navLabel = (item: { to: string; label: string }) => (
+    <>
+      {item.label}
+      {item.to === "/admin/chat" && hasUnreadChat && <span className="size-2 shrink-0 rounded-full bg-destructive" role="status" aria-label="Unread messages" />}
+    </>
+  )
 
   const groups = navGroupsForRole(user.role)
   const currentItem = adminNavGroups
@@ -49,7 +60,7 @@ export function AdminLayout() {
                   <li key={item.to}>
                     <NavLink to={item.to} end={item.end} className={({ isActive }) => cn("admin-nav-link flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:outline-none", isActive && "text-foreground")}>
                       <item.icon className="size-4 shrink-0" aria-hidden="true" />
-                      {item.label}
+                      {navLabel(item)}
                     </NavLink>
                   </li>
                 ))}
@@ -82,7 +93,7 @@ export function AdminLayout() {
                           <li key={item.to}>
                             <NavLink to={item.to} end={item.end} className={({ isActive }) => cn("admin-nav-link flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground", isActive && "text-foreground")}>
                               <item.icon className="size-4 shrink-0" aria-hidden="true" />
-                              {item.label}
+                              {navLabel(item)}
                             </NavLink>
                           </li>
                         ))}

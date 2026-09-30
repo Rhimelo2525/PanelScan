@@ -7,6 +7,7 @@ import { getOrders } from "@/api/orders"
 import { getMyFeedback, submitFeedback } from "@/api/support"
 import type { CustomerFeedback } from "@/api/support"
 import { Container } from "@/components/layout/container"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -34,6 +35,7 @@ export function FeedbackPage() {
   const [rating, setRating] = useState("5")
   const [comment, setComment] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const confirm = useConfirm()
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
@@ -64,6 +66,7 @@ export function FeedbackPage() {
       toast.error("Choose which order you are reviewing.")
       return
     }
+    if (!(await confirm({ title: "Submit your feedback?", description: "Feedback can be submitted once per order and cannot be edited afterwards.", confirmLabel: "Submit Feedback" }))) return
     setIsSaving(true)
     try {
       await submitFeedback({ orderId, rating: Number(rating), comment: comment.trim() || undefined })

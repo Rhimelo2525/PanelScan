@@ -6,12 +6,14 @@ import { createSavedAddress, lookupAddressForPin, updateSavedAddress } from "@/a
 import { getDeliveryBarangays, getDeliveryCities, getDeliveryProvinces, getDeliveryRegions } from "@/api/delivery"
 import { useAuth } from "@/auth/use-auth"
 import type { MapPin as Pin } from "@/components/addresses/address-map-picker"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { Combobox } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { normalizePhilippinePhone } from "@/lib/delivery/address-formatter"
+import { PhoneInput } from "@/components/ui/phone-input"
+import { PHILIPPINE_PHONE_MESSAGE, isValidPhilippinePhone, toPhoneFieldValue } from "@/lib/phone"
 import { cn } from "@/lib/utils"
 import type { AddressSuggestion, SavedAddress, SavedAddressInput } from "@/types/address"
 import type { PsgcBarangay, PsgcCity, PsgcProvince, PsgcRegion } from "@/types/delivery"
@@ -52,7 +54,7 @@ function fieldsFromAddress(address: SavedAddress): AddressFields {
   return {
     label: address.label ?? "",
     recipientName: address.recipientName,
-    recipientPhone: address.recipientPhone,
+    recipientPhone: toPhoneFieldValue(address.recipientPhone),
     addressLine1: address.addressLine1,
     regionCode: address.regionCode,
     regionName: address.regionName,
@@ -71,7 +73,7 @@ function validate(fields: AddressFields, pin: Pin | null, isNcr: boolean): Field
   const errors: FieldErrors = {}
   if (!pin) errors.pin = "Pin your exact location on the map."
   if (fields.recipientName.trim().length < 2) errors.recipientName = "Enter the recipient's full name."
-  if (!/^\+639\d{9}$/.test(normalizePhilippinePhone(fields.recipientPhone))) errors.recipientPhone = "Enter a valid Philippine mobile number (e.g. 0917 123 4567)."
+  if (!isValidPhilippinePhone(fields.recipientPhone)) errors.recipientPhone = PHILIPPINE_PHONE_MESSAGE
   if (fields.addressLine1.trim().length < 2) errors.addressLine1 = "Enter the house/unit number, building, or street."
   if (!fields.regionCode) errors.regionCode = "Select a region."
   if (!isNcr && !fields.provinceCode) errors.provinceCode = "Select a province."
@@ -106,6 +108,7 @@ interface AddressFormProps {
  */
 export function AddressForm({ address, isFirstAddress, onSaved, onCancel }: AddressFormProps) {
   const { user } = useAuth()
+  const confirm = useConfirm()
   const [pin, setPin] = useState<Pin | null>(address ? { latitude: address.latitude, longitude: address.longitude } : null)
   const [lookup, setLookup] = useState<LookupState>({ kind: "idle" })
   const [mapUnavailable, setMapUnavailable] = useState<string | null>(null)
@@ -115,7 +118,7 @@ export function AddressForm({ address, isFirstAddress, onSaved, onCancel }: Addr
       : {
           label: isFirstAddress ? "Home" : "",
           recipientName: user ? `${user.firstName} ${user.lastName}`.trim() : "",
-          recipientPhone: user?.phone ?? "",
+          recipientPhone: toPhoneFieldValue(user?.phone),
           addressLine1: "",
           regionCode: "",
           regionName: "",
@@ -307,6 +310,14 @@ export function AddressForm({ address, isFirstAddress, onSaved, onCancel }: Addr
       isDefault: fields.isDefault,
     }
 
+    // Overwriting a saved address is a permanent change; adding a new one is not.
+    if (address && !(await confirm({
+      title: "Save changes to this address?",
+      description: "The saved address will be replaced with the details you entered. Orders already placed keep the address they were placed with.",
+      details: [{ label: "Recipient", value: input.recipientName }, { label: "City", value: input.cityMunicipalityName }],
+      confirmLabel: "Save Changes",
+    }))) return
+
     setIsSaving(true)
     setErrors({})
     try {
@@ -430,7 +441,7 @@ export function AddressForm({ address, isFirstAddress, onSaved, onCancel }: Addr
           </div>
           <div>
             <Label htmlFor="address-phone">Contact number</Label>
-            <Input id="address-phone" value={fields.recipientPhone} onChange={(e) => updateField("recipientPhone", e.target.value)} autoComplete="tel" inputMode="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.recipientPhone)} className="mt-2 h-11" />
+            <PhoneInput id="address-phone" value={fields.recipientPhone} onChange={(next) => updateField("recipientPhone", next)} aria-invalid={Boolean(errors.recipientPhone)} className="mt-2" inputClassName="h-11" />
             {errors.recipientPhone && <p className="mt-1.5 text-xs text-destructive">{errors.recipientPhone}</p>}
           </div>
         </div>

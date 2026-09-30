@@ -1,6 +1,8 @@
 import { AlertCircle, AlertTriangle, ArrowRight } from "lucide-react"
-import { Link } from "react-router-dom"
+import type { MouseEvent } from "react"
+import { Link, useNavigate } from "react-router-dom"
 
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { getCartProductWarning } from "@/cart/cart-utils"
 import { calculateLineTotal, formatMinorUnits } from "@/lib/format-price"
@@ -23,6 +25,23 @@ export function CartSummary({
   }, 0)
   const checkoutWarning = selectedItems.map((item) => getCartProductWarning(item.product, item.quantity)).find(Boolean)
   const canCheckout = hasSelected && !cartError && !checkoutWarning && subtotal !== null
+  const navigate = useNavigate()
+  const confirm = useConfirm()
+
+  async function handleProceedToCheckout(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault()
+    if (!canCheckout) return
+    const confirmed = await confirm({
+      title: "Proceed to checkout?",
+      description: "You will review delivery details and place the order on the next page. The shipping fee is added after a moderator books delivery.",
+      details: [
+        ...selectedItems.map((item) => ({ label: item.product.name, value: `× ${item.quantity}` })),
+        { label: "Subtotal", value: subtotal === null ? "Unavailable" : formatMinorUnits(subtotal) },
+      ],
+      confirmLabel: "Proceed to Checkout",
+    })
+    if (confirmed) navigate("/checkout")
+  }
 
   return (
     <aside className="rounded-xl border border-border bg-secondary/45 p-6 lg:sticky lg:top-28" aria-labelledby="cart-summary-title">
@@ -57,7 +76,7 @@ export function CartSummary({
 
       {canCheckout ? (
         <Button size="lg" className="mt-5 w-full" asChild>
-          <Link to="/checkout">Proceed to checkout <ArrowRight data-icon="inline-end" aria-hidden="true" /></Link>
+          <Link to="/checkout" onClick={(event) => void handleProceedToCheckout(event)}>Proceed to checkout <ArrowRight data-icon="inline-end" aria-hidden="true" /></Link>
         </Button>
       ) : (
         <Button size="lg" className="mt-5 w-full" disabled>

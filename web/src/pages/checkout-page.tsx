@@ -11,6 +11,7 @@ import { AddressDialog } from "@/components/addresses/address-dialog"
 import { SavedAddressSummary } from "@/components/addresses/saved-address-summary"
 import { CartEmptyState, CartErrorState, CartPageSkeleton } from "@/components/cart/cart-states"
 import { CheckoutOrderSummary } from "@/components/checkout/checkout-order-summary"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Container } from "@/components/layout/container"
 import { Button } from "@/components/ui/button"
 import { DatePickerInput } from "@/components/ui/date-picker-input"
@@ -18,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { calculateLineTotal, formatMinorUnits } from "@/lib/format-price"
 import { getOrderErrorMessage } from "@/orders/order-errors"
 import type { SavedAddress } from "@/types/address"
 
@@ -121,6 +123,7 @@ export function CheckoutPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCartAction, setShowCartAction] = useState(false)
   const submissionLock = useRef(false)
+  const confirm = useConfirm()
 
   async function loadAddresses(preferredId?: string) {
     try {
@@ -188,6 +191,27 @@ export function CheckoutPage() {
     }
 
     if (submissionLock.current) return
+
+    // Final review before the order is created. The shipping fee is quoted
+    // after a moderator approves the order, so it is not part of this total.
+    const subtotal = checkoutItems.reduce<number | null>((total, item) => {
+      const line = calculateLineTotal(item.product.price, item.quantity)
+      return total === null || line === null ? null : total + line
+    }, 0)
+    const confirmed = await confirm({
+      title: "Place this order?",
+      description: "Your order will be sent to PanelScan for approval. Once approved, the delivery fee is quoted and you pay products and shipping together in one GCash payment.",
+      details: [
+        ...checkoutItems.map((item) => ({ label: item.product.name, value: `× ${item.quantity}` })),
+        { label: "Products total", value: subtotal === null ? "Unavailable" : formatMinorUnits(subtotal) },
+        { label: "Shipping fee", value: "Quoted after approval" },
+        { label: "Deliver to", value: selectedAddress.recipientName },
+        { label: "Installation", value: installation.choice === "yes" ? "Requested" : "Not requested" },
+      ],
+      confirmLabel: "Place Order",
+    })
+    if (!confirmed || submissionLock.current) return
+
     submissionLock.current = true
     setIsSubmitting(true)
 

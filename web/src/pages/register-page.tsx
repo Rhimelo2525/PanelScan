@@ -3,10 +3,10 @@ import { useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
-import { getRegisterErrorMessage } from "@/auth/errors"
+import { DISPOSABLE_EMAIL_MESSAGE, getRegisterErrorMessage, isDisposableEmailError } from "@/auth/errors"
 import { checkPasswordRequirements } from "@/auth/password-policy"
 import { getSafeRedirect } from "@/auth/redirect"
-import { calculateAge, dateInputValue, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, validateRegistration } from "@/auth/registration-validation"
+import { calculateAge, dateInputValue, normalizeMiddleInitial, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, sanitizeNameInput, validateRegistration } from "@/auth/registration-validation"
 import type { RegisterErrors, RegisterField, RegisterValues } from "@/auth/registration-validation"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -18,11 +18,12 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PhoneInput } from "@/components/ui/phone-input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 
 interface RegisterTextFieldProps {
-  field: "firstName" | "lastName" | "email" | "phone"
+  field: "firstName" | "middleInitial" | "lastName" | "email" | "phone"
   label: string
   value: string
   error?: string
@@ -31,14 +32,22 @@ interface RegisterTextFieldProps {
   autoComplete: string
   inputMode?: "email" | "tel"
   maxLength?: number
+  optional?: boolean
 }
 
-function RegisterTextField({ field, label, value, error, onChange, type = "text", autoComplete, inputMode, maxLength }: RegisterTextFieldProps) {
+/** Marks a required field's label. The input's own `required` carries it for assistive tech. */
+function RequiredMark() {
+  return <span aria-hidden="true"> *</span>
+}
+
+function RegisterTextField({ field, label, value, error, onChange, type = "text", autoComplete, inputMode, maxLength, optional = false }: RegisterTextFieldProps) {
   const errorId = `register-${field}-error`
   return (
     <div>
-      <Label htmlFor={`register-${field}`}>{label}</Label>
-      <Input id={`register-${field}`} name={field} type={type} inputMode={inputMode} autoComplete={autoComplete} value={value} onChange={(event) => onChange(field, event.target.value)} className="mt-2 h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} maxLength={maxLength} required />
+      <Label htmlFor={`register-${field}`}>{label}{!optional && <RequiredMark />}</Label>
+      {field === "phone"
+        ? <PhoneInput id={`register-${field}`} name={field} autoComplete={autoComplete} value={value} onChange={(next) => onChange(field, next)} className="mt-2" inputClassName="h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} required={!optional} />
+        : <Input id={`register-${field}`} name={field} type={type} inputMode={inputMode} autoComplete={autoComplete} value={value} onChange={(event) => onChange(field, event.target.value)} className="mt-2 h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} maxLength={maxLength} required={!optional} />}
       {error && <p id={errorId} className="motion-swap mt-1.5 text-xs text-destructive">{error}</p>}
     </div>
   )
@@ -52,6 +61,7 @@ export function RegisterPage() {
   const destination = getSafeRedirect(location.state, "/dashboard")
   const [values, setValues] = useState<RegisterValues>({
     firstName: "",
+    middleInitial: "",
     lastName: "",
     birthdate: "",
     email: "",
@@ -83,7 +93,7 @@ export function RegisterPage() {
 
   function updateValue(field: Exclude<RegisterField, "acceptedTerms">, value: string) {
     setValues((current) => {
-      const next = { ...current, [field]: value }
+      const next = { ...current, [field]: sanitizeNameInput(field, value) }
       return next
     })
     setErrors((current) => {
@@ -103,16 +113,18 @@ export function RegisterPage() {
     try {
       await register({
         firstName: values.firstName.trim(),
+        ...(values.middleInitial.trim() ? { middleInitial: normalizeMiddleInitial(values.middleInitial) } : {}),
         lastName: values.lastName.trim(),
         email: values.email.trim().toLowerCase(),
         password: values.password,
-        ...(values.phone.trim() ? { phone: values.phone.trim() } : {}),
+        phone: values.phone,
         birthdate: values.birthdate,
         acceptedTerms: values.acceptedTerms,
       })
       navigate(destination, { replace: true })
     } catch (error) {
-      setSubmissionError(getRegisterErrorMessage(error))
+      if (isDisposableEmailError(error)) setErrors((current) => ({ ...current, email: DISPOSABLE_EMAIL_MESSAGE }))
+      else setSubmissionError(getRegisterErrorMessage(error))
     } finally {
       setIsSubmitting(false)
     }
@@ -125,10 +137,10 @@ export function RegisterPage() {
     <AuthShell eyebrow="Customer registration" title="Create your account" description="Register as a PanelScan customer to access current product pricing." asideTitle="A clearer material journey starts here." asideDescription="Your customer account opens pricing access now and creates the foundation for future purchasing and project coordination.">
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {submissionError && <FormError message={submissionError} />}
-        <div className="grid gap-5 sm:grid-cols-2"><RegisterTextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={50} /><RegisterTextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={50} /></div>
+        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]"><RegisterTextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={50} /><RegisterTextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={50} /><RegisterTextField field="middleInitial" label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={6} optional /></div>
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
-            <Label htmlFor="register-birthdate">Birthdate</Label>
+            <Label htmlFor="register-birthdate">Birthdate<RequiredMark /></Label>
             <BirthdateInput
               id="register-birthdate"
               name="birthdate"
@@ -150,7 +162,7 @@ export function RegisterPage() {
           </div>
         </div>
         <RegisterTextField field="email" label="Email address" value={values.email} error={errors.email} onChange={updateValue} type="email" inputMode="email" autoComplete="email" maxLength={254} />
-        <RegisterTextField field="phone" label="Contact number" value={values.phone} error={errors.phone} onChange={updateValue} type="tel" inputMode="tel" autoComplete="tel" maxLength={20} />
+        <RegisterTextField field="phone" label="Contact number" value={values.phone} error={errors.phone} onChange={updateValue} autoComplete="tel" />
         <PasswordInput
           id="register-password"
           name="password"

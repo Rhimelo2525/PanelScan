@@ -6,6 +6,8 @@ import { authenticate } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { passwordSchema } from '../../utils/passwordPolicy';
+import { personNameSchema } from '../../utils/nameSchema';
+import { optionalPhilippinePhoneSchema } from '../../utils/phoneSchema';
 import { usersController } from './users.controller';
 
 const idParamsSchema = z.object({
@@ -16,28 +18,20 @@ const updateUserSchema = z.object({
   params: z.object({ id: z.string().uuid('Invalid user id.') }),
   body: z
     .object({
-      firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50).optional(),
-      lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50).optional(),
-      phone: z
-        .string()
-        .trim()
-        .regex(/^\+?[0-9\s\-()]{7,20}$/, 'Please provide a valid phone number.')
-        .optional(),
+      firstName: personNameSchema('First name').optional(),
+      lastName: personNameSchema('Last name').optional(),
+      phone: optionalPhilippinePhoneSchema,
     })
     .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' }),
 });
 
 const createModeratorSchema = z.object({
   body: z.object({
-    firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50),
-    lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50),
+    firstName: personNameSchema('First name'),
+    lastName: personNameSchema('Last name'),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
     password: passwordSchema,
-    phone: z
-      .string()
-      .trim()
-      .regex(/^\+?[0-9\s\-()]{7,20}$/, 'Please provide a valid phone number.')
-      .optional(),
+    phone: optionalPhilippinePhoneSchema,
     role: z.nativeEnum(UserRole).optional().default(UserRole.MODERATOR),
   }),
 });

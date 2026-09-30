@@ -12,6 +12,7 @@ import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPesos } from "@/lib/format-price"
+import { formatPhoneForDisplay } from "@/lib/phone"
 import type { AdminBooking, BookingStatus, Installer } from "@/types/admin"
 
 const STATUS_FILTERS = [
@@ -148,7 +150,7 @@ export function AdminInstallationRequestsPage() {
                 cell: (row) => (
                   <div>
                     <span className="font-medium">{fullName(row.customer)}</span>
-                    <p className="text-xs text-muted-foreground">{row.customer?.phone || row.customer?.email || "—"}</p>
+                    <p className="text-xs text-muted-foreground">{row.customer?.phone ? formatPhoneForDisplay(row.customer.phone) : row.customer?.email || "—"}</p>
                   </div>
                 ),
               },
@@ -224,6 +226,7 @@ function InstallationDetailSheet({ booking, isModerator, onClose, onUpdated }: I
   const [selectedStatus, setSelectedStatus] = useState<BookingStatus>("PENDING")
   const [scheduledDateInput, setScheduledDateInput] = useState<string>("")
   const [isSaving, setIsSaving] = useState(false)
+  const confirm = useConfirm()
 
   // Fetch available installers when Moderator opens the sheet
   useEffect(() => {
@@ -273,6 +276,17 @@ function InstallationDetailSheet({ booking, isModerator, onClose, onUpdated }: I
 
   async function handleSaveModeratorChanges() {
     if (!booking) return
+    const statusLabel = (value: string) => value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
+    if (!(await confirm({
+      title: "Save changes to this installation request?",
+      description: "The customer will see the updated schedule and status.",
+      details: [
+        { label: "Status", value: selectedStatus === booking.status ? statusLabel(booking.status) : `${statusLabel(booking.status)} → ${statusLabel(selectedStatus)}` },
+        ...(scheduledDateInput ? [{ label: "Scheduled date", value: new Date(scheduledDateInput).toLocaleDateString("en-PH", { dateStyle: "medium" }) }] : []),
+      ],
+      confirmLabel: "Save Changes",
+      destructive: selectedStatus === "CANCELLED",
+    }))) return
     setIsSaving(true)
 
     try {
@@ -341,7 +355,7 @@ function InstallationDetailSheet({ booking, isModerator, onClose, onUpdated }: I
               </div>
               <div>
                 <span className="text-muted-foreground block">Phone</span>
-                <span className="font-medium text-foreground">{booking.customer?.phone ?? "—"}</span>
+                <span className="font-medium text-foreground">{booking.customer?.phone ? formatPhoneForDisplay(booking.customer.phone) : "—"}</span>
               </div>
             </div>
           </section>

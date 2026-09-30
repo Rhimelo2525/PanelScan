@@ -212,76 +212,45 @@ describe('Chat module', () => {
       expect(summary?.unreadCount).toBe(2);
     });
 
-    it('returns conversations in chronological order (oldest chat at top, newest chat at bottom)', async () => {
+    it("orders the conversation list by latest activity (newest at top, oldest at bottom)", async () => {
       const { token, user } = await createCustomer();
+      const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000);
+      const roomOldest = await prisma.chatRoom.create({ data: { subject: "Oldest activity", createdAt: at(90), updatedAt: at(60), participants: { create: { userId: user.id } } } });
+      const roomNewest = await prisma.chatRoom.create({ data: { subject: "Newest activity", createdAt: at(120), updatedAt: at(5), participants: { create: { userId: user.id } } } });
+      const roomMiddle = await prisma.chatRoom.create({ data: { subject: "Middle activity", createdAt: at(30), updatedAt: at(30), participants: { create: { userId: user.id } } } });
 
-      const roomOldest = await prisma.chatRoom.create({
-        data: {
-          subject: 'Oldest conversation',
-          createdAt: new Date(Date.now() - 60000),
-          participants: { create: { userId: user.id } },
-        },
-      });
-
-      const roomMiddle = await prisma.chatRoom.create({
-        data: {
-          subject: 'Older conversation',
-          createdAt: new Date(Date.now() - 30000),
-          participants: { create: { userId: user.id } },
-        },
-      });
-
-      const roomNewest = await prisma.chatRoom.create({
-        data: {
-          subject: 'Newest conversation',
-          createdAt: new Date(),
-          participants: { create: { userId: user.id } },
-        },
-      });
-
-      const response = await request(app).get('/api/chat').set('Authorization', `Bearer ${token}`);
+      const response = await request(app).get("/api/chat").set("Authorization", `Bearer ${token}`);
 
       expectApiSuccess(response, 200);
-      const conversations = response.body.data.conversations as Array<{ id: string; subject: string }>;
-      const relevantConversations = conversations.filter((c) =>
-        [roomOldest.id, roomMiddle.id, roomNewest.id].includes(c.id),
-      );
-
-      expect(relevantConversations).toHaveLength(3);
-      expect(relevantConversations[0]?.id).toBe(roomOldest.id);
-      expect(relevantConversations[1]?.id).toBe(roomMiddle.id);
-      expect(relevantConversations[2]?.id).toBe(roomNewest.id);
+      const ids = (response.body.data.conversations as Array<{ id: string }>).map((c) => c.id).filter((id) => [roomOldest.id, roomMiddle.id, roomNewest.id].includes(id));
+      // Ordered by activity, not by when the conversation was created.
+      expect(ids).toEqual([roomNewest.id, roomMiddle.id, roomOldest.id]);
     });
 
-    it('adds a newly received/created conversation to the bottom of the conversation list', async () => {
+    it("moves a conversation to the top when a new message is sent in it", async () => {
       const { token, user } = await createCustomer();
+      const olderRoom = await prisma.chatRoom.create({ data: { subject: "Older chat", updatedAt: new Date(Date.now() - 60000), participants: { create: { userId: user.id } } } });
+      const newerRoom = await prisma.chatRoom.create({ data: { subject: "Newer chat", updatedAt: new Date(Date.now() - 10000), participants: { create: { userId: user.id } } } });
 
-      const firstRoom = await prisma.chatRoom.create({
-        data: {
-          subject: 'Existing chat',
-          createdAt: new Date(Date.now() - 10000),
-          participants: { create: { userId: user.id } },
-        },
-      });
+      const before = await request(app).get("/api/chat").set("Authorization", `Bearer ${token}`);
+      expect((before.body.data.conversations as Array<{ id: string }>).map((c) => c.id)).toEqual([newerRoom.id, olderRoom.id]);
 
-      const createRes = await request(app)
-        .post('/api/chat')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ subject: 'Newly arrived chat' });
+      const sent = await request(app).post(`/api/chat/${olderRoom.id}/messages`).set("Authorization", `Bearer ${token}`).send({ content: "New activity here" });
+      expectApiSuccess(sent, 201);
+
+      const after = await request(app).get("/api/chat").set("Authorization", `Bearer ${token}`);
+      expect((after.body.data.conversations as Array<{ id: string }>).map((c) => c.id)).toEqual([olderRoom.id, newerRoom.id]);
+    });
+
+    it("shows a newly created conversation at the top of the list", async () => {
+      const { token, user } = await createCustomer();
+      const firstRoom = await prisma.chatRoom.create({ data: { subject: "Existing chat", updatedAt: new Date(Date.now() - 10000), participants: { create: { userId: user.id } } } });
+
+      const createRes = await request(app).post("/api/chat").set("Authorization", `Bearer ${token}`).send({ subject: "Newly arrived chat" });
       expectApiSuccess(createRes, 201);
-      const newRoomId = createRes.body.data.conversation.id;
 
-      const listRes = await request(app).get('/api/chat').set('Authorization', `Bearer ${token}`);
-      expectApiSuccess(listRes, 200);
-
-      const conversations = listRes.body.data.conversations as Array<{ id: string; subject: string }>;
-      const customerConversations = conversations.filter((c) =>
-        [firstRoom.id, newRoomId].includes(c.id),
-      );
-
-      expect(customerConversations).toHaveLength(2);
-      expect(customerConversations[0]?.id).toBe(firstRoom.id);
-      expect(customerConversations[1]?.id).toBe(newRoomId);
+      const listRes = await request(app).get("/api/chat").set("Authorization", `Bearer ${token}`);
+      expect((listRes.body.data.conversations as Array<{ id: string }>).map((c) => c.id)).toEqual([createRes.body.data.conversation.id, firstRoom.id]);
     });
   });
 
@@ -490,6 +459,70 @@ describe('Chat module', () => {
 
       expectApiSuccess(response, 200);
       expect(response.body.data.count).toBe(0);
+    });
+
+    // Staff share one support inbox: "unread" is the customer's messages no staff member has read.
+    it("counts only customers' unread messages for staff - never a colleague's reply", async () => {
+      const customer = await createCustomer();
+      const moderatorA = await createModerator();
+      const moderatorB = await createModerator();
+      const owner = await createOwner();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id, moderatorB.user.id] });
+      await createTestMessage({ chatRoomId: room.id, senderId: customer.user.id, isRead: false });
+      await createTestMessage({ chatRoomId: room.id, senderId: moderatorB.user.id, isRead: false }); // unread by the customer, not by staff
+
+      for (const staff of [moderatorA, owner]) {
+        const count = await request(app).get('/api/chat/unread/count').set('Authorization', `Bearer ${staff.token}`);
+        expect(count.body.data.count).toBe(1);
+        const list = await request(app).get('/api/chat').set('Authorization', `Bearer ${staff.token}`);
+        const summary = (list.body.data.conversations as Array<{ id: string; unreadCount: number }>).find((c) => c.id === room.id);
+        expect(summary?.unreadCount).toBe(1);
+      }
+    });
+
+    it("listing conversations never marks anything read - only opening one does", async () => {
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await createTestMessage({ chatRoomId: room.id, senderId: customer.user.id, isRead: false });
+
+      await request(app).get('/api/chat').set('Authorization', `Bearer ${moderator.token}`);
+      await request(app).get(`/api/chat/${room.id}`).set('Authorization', `Bearer ${moderator.token}`);
+      const stillUnread = await request(app).get('/api/chat/unread/count').set('Authorization', `Bearer ${moderator.token}`);
+      expect(stillUnread.body.data.count).toBe(1);
+
+      await request(app).get(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${moderator.token}`);
+      const cleared = await request(app).get('/api/chat/unread/count').set('Authorization', `Bearer ${moderator.token}`);
+      expect(cleared.body.data.count).toBe(0);
+    });
+
+    it("staff opening a conversation reads the customer's messages but leaves a colleague's reply unread for the customer", async () => {
+      const customer = await createCustomer();
+      const moderatorA = await createModerator();
+      const moderatorB = await createModerator();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id, moderatorB.user.id] });
+      const fromCustomer = await createTestMessage({ chatRoomId: room.id, senderId: customer.user.id, isRead: false });
+      const fromColleague = await createTestMessage({ chatRoomId: room.id, senderId: moderatorB.user.id, isRead: false });
+
+      const opened = await request(app).get(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${moderatorA.token}`);
+      expectApiSuccess(opened, 200);
+
+      expect((await prisma.message.findUnique({ where: { id: fromCustomer.id } }))?.isRead).toBe(true);
+      expect((await prisma.message.findUnique({ where: { id: fromColleague.id } }))?.isRead).toBe(false);
+      const customerCount = await request(app).get('/api/chat/unread/count').set('Authorization', `Bearer ${customer.token}`);
+      expect(customerCount.body.data.count).toBe(1);
+    });
+
+    it('clears the unread state for the OWNER once the owner opens the conversation', async () => {
+      const customer = await createCustomer();
+      const owner = await createOwner();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await createTestMessage({ chatRoomId: room.id, senderId: customer.user.id, isRead: false });
+
+      await request(app).get(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${owner.token}`);
+
+      const count = await request(app).get('/api/chat/unread/count').set('Authorization', `Bearer ${owner.token}`);
+      expect(count.body.data.count).toBe(0);
     });
   });
 

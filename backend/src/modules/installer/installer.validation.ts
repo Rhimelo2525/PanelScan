@@ -1,14 +1,16 @@
 import { z } from 'zod';
 
+import { personNameSchema } from '../../utils/nameSchema';
+import { optionalPhilippinePhoneSchema, philippinePhoneSchema } from '../../utils/phoneSchema';
+
 const NUMERIC_STRING = /^\d+$/;
-const PHONE_REGEX = /^\+?[0-9\s\-()]{7,20}$/;
 
 export const createInstallerSchema = z.object({
   body: z.object({
-    firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50, 'First name is too long.'),
-    lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50, 'Last name is too long.'),
+    firstName: personNameSchema('First name'),
+    lastName: personNameSchema('Last name'),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.').optional(),
-    phone: z.string().trim().regex(PHONE_REGEX, 'Please provide a valid phone number.'),
+    phone: philippinePhoneSchema,
     specialty: z.string().trim().max(100, 'Specialty is too long.').optional(),
   }),
 });
@@ -17,9 +19,9 @@ export const updateInstallerSchema = z.object({
   params: z.object({ id: z.string().uuid('Invalid installer id.') }),
   body: z
     .object({
-      firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50).optional(),
-      lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50).optional(),
-      phone: z.string().trim().regex(PHONE_REGEX, 'Please provide a valid phone number.').optional(),
+      firstName: personNameSchema('First name').optional(),
+      lastName: personNameSchema('Last name').optional(),
+      phone: optionalPhilippinePhoneSchema,
       specialty: z.string().trim().max(100, 'Specialty is too long.').optional(),
       isActive: z.boolean().optional(),
     })

@@ -47,20 +47,6 @@ export function fullName(person: { firstName: string; lastName: string } | null 
   return person ? `${person.firstName} ${person.lastName}` : "—"
 }
 
-export type StockStatus = "HEALTHY" | "LOW_STOCK" | "OUT_OF_STOCK"
-
-/**
- * Derived from the same fields the backend's own low-stock report uses
- * (available = quantity - reservedQty, compared against reorderLevel), so the
- * table and the backend agree on what "low" means.
- */
-export function stockStatus(record: { quantity: number; reservedQty: number; reorderLevel: number }): StockStatus {
-  const available = record.quantity - record.reservedQty
-  if (available <= 0) return "OUT_OF_STOCK"
-  if (available <= record.reorderLevel) return "LOW_STOCK"
-  return "HEALTHY"
-}
-
 export function availableStock(record: Pick<InventoryRecord, "quantity" | "reservedQty">): number {
   return record.quantity - record.reservedQty
 }

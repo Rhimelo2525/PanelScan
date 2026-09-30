@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 import { passwordSchema } from '../../utils/passwordPolicy';
+import { personNameSchema } from '../../utils/nameSchema';
+import { optionalPhilippinePhoneSchema, philippinePhoneSchema } from '../../utils/phoneSchema';
 
 const BIRTHDATE_MIN_YEAR = 1900;
 
@@ -21,17 +23,24 @@ const isValidBirthdate = (value: string): boolean => {
 };
 
 const birthdateSchema = z
-  .string()
+  .string({ required_error: 'Birthdate is required.' })
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Please provide a valid birthdate.')
   .refine(isValidBirthdate, { message: 'Please provide a valid birthdate that is not in the future.' });
 
-const phoneSchema = z
+const emailSchema = z.string().trim().toLowerCase().email('Please provide a valid email address.');
+
+/**
+ * "M", "M.", "m" or "D. C." (compound middle name): 1-3 letters, with periods
+ * and spaces only as separators. Stored as the bare letters ("M", "DC").
+ */
+const middleInitialSchema = z
   .string()
   .trim()
-  .regex(/^\+?[0-9\s\-()]{7,20}$/, 'Please provide a valid phone number.');
+  .refine((value) => /^(\p{L}\.?\s?){1,3}$/u.test(value), 'Enter a middle initial using letters only (e.g. M or M.).')
+  .transform((value) => value.replace(/[.\s]/g, '').toUpperCase());
 
-const emailSchema = z.string().trim().toLowerCase().email('Please provide a valid email address.');
+const isBlank = (value: unknown) => typeof value === 'string' && value.trim() === '';
 
 const verificationCodeSchema = z
   .string()
@@ -40,16 +49,15 @@ const verificationCodeSchema = z
 
 export const registerSchema = z.object({
   body: z.object({
-    firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50, 'First name is too long.'),
-    lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50, 'Last name is too long.'),
+    firstName: personNameSchema('First name'),
+    lastName: personNameSchema('Last name'),
+    // Optional: a blank value means none.
+    middleInitial: z.preprocess((value) => (isBlank(value) ? undefined : value), middleInitialSchema.optional()),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
     password: passwordSchema,
-    phone: z
-      .string()
-      .trim()
-      .regex(/^\+?[0-9\s\-()]{7,20}$/, 'Please provide a valid phone number.')
-      .optional(),
-    birthdate: birthdateSchema.optional(),
+    // Required here as well as on the form, so the API can't be used to skip them.
+    phone: philippinePhoneSchema,
+    birthdate: birthdateSchema,
     acceptedTerms: z.literal(true, {
       errorMap: () => ({ message: 'You must agree to the Terms of Use and Privacy Policy before creating an account.' }),
     }),
@@ -102,9 +110,11 @@ export const googleExchangeSchema = z.object({
 export const updateProfileSchema = z.object({
   body: z
     .object({
-      firstName: z.string().trim().min(2, 'First name must be at least 2 characters.').max(50, 'First name is too long.').optional(),
-      lastName: z.string().trim().min(2, 'Last name must be at least 2 characters.').max(50, 'Last name is too long.').optional(),
-      phone: phoneSchema.optional(),
+      firstName: personNameSchema('First name').optional(),
+      lastName: personNameSchema('Last name').optional(),
+      // null or "" clears a saved middle initial.
+      middleInitial: z.preprocess((value) => (isBlank(value) ? null : value), middleInitialSchema.nullable().optional()),
+      phone: optionalPhilippinePhoneSchema,
       birthdate: birthdateSchema.nullable().optional(),
       address: z
         .string()

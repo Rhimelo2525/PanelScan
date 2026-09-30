@@ -174,6 +174,7 @@ describe('Password Policy & Security Module', () => {
         email,
         password: 'Pan3l$can2026',
         phone: '09123456789',
+        birthdate: '1995-06-15',
         acceptedTerms: true,
       });
 

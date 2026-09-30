@@ -43,9 +43,37 @@ export function normalizePhilippinePhone(phone: string | null | undefined): stri
   return cleaned;
 }
 
+export const PHILIPPINE_PHONE_MESSAGE = 'Please enter a valid Philippine mobile number with 10 digits.';
+
+/**
+ * Strict parser behind every contact-number field (users, moderators,
+ * installers, addresses, order recipients). Returns the stored form
+ * "+639XXXXXXXXX" or null.
+ *
+ * Accepts "+63 912 345 6789" (spaces/hyphens optional) and, for API clients,
+ * the local "0912 345 6789". Exactly 10 digits must follow +63. Unlike
+ * normalizePhilippinePhone (which stays lenient for legacy stored data), any
+ * letter, stray symbol, second "+" or hidden character is rejected rather than
+ * stripped, and "+63 0912..." is not silently shortened.
+ */
+export function parsePhilippinePhone(phone: string | null | undefined): string | null {
+  if (typeof phone !== 'string') return null;
+  const trimmed = phone.trim();
+  if (!/^\+?[\d \-]+$/.test(trimmed)) return null;
+
+  const digits = trimmed.replace(/[ \-]/g, '');
+  let local: string;
+  if (digits.startsWith('+')) {
+    if (!digits.startsWith('+63')) return null;
+    local = digits.slice(3);
+  } else if (digits.length === 11 && digits.startsWith('0')) {
+    local = digits.slice(1);
+  } else {
+    return null;
+  }
+  return /^9\d{9}$/.test(local) ? `+63${local}` : null;
+}
+
 export function isValidPhilippinePhone(phone: string | null | undefined): boolean {
-  if (!phone) return false;
-  const normalized = normalizePhilippinePhone(phone);
-  // Valid E.164 PH mobile: +63 followed by 9 and 9 digits (total 13 chars)
-  return /^\+639\d{9}$/.test(normalized);
+  return parsePhilippinePhone(phone) !== null;
 }

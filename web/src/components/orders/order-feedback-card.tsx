@@ -3,6 +3,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 
 import { submitFeedback, type CustomerFeedback } from "@/api/support"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { formatOrderDate } from "@/orders/order-format"
@@ -20,6 +21,7 @@ export function OrderFeedbackCard({ order, onFeedbackSubmitted }: OrderFeedbackC
   const [comment, setComment] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const confirm = useConfirm()
 
   // Read-only mode if feedback already exists for this order
   if (order.feedback) {
@@ -85,6 +87,8 @@ export function OrderFeedbackCard({ order, onFeedbackSubmitted }: OrderFeedbackC
       setError("Comment must be at least 3 characters if provided.")
       return
     }
+
+    if (!(await confirm({ title: "Submit your feedback?", description: "Feedback can be submitted once per order and cannot be edited afterwards.", confirmLabel: "Submit Feedback" }))) return
 
     setIsSubmitting(true)
     try {

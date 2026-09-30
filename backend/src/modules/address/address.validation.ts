@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isValidPhilippinePhone } from '../delivery/utils/phone-normalizer';
+import { philippinePhoneSchema } from '../../utils/phoneSchema';
 
 // Loose Philippines bounding box - the same sanity check order.validation.ts
 // and delivery.validation.ts apply to a map pin (catches swapped lat/lng or
@@ -17,10 +17,7 @@ const longitudeSchema = z.coerce
 const addressBodySchema = z.object({
   label: z.string().trim().max(30, 'Label must be 30 characters or fewer.').nullable().optional(),
   recipientName: z.string().trim().min(2, "Enter the recipient's full name.").max(100, 'Recipient name must be 100 characters or fewer.'),
-  recipientPhone: z
-    .string()
-    .trim()
-    .refine((value) => isValidPhilippinePhone(value), 'Enter a valid Philippine mobile number (e.g. 0917 123 4567).'),
+  recipientPhone: philippinePhoneSchema,
   addressLine1: z.string().trim().min(2, 'Enter the house/unit number, building, or street.').max(200, 'Street address must be 200 characters or fewer.'),
   regionCode: z.string().min(1, 'Select a region.'),
   regionName: z.string().min(1, 'Select a region.'),

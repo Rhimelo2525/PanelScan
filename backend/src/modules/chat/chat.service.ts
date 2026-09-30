@@ -23,6 +23,18 @@ const DEFAULT_MESSAGE_LIMIT = 30;
 const isParticipant = (room: { participants: Array<{ userId: string }> }, userId: string): boolean =>
   room.participants.some((participant) => participant.userId === userId);
 
+/**
+ * Which messages count as "unread" for the requester (and which ones viewing a
+ * conversation marks as read). Support is a shared staff inbox: for any
+ * MODERATOR/OWNER that is the customer's messages nobody on staff has read yet
+ * - never another staff member's reply, which is the customer's to read. For a
+ * customer it is every message they didn't send themselves.
+ */
+const unreadForRequester = (requesterId: string, requesterRole: UserRole): Prisma.MessageWhereInput =>
+  requesterRole === UserRole.CUSTOMER
+    ? { senderId: { not: requesterId }, isRead: false }
+    : { sender: { role: UserRole.CUSTOMER }, isRead: false };
+
 export class ChatService {
   async createChatRoom(customerId: string, input: CreateChatRoomInput): Promise<ChatRoomWithParticipants> {
     return prisma.chatRoom.create({
@@ -70,14 +82,16 @@ export class ChatService {
       prisma.chatRoom.findMany({
         where,
         include: chatRoomInclude,
-        orderBy: { createdAt: 'asc' },
+        // Latest activity first: sendMessage bumps updatedAt on every message,
+        // so a conversation that just received or sent one moves to the top.
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),
       prisma.chatRoom.count({ where }),
     ]);
 
-    const conversations = await Promise.all(rooms.map((room) => this.toConversationSummary(room, requesterId)));
+    const conversations = await Promise.all(rooms.map((room) => this.toConversationSummary(room, requesterId, requesterRole)));
 
     return {
       conversations,
@@ -85,14 +99,14 @@ export class ChatService {
     };
   }
 
-  private async toConversationSummary(room: ChatRoomWithParticipants, requesterId: string): Promise<ConversationSummary> {
+  private async toConversationSummary(room: ChatRoomWithParticipants, requesterId: string, requesterRole: UserRole): Promise<ConversationSummary> {
     const [latestMessage, unreadCount] = await Promise.all([
       prisma.message.findFirst({
         where: { chatRoomId: room.id },
         include: messageInclude,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.message.count({ where: { chatRoomId: room.id, senderId: { not: requesterId }, isRead: false } }),
+      prisma.message.count({ where: { chatRoomId: room.id, ...unreadForRequester(requesterId, requesterRole) } }),
     ]);
 
     return { ...room, latestMessage, unreadCount };
@@ -236,9 +250,11 @@ export class ChatService {
     // bumps this participant's read cursor - standard chat UX, and what
     // actually moves the unread count without the client having to call
     // the mark-read endpoint for every message individually.
+    // Staff opening a conversation reads the customer's messages only - a
+    // colleague's reply stays unread until the customer sees it.
     await prisma.$transaction([
       prisma.message.updateMany({
-        where: { chatRoomId, senderId: { not: requesterId }, isRead: false },
+        where: { chatRoomId, ...unreadForRequester(requesterId, requesterRole) },
         data: { isRead: true },
       }),
       prisma.chatParticipant.updateMany({
@@ -290,8 +306,7 @@ export class ChatService {
 
   async getUnreadCount(requesterId: string, requesterRole: UserRole): Promise<number> {
     const where: Prisma.MessageWhereInput = {
-      senderId: { not: requesterId },
-      isRead: false,
+      ...unreadForRequester(requesterId, requesterRole),
       ...(requesterRole === UserRole.CUSTOMER ? { chatRoom: { participants: { some: { userId: requesterId } } } } : {}),
     };
 

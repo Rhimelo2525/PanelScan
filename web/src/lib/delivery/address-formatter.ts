@@ -44,34 +44,3 @@ export function formatPhilippineDeliveryAddress(input: FormatAddressInput): stri
 
   return segments.filter(Boolean).join(', ')
 }
-
-export function normalizePhilippinePhone(phone: string | null | undefined): string {
-  if (!phone) return ''
-  const cleaned = phone.trim().replace(/[^\d+]/g, '')
-
-  if (cleaned.startsWith('+63')) {
-    const digits = cleaned.slice(3)
-    return digits.startsWith('0') ? `+63${digits.slice(1)}` : `+63${digits}`
-  }
-
-  if (cleaned.startsWith('63')) {
-    const digits = cleaned.slice(2)
-    return digits.startsWith('0') ? `+63${digits.slice(1)}` : `+63${digits}`
-  }
-
-  if (cleaned.startsWith('09')) {
-    return `+63${cleaned.slice(1)}`
-  }
-
-  if (cleaned.startsWith('9') && cleaned.length === 10) {
-    return `+63${cleaned}`
-  }
-
-  return cleaned
-}
-
-/** +639171234567 -> "+63 917 123 4567"; anything else is shown as stored. */
-export function formatPhoneForDisplay(phone: string): string {
-  const match = /^\+63(\d{3})(\d{3})(\d{4})$/.exec(phone)
-  return match ? `+63 ${match[1]} ${match[2]} ${match[3]}` : phone
-}

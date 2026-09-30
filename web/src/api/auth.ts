@@ -64,8 +64,9 @@ export function resetPassword(input: ResetPasswordInput, signal?: AbortSignal) {
   return apiRequest<void>("/auth/reset-password", { method: "POST", body: input, signal })
 }
 
-export function logoutCustomer(refreshToken: string, signal?: AbortSignal) {
-  return apiRequest<void>("/auth/logout", { method: "POST", body: { refreshToken }, authenticated: true, retryAfterRefresh: false, signal })
+/** `accessToken` defaults to the stored session's; pass it to revoke a session that was never stored. */
+export function logoutCustomer(refreshToken: string, signal?: AbortSignal, accessToken?: string) {
+  return apiRequest<void>("/auth/logout", { method: "POST", body: { refreshToken }, authenticated: true, retryAfterRefresh: false, accessToken, signal })
 }
 
 export function exchangeGoogleTicket(ticket: string, signal?: AbortSignal) {

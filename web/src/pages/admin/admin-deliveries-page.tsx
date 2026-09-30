@@ -23,6 +23,7 @@ import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { VehiclePicker } from "@/components/delivery/vehicle-picker"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,7 +31,7 @@ import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useDebouncedValue } from "@/admin/use-admin-resource"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
+import { formatPhoneForDisplay } from "@/lib/phone"
 import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
 import { deliveryVehicleName } from "@/lib/delivery/vehicle-label"
 import { formatProductPrice } from "@/lib/format-price"
@@ -283,6 +284,7 @@ function Field({ label, children, mono }: { label: string; children: ReactNode; 
  */
 function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { delivery: DeliveryRecord | null; isModerator: boolean; onClose: () => void; onChanged: (delivery: DeliveryRecord) => void }) {
   const [busyAction, setBusyAction] = useState<"approve" | "book" | "refresh" | "cancel" | "coordinates" | null>(null)
+  const confirm = useConfirm()
   const [bookingError, setBookingError] = useState("")
   const [latInput, setLatInput] = useState("")
   const [lngInput, setLngInput] = useState("")
@@ -333,6 +335,17 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
   }
 
   async function handleBook() {
+    if (!(await confirm({
+      title: "Book this delivery with Lalamove?",
+      description: "This places a real, billable Lalamove order. The booking ID and live tracking are shown to the customer.",
+      details: [
+        { label: "Order", value: order?.orderNumber ?? "—" },
+        { label: "Vehicle", value: vehicle ?? "Not selected" },
+        { label: "Shipping fee paid", value: paidFee != null ? formatProductPrice(paidFee) : "Not included" },
+        ...(quote ? [{ label: "Current Lalamove quote", value: formatProductPrice(quote.amount.toFixed(2)) }] : []),
+      ],
+      confirmLabel: "Book Lalamove",
+    }))) return
     setBusyAction("book")
     setBookingError("")
     try {
@@ -356,6 +369,12 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
       return
     }
     setCoordinatesError("")
+    if (!(await confirm({
+      title: "Update the delivery coordinates?",
+      description: "Lalamove quotes and the booking use this pin as the drop-off point.",
+      details: [{ label: "Latitude", value: String(latitude) }, { label: "Longitude", value: String(longitude) }],
+      confirmLabel: "Save Coordinates",
+    }))) return
     await run(
       "coordinates",
       async () => {
@@ -484,7 +503,14 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
                     size="sm"
                     className="w-full"
                     disabled={busyAction !== null}
-                    onClick={() => void run("approve", async () => { await approveOrder(current.orderId); return (await getDeliveryById(current.id)).delivery }, "Order approved - get the shipping quote next")}
+                    onClick={() => void (async () => {
+                      if (!(await confirm({
+                        title: `Approve order ${order?.orderNumber ?? ""}?`,
+                        description: "Approval moves the order to delivery. Next, get the Lalamove shipping quote - the customer can then pay products and shipping together.",
+                        confirmLabel: "Approve Order",
+                      }))) return
+                      await run("approve", async () => { await approveOrder(current.orderId); return (await getDeliveryById(current.id)).delivery }, "Order approved - get the shipping quote next")
+                    })()}
                   >
                     {busyAction === "approve" ? <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" /> : <CheckCircle2 className="size-3.5" data-icon="inline-start" />}Approve order
                   </Button>
@@ -602,10 +628,17 @@ function DeliveryDetailSheet({ delivery, isModerator, onClose, onChanged }: { de
                     size="sm"
                     variant="destructive"
                     disabled={isTerminal || busyAction !== null}
-                    onClick={() => {
-                      if (!window.confirm("Cancel this Lalamove booking? This cannot be undone.")) return
-                      void run("cancel", async () => (await cancelDeliveryBooking(current.id)).delivery, "Delivery booking cancelled")
-                    }}
+                    onClick={() => void (async () => {
+                      if (!(await confirm({
+                        title: "Cancel this Lalamove booking?",
+                        description: "The Lalamove order will be cancelled. This cannot be undone.",
+                        details: [{ label: "Booking ID", value: current.lalamoveOrderId ?? "—" }],
+                        confirmLabel: "Cancel Booking",
+                        cancelLabel: "Keep Booking",
+                        destructive: true,
+                      }))) return
+                      await run("cancel", async () => (await cancelDeliveryBooking(current.id)).delivery, "Delivery booking cancelled")
+                    })()}
                   >
                     {busyAction === "cancel" ? <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" /> : <XCircle className="size-3.5" data-icon="inline-start" />}
                     Cancel booking

@@ -1,6 +1,8 @@
 import { OrderStatus } from '@prisma/client';
 import { z } from 'zod';
 
+import { optionalPhilippinePhoneSchema } from '../../utils/phoneSchema';
+
 const NUMERIC_STRING = /^\d+$/;
 
 export const deliveryLocationSchema = z.object({
@@ -15,7 +17,7 @@ export const deliveryLocationSchema = z.object({
   barangayName: z.string().min(1, 'Barangay name is required.'),
   postalCode: z.string().trim().min(3, 'Postal code must be at least 3 digits.').max(10),
   recipientName: z.string().trim().optional(),
-  recipientPhone: z.string().trim().optional(),
+  recipientPhone: optionalPhilippinePhoneSchema,
   // Loose Philippines bounding box (same as delivery.validation.ts's
   // setDeliveryCoordinatesSchema) - not a precise border, just a sanity
   // check against an obviously wrong value from the customer's map pin

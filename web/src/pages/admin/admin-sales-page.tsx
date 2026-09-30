@@ -5,6 +5,7 @@ import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
 import { approveOrder, getSalesReport, updateOrderStatus } from "@/api/admin"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { formatCount, formatDateTime, formatMoney } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -22,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { formatPhoneForDisplay } from "@/lib/delivery/address-formatter"
+import { formatPhoneForDisplay } from "@/lib/phone"
 import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
 import type { OrderReportRow } from "@/types/admin"
 
@@ -73,12 +74,28 @@ export function AdminSalesPage() {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
   const [detailsOrder, setDetailsOrder] = useState<OrderReportRow | null>(null)
+  const confirm = useConfirm()
 
   const report = useAdminResource((signal) => getSalesReport({ page, limit: 20, status: status || undefined }, signal), [page, status])
   const summary = report.data?.summary
   const orders = report.data?.orders ?? []
 
   async function handleStatusChange(order: OrderReportRow, nextStatus: string) {
+    const isCancelling = nextStatus === "CANCELLED"
+    const nextLabel = nextStatus.charAt(0) + nextStatus.slice(1).toLowerCase()
+    if (!(await confirm({
+      title: isCancelling ? `Cancel order ${order.orderNumber}?` : `Mark ${order.orderNumber} as ${nextLabel}?`,
+      description: isCancelling
+        ? "The order will be cancelled and the customer notified. A cancelled order is final and cannot be reopened."
+        : "The order status will change and the customer will see the update.",
+      details: [
+        { label: "Customer", value: order.customerName },
+        { label: "Status", value: `${order.status.charAt(0) + order.status.slice(1).toLowerCase()} → ${nextLabel}` },
+      ],
+      confirmLabel: isCancelling ? "Cancel Order" : "Update Status",
+      cancelLabel: isCancelling ? "Keep Order" : "Cancel",
+      destructive: isCancelling,
+    }))) return
     setPendingId(order.id)
     try {
       await updateOrderStatus(order.id, nextStatus)
@@ -92,6 +109,12 @@ export function AdminSalesPage() {
   }
 
   async function handleApprove(order: OrderReportRow) {
+    if (!(await confirm({
+      title: `Approve order ${order.orderNumber}?`,
+      description: "Approval moves the order to delivery: a delivery request is created, and once you get the Lalamove shipping quote in Deliveries the customer can pay products and shipping together.",
+      details: [{ label: "Customer", value: order.customerName }, ...(order.shippingAddress ? [{ label: "Deliver to", value: order.shippingAddress }] : [])],
+      confirmLabel: "Approve Order",
+    }))) return
     setApprovingId(order.id)
     try {
       await approveOrder(order.id)

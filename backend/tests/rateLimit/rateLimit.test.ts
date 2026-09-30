@@ -193,6 +193,8 @@ describe('Rate limiting', () => {
         lastName: 'Limit',
         email: `rate-limit-${Date.now()}@panelscan.test`,
         password: 'Passw0rd123!',
+        phone: '09171234567',
+        birthdate: '1995-06-15',
         acceptedTerms: true,
       });
 
