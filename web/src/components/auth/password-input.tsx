@@ -14,6 +14,8 @@ interface PasswordInputProps {
   onChange: (value: string) => void
   onFocus?: (event: React.FocusEvent<HTMLInputElement>) => void
   onBlur?: (event: React.FocusEvent<HTMLInputElement>) => void
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
+  onPaste?: (event: React.ClipboardEvent<HTMLInputElement>) => void
   autoComplete: "current-password" | "new-password"
   error?: string
   description?: string
@@ -31,6 +33,8 @@ export function PasswordInput({
   onChange,
   onFocus,
   onBlur,
+  onKeyDown,
+  onPaste,
   autoComplete,
   error,
   description,
@@ -57,6 +61,8 @@ export function PasswordInput({
           onChange={(event) => onChange(event.target.value)}
           onFocus={onFocus}
           onBlur={onBlur}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
           className={cn("h-11 pr-10 font-sans", inputClassName)}
           aria-invalid={Boolean(error)}
           aria-describedby={describedBy}

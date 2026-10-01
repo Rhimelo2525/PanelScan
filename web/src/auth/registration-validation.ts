@@ -143,3 +143,30 @@ export function validateRegistration(values: RegisterValues, today = new Date())
 
   return errors
 }
+
+type SpaceRuleField = "firstName" | "middleInitial" | "lastName" | "email" | "password" | "confirmPassword"
+
+const SPACE_RULE_LABELS: Record<SpaceRuleField, string> = {
+  firstName: "First name",
+  middleInitial: "Middle initial",
+  lastName: "Last name",
+  email: "Email address",
+  password: "Password",
+  confirmPassword: "Password",
+}
+
+/**
+ * Create Account space rule, shared by typing, paste and autofill (the API
+ * applies the same rule in auth.validation.ts). Credential-like fields take
+ * no spaces at all. Names keep single spaces between words ("Dela Cruz") but
+ * can't start with one or double them; a trailing space is trimmed on blur.
+ * Returns why `value` can't go into the field, or null when it can.
+ */
+export function registerSpaceRejection(field: string, value: string): string | null {
+  if (!(field in SPACE_RULE_LABELS)) return null
+  const label = SPACE_RULE_LABELS[field as SpaceRuleField]
+  if (field !== "firstName" && field !== "lastName") return /\s/.test(value) ? `${label} cannot contain spaces.` : null
+  if (/^\s/.test(value)) return `${label} cannot start with a space.`
+  if (/[^\S ]/.test(value) || / {2}/.test(value)) return `${label} cannot have double spaces or tabs.`
+  return null
+}

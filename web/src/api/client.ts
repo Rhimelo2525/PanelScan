@@ -10,6 +10,7 @@ interface ApiErrorResponse {
   success: false
   message: string
   errors?: Array<{ path: string; message: string }>
+  retryAfterSeconds?: number
 }
 
 const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
@@ -19,11 +20,14 @@ export const isApiConfigured = apiBaseUrl.length > 0
 
 export class ApiRequestError extends Error {
   readonly status: number
+  /** Set by the API on a login lockout: seconds until password login is allowed again. */
+  readonly retryAfterSeconds?: number
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, retryAfterSeconds?: number) {
     super(message)
     this.name = "ApiRequestError"
     this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -122,7 +126,8 @@ async function request<T>(path: string, options: ApiRequestOptions, accessToken?
   }
 
   if (!response.ok || !responseBody.success) {
-    throw new ApiRequestError(responseBody.message || "The request could not be completed.", response.status)
+    const retryAfterSeconds = !responseBody.success && typeof responseBody.retryAfterSeconds === "number" ? responseBody.retryAfterSeconds : undefined
+    throw new ApiRequestError(responseBody.message || "The request could not be completed.", response.status, retryAfterSeconds)
   }
 
   return responseBody.data as T

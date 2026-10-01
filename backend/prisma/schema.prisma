@@ -793,6 +793,27 @@ model ActivityLog {
 // account's email address (sets User.emailVerified) instead of resetting
 // a password. Kept as its own table so the two code types can never be
 // redeemed for one another.
+// Failed password-login tracking for the progressive lockout
+// (modules/auth/loginLockout.ts). Keyed by an HMAC of the normalized email
+// rather than a user id: an address with no account locks exactly like one
+// that has an account (so a lockout reveals nothing about who is registered),
+// and no email address is stored in plaintext. Short-lived security state, so
+// it is not mirrored to the backup database.
+model LoginThrottle {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identifierHash String    @unique @map("identifier_hash")
+  // Wrong passwords since the last lock (or since tracking started).
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  // Locks so far; each one lasts 5 minutes longer than the last.
+  lockCount      Int       @default(0) @map("lock_count")
+  lockedUntil    DateTime? @map("locked_until")
+  lastFailedAt   DateTime? @map("last_failed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("login_throttles")
+}
+
 model EmailVerificationCode {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid

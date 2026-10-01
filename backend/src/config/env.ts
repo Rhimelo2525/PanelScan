@@ -109,13 +109,19 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   MAIL_FROM: z.string().min(1).default('PanelScan <no-reply@panelscan.local>'),
 
-  // Rate limiting (backend/src/middleware/rateLimit.middleware.ts). Two
-  // buckets: a strict one for POST /api/auth/register + POST
-  // /api/auth/login (brute-force protection), and a looser one for every
-  // other /api/* route. Both are optional with production-appropriate
-  // defaults, so a fresh checkout works without any extra config.
+  // Rate limiting (backend/src/middleware/rateLimit.middleware.ts). A strict
+  // bucket for registration, token refresh and Google sign-in, a login bucket
+  // (below), and a looser one for every other /api/* route. All optional with
+  // production-appropriate defaults, so a fresh checkout works without any
+  // extra config.
   RATE_LIMIT_AUTH_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(5),
+  // POST /api/auth/login has its own per-IP bucket, sized above the 10
+  // wrong passwords that trigger the per-account lockout (modules/auth/
+  // loginLockout.ts) - otherwise the lockout could never be reached. The
+  // lockout guards each account; this guards against one IP spraying many.
+  RATE_LIMIT_LOGIN_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(30),
   RATE_LIMIT_API_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(100),
   // Account-security bucket: change password, email verification and the

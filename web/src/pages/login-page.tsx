@@ -5,7 +5,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
 import { exchangeGoogleTicket } from "@/api/auth"
 import { apiBaseUrl } from "@/api/client"
-import { DISPOSABLE_EMAIL_MESSAGE, getLoginErrorMessage } from "@/auth/errors"
+import { DISPOSABLE_EMAIL_MESSAGE, formatLockoutWait, getLoginErrorMessage, loginLockoutSeconds } from "@/auth/errors"
 import { getSafeRedirect, resolveLoginDestination } from "@/auth/redirect"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -61,6 +61,21 @@ export function LoginPage() {
   const [submissionError, setSubmissionError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
+  // Password-login lockout reported by the API. The server enforces it; this
+  // only shows the time left (counted from the server's remaining seconds)
+  // and keeps the button disabled for the locked address.
+  const [lockout, setLockout] = useState<{ email: string; until: number; seconds: number } | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!lockout) return
+    const timer = window.setInterval(() => {
+      const current = Date.now()
+      setNow(current)
+      if (current >= lockout.until) setLockout(null)
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [lockout])
 
   // Handle redirect return from Google OAuth
   useEffect(() => {
@@ -126,6 +141,9 @@ export function LoginPage() {
 
   if (isAuthenticated) return <Navigate to={resolveLoginDestination(user?.role, requestedPath)} replace />
 
+  const lockSecondsLeft = lockout ? Math.max(0, Math.ceil((lockout.until - now) / 1000)) : 0
+  const isLocked = lockout !== null && lockSecondsLeft > 0 && lockout.email === email.trim().toLowerCase()
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const nextErrors: LoginErrors = {}
@@ -134,14 +152,21 @@ export function LoginPage() {
     if (!password) nextErrors.password = "Password is required."
     setErrors(nextErrors)
     setSubmissionError("")
-    if (Object.keys(nextErrors).length > 0) return
+    if (Object.keys(nextErrors).length > 0 || isLocked) return
 
     setIsSubmitting(true)
     try {
       const signedInUser = await login({ email: email.trim().toLowerCase(), password })
       navigate(resolveLoginDestination(signedInUser.role, requestedPath), { replace: true })
     } catch (error) {
-      setSubmissionError(getLoginErrorMessage(error))
+      const lockSeconds = loginLockoutSeconds(error)
+      if (lockSeconds) {
+        const current = Date.now()
+        setNow(current)
+        setLockout({ email: email.trim().toLowerCase(), until: current + lockSeconds * 1000, seconds: lockSeconds })
+      } else {
+        setSubmissionError(getLoginErrorMessage(error))
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -163,7 +188,17 @@ export function LoginPage() {
       asideDescription="Authenticated customers can review current pricing, manage their cart, and follow orders from one account."
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
-        {submissionError && <FormError message={submissionError} />}
+        {isLocked && lockout
+          ? (
+            <FormError
+              message={<>
+                {/* The ticking countdown is hidden from screen readers so the alert is announced once, not every second. */}
+                <span aria-hidden="true">Too many failed login attempts. Please try again in {formatLockoutWait(lockSecondsLeft)}.</span>
+                <span className="sr-only">Too many failed login attempts. Please try again in {formatLockoutWait(lockout.seconds)}.</span>
+              </>}
+            />
+          )
+          : submissionError && <FormError message={submissionError} />}
         <div>
           <Label htmlFor="login-email">Email address</Label>
           <Input
@@ -200,7 +235,7 @@ export function LoginPage() {
             </Link>
           </div>
         </PasswordInput>
-        <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting || isGoogleSubmitting}>
+        <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting || isGoogleSubmitting || isLocked}>
           {isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}
           {isSubmitting ? "Signing in…" : "Log in"}
         </Button>

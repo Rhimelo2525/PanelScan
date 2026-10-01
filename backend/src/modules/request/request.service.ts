@@ -8,7 +8,7 @@ import type { StockChange } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { slugify } from '../../utils/slugify';
 import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
-import { DIMENSION_DIGIT_LIMITS, dimensionDigitMessage, hasAllowedDimensionDigits, type DimensionField } from '../product/product.validation';
+import { DIMENSION_DIGIT_LIMITS, PRICE_MESSAGE, dimensionDigitMessage, hasAllowedDimensionDigits, hasAllowedPriceDigits, type DimensionField } from '../product/product.validation';
 import { parseDescription, requestInclude, serializeDescription } from './request.types';
 import type { ChangeRequestPayload, PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
 import type { CreateRequestInput, UpdateRequestInput } from './request.validation';
@@ -29,6 +29,14 @@ const assertDimensionDigits = (data: Partial<Record<DimensionField, unknown>>): 
     if (!hasAllowedDimensionDigits(field, Number(value))) {
       throw new AppError(dimensionDigitMessage(field), 400);
     }
+  }
+};
+
+/** Same for the price: a stored request is re-checked against the 5-digit price limit when approved. */
+const assertPriceDigits = (price: unknown): void => {
+  if (price === undefined || price === null) return;
+  if (!hasAllowedPriceDigits(Number(price))) {
+    throw new AppError(PRICE_MESSAGE, 400);
   }
 };
 
@@ -302,6 +310,7 @@ export class RequestService {
     if (payload.action === 'ADD_PRODUCT' && payload.productData) {
       const data = payload.productData;
       assertDimensionDigits(data);
+      assertPriceDigits(data.price);
       const category = await tx.category.findUnique({ where: { id: data.categoryId } });
       if (!category) {
         throw new AppError('Product category not found.', 404);
@@ -371,6 +380,7 @@ export class RequestService {
 
       const { name, categoryId, sku, price, material, unit, width, height, thickness, isActive, isFeatured, description, images } = payload.updateData;
       assertDimensionDigits({ width, height, thickness });
+      assertPriceDigits(price);
 
       if (sku) {
         const trimmedSku = sku.trim().toUpperCase();

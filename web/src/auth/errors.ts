@@ -1,6 +1,24 @@
 import { ApiRequestError } from "@/api/client"
 import { ActiveAccountConflictError } from "@/auth/active-account"
 
+/** Seconds left on a login lockout, when the error is one. */
+export function loginLockoutSeconds(error: unknown): number | null {
+  return error instanceof ApiRequestError && error.status === 429 && typeof error.retryAfterSeconds === "number" && error.retryAfterSeconds > 0
+    ? error.retryAfterSeconds
+    : null
+}
+
+/** "5 minutes", "4 minutes 32 seconds", "45 seconds" - same wording as the API. */
+export function formatLockoutWait(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  const parts = [
+    minutes > 0 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : null,
+    seconds > 0 || minutes === 0 ? `${seconds} second${seconds === 1 ? "" : "s"}` : null,
+  ]
+  return parts.filter(Boolean).join(" ")
+}
+
 export function getLoginErrorMessage(error: unknown): string {
   if (error instanceof ActiveAccountConflictError) return error.message
   if (!(error instanceof ApiRequestError)) return "We couldn't sign you in. Please try again."

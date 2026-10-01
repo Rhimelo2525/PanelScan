@@ -31,6 +31,17 @@ const dimensionSchema = (field: DimensionField) =>
     .positive(`${DIMENSION_LABELS[field]} must be greater than 0.`)
     .refine((value) => hasAllowedDimensionDigits(field, value), dimensionDigitMessage(field));
 
+/**
+ * Prices are limited to 5 digits of whole pesos plus up to 2 centavo digits
+ * (at most 99,999.99). Checked on the number written out in plain decimal
+ * form, so an exponent form such as 1e+21 is rejected.
+ */
+export const PRICE_MESSAGE = 'Price can have at most 5 digits (up to 99,999.99), with no more than 2 decimal places.';
+
+export const hasAllowedPriceDigits = (value: number): boolean => /^[0-9]{1,5}([.][0-9]{1,2})?$/.test(String(value));
+
+const priceSchema = z.number().positive('Price must be greater than 0.').refine(hasAllowedPriceDigits, PRICE_MESSAGE);
+
 const productImageSchema = z.object({
   url: z.string().trim().url('Please provide a valid image URL.'),
   altText: z.string().trim().max(200, 'Alt text is too long.').optional(),
@@ -50,7 +61,7 @@ export const createProductSchema = z.object({
       .optional(),
     description: z.string().trim().max(2000, 'Description is too long.').optional(),
     sku: z.string().trim().min(2, 'SKU must be at least 2 characters.').max(50, 'SKU is too long.'),
-    price: z.number().positive('Price must be greater than 0.'),
+    price: priceSchema,
     width: dimensionSchema('width').optional(),
     height: dimensionSchema('height').optional(),
     thickness: dimensionSchema('thickness').optional(),
@@ -78,7 +89,7 @@ export const updateProductSchema = z.object({
         .optional(),
       description: z.string().trim().max(2000, 'Description is too long.').optional(),
       sku: z.string().trim().min(2, 'SKU must be at least 2 characters.').max(50, 'SKU is too long.').optional(),
-      price: z.number().positive('Price must be greater than 0.').optional(),
+      price: priceSchema.optional(),
       width: dimensionSchema('width').optional(),
       height: dimensionSchema('height').optional(),
       thickness: dimensionSchema('thickness').optional(),

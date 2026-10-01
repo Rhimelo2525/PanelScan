@@ -6,7 +6,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 import { DISPOSABLE_EMAIL_MESSAGE, getRegisterErrorMessage, isDisposableEmailError } from "@/auth/errors"
 import { checkPasswordRequirements } from "@/auth/password-policy"
 import { getSafeRedirect } from "@/auth/redirect"
-import { calculateAge, dateInputValue, normalizeMiddleInitial, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, sanitizeNameInput, validateRegistration } from "@/auth/registration-validation"
+import { calculateAge, dateInputValue, normalizeMiddleInitial, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, registerSpaceRejection, sanitizeNameInput, validateRegistration } from "@/auth/registration-validation"
 import type { RegisterErrors, RegisterField, RegisterValues } from "@/auth/registration-validation"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -33,6 +33,7 @@ interface RegisterTextFieldProps {
   inputMode?: "email" | "tel"
   maxLength?: number
   optional?: boolean
+  inputHandlers?: Pick<React.ComponentProps<"input">, "onKeyDown" | "onPaste" | "onBlur">
 }
 
 /** Marks a required field's label. The input's own `required` carries it for assistive tech. */
@@ -40,14 +41,14 @@ function RequiredMark() {
   return <span aria-hidden="true"> *</span>
 }
 
-function RegisterTextField({ field, label, value, error, onChange, type = "text", autoComplete, inputMode, maxLength, optional = false }: RegisterTextFieldProps) {
+function RegisterTextField({ field, label, value, error, onChange, type = "text", autoComplete, inputMode, maxLength, optional = false, inputHandlers }: RegisterTextFieldProps) {
   const errorId = `register-${field}-error`
   return (
     <div>
       <Label htmlFor={`register-${field}`}>{label}{!optional && <RequiredMark />}</Label>
       {field === "phone"
         ? <PhoneInput id={`register-${field}`} name={field} autoComplete={autoComplete} value={value} onChange={(next) => onChange(field, next)} className="mt-2" inputClassName="h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} required={!optional} />
-        : <Input id={`register-${field}`} name={field} type={type} inputMode={inputMode} autoComplete={autoComplete} value={value} onChange={(event) => onChange(field, event.target.value)} className="mt-2 h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} maxLength={maxLength} required={!optional} />}
+        : <Input id={`register-${field}`} name={field} type={type} inputMode={inputMode} autoComplete={autoComplete} value={value} onChange={(event) => onChange(field, event.target.value)} {...inputHandlers} className="mt-2 h-11" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} maxLength={maxLength} required={!optional} />}
       {error && <p id={errorId} className="motion-swap mt-1.5 text-xs text-destructive">{error}</p>}
     </div>
   )
@@ -92,6 +93,11 @@ export function RegisterPage() {
   if (isAuthenticated) return <Navigate to={destination} replace />
 
   function updateValue(field: Exclude<RegisterField, "acceptedTerms">, value: string) {
+    const rejection = registerSpaceRejection(field, value)
+    if (rejection) {
+      setErrors((current) => ({ ...current, [field]: rejection }))
+      return
+    }
     setValues((current) => {
       const next = { ...current, [field]: sanitizeNameInput(field, value) }
       return next
@@ -100,6 +106,32 @@ export function RegisterPage() {
       if (!current[field] && !(field === "password" && current.confirmPassword)) return current
       return { ...current, [field]: undefined, ...(field === "password" ? { confirmPassword: undefined } : {}) }
     })
+  }
+
+  /**
+   * Refuses a space keystroke or paste that would break the field's space rule
+   * before the browser applies it (an email input would otherwise silently
+   * drop leading/trailing spaces before onChange sees them). The field keeps
+   * its value and the reason shows in the field's error slot. Names also lose
+   * a trailing space when the field is left.
+   */
+  function spaceGuard(field: Exclude<RegisterField, "acceptedTerms" | "birthdate" | "phone">) {
+    const refuseIfInvalid = (event: React.SyntheticEvent<HTMLInputElement>, inserted: string) => {
+      const input = event.currentTarget
+      const start = input.selectionStart ?? input.value.length
+      const end = input.selectionEnd ?? input.value.length
+      const rejection = registerSpaceRejection(field, input.value.slice(0, start) + inserted + input.value.slice(end))
+      if (!rejection) return
+      event.preventDefault()
+      setErrors((current) => ({ ...current, [field]: rejection }))
+    }
+    return {
+      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => { if (event.key === " ") refuseIfInvalid(event, " ") },
+      onPaste: (event: React.ClipboardEvent<HTMLInputElement>) => refuseIfInvalid(event, event.clipboardData.getData("text")),
+      onBlur: (event: React.FocusEvent<HTMLInputElement>) => {
+        if (event.currentTarget.value !== event.currentTarget.value.trim()) updateValue(field, event.currentTarget.value.trim())
+      },
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -137,7 +169,7 @@ export function RegisterPage() {
     <AuthShell eyebrow="Customer registration" title="Create your account" description="Register as a PanelScan customer to access current product pricing." asideTitle="A clearer material journey starts here." asideDescription="Your customer account opens pricing access now and creates the foundation for future purchasing and project coordination.">
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {submissionError && <FormError message={submissionError} />}
-        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]"><RegisterTextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={50} /><RegisterTextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={50} /><RegisterTextField field="middleInitial" label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={6} optional /></div>
+        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]"><RegisterTextField field="firstName" inputHandlers={spaceGuard("firstName")} label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={50} /><RegisterTextField field="lastName" inputHandlers={spaceGuard("lastName")} label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={50} /><RegisterTextField field="middleInitial" inputHandlers={spaceGuard("middleInitial")} label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={6} optional /></div>
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
             <Label htmlFor="register-birthdate">Birthdate<RequiredMark /></Label>
@@ -161,7 +193,7 @@ export function RegisterPage() {
             </output>
           </div>
         </div>
-        <RegisterTextField field="email" label="Email address" value={values.email} error={errors.email} onChange={updateValue} type="email" inputMode="email" autoComplete="email" maxLength={254} />
+        <RegisterTextField field="email" inputHandlers={spaceGuard("email")} label="Email address" value={values.email} error={errors.email} onChange={updateValue} type="email" inputMode="email" autoComplete="email" maxLength={254} />
         <RegisterTextField field="phone" label="Contact number" value={values.phone} error={errors.phone} onChange={updateValue} autoComplete="tel" />
         <PasswordInput
           id="register-password"
@@ -169,6 +201,8 @@ export function RegisterPage() {
           label="Password"
           value={values.password}
           onChange={(value) => updateValue("password", value)}
+          onKeyDown={spaceGuard("password").onKeyDown}
+          onPaste={spaceGuard("password").onPaste}
           onFocus={() => setIsPasswordFocused(true)}
           onBlur={() => setIsPasswordFocused(false)}
           autoComplete="new-password"
@@ -187,6 +221,8 @@ export function RegisterPage() {
           label="Confirm password"
           value={values.confirmPassword}
           onChange={(value) => updateValue("confirmPassword", value)}
+          onKeyDown={spaceGuard("confirmPassword").onKeyDown}
+          onPaste={spaceGuard("confirmPassword").onPaste}
           autoComplete="new-password"
           error={errors.confirmPassword}
           minLength={PASSWORD_MIN_LENGTH}

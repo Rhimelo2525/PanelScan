@@ -47,17 +47,37 @@ const verificationCodeSchema = z
   .trim()
   .regex(/^\d{6}$/, 'Please enter the 6-digit code.');
 
+/**
+ * Create Account is strict about spaces instead of quietly trimming them, so
+ * the API refuses exactly what the form refuses. Credential-like fields take
+ * no spaces at all; names may keep single spaces between words ("Dela Cruz")
+ * but not leading, trailing or doubled ones.
+ */
+const hasNoSpaces = (value: string): boolean => !/\s/.test(value);
+const hasTidySpaces = (value: string): boolean => value === value.trim() && !/\s{2}/.test(value);
+
+const noSpaces = (label: string) =>
+  z
+    .string({ required_error: `${label} is required.` })
+    .refine(hasNoSpaces, `${label} cannot contain spaces.`);
+
+const registerNameSchema = (label: 'First name' | 'Last name') =>
+  z
+    .string({ required_error: `${label} is required.` })
+    .refine(hasTidySpaces, `${label} cannot start or end with a space, or have double spaces.`)
+    .pipe(personNameSchema(label));
+
 export const registerSchema = z.object({
   body: z.object({
-    firstName: personNameSchema('First name'),
-    lastName: personNameSchema('Last name'),
-    // Optional: a blank value means none.
-    middleInitial: z.preprocess((value) => (isBlank(value) ? undefined : value), middleInitialSchema.optional()),
-    email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
+    firstName: registerNameSchema('First name'),
+    lastName: registerNameSchema('Last name'),
+    // Optional: an empty value means none.
+    middleInitial: z.preprocess((value) => (value === '' ? undefined : value), noSpaces('Middle initial').pipe(middleInitialSchema).optional()),
+    email: noSpaces('Email address').pipe(z.string().toLowerCase().email('Please provide a valid email address.')),
     password: passwordSchema,
     // Required here as well as on the form, so the API can't be used to skip them.
     phone: philippinePhoneSchema,
-    birthdate: birthdateSchema,
+    birthdate: noSpaces('Birthdate').pipe(birthdateSchema),
     acceptedTerms: z.literal(true, {
       errorMap: () => ({ message: 'You must agree to the Terms of Use and Privacy Policy before creating an account.' }),
     }),

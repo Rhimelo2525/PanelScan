@@ -10,6 +10,7 @@ import { comparePassword, hashPassword } from '../../utils/password';
 import { generateRefreshToken, hashRefreshToken } from '../../utils/refreshToken';
 import type { ChangePasswordInput, LoginInput, RegisterInput, UpdateProfileInput } from './auth.validation';
 import type { VerifiedGoogleProfile } from './googleAuth.service';
+import { assertLoginAllowed, clearLoginFailures, failLogin, loginIdentifier } from './loginLockout';
 import { verificationService } from './verification.service';
 
 // `birthdate` goes out as a plain "YYYY-MM-DD" string (it is a calendar date,
@@ -62,6 +63,17 @@ const sanitizeUser = (user: User): SanitizedUser => ({
   updatedAt: user.updatedAt,
 });
 
+/**
+ * A bcrypt hash of a throwaway value, made once. Logins for an address with
+ * no account (or no password) are checked against it, so they take as long as
+ * a real wrong password and response time doesn't reveal who is registered.
+ */
+let decoyPasswordHash: Promise<string> | null = null;
+const spendPasswordCheck = async (password: string): Promise<void> => {
+  decoyPasswordHash ??= hashPassword('decoy-password-for-timing-only');
+  await comparePassword(password, await decoyPasswordHash);
+};
+
 export class AuthService {
   async register(input: RegisterInput): Promise<AuthResult> {
     // Checked before anything is written: no account, and so no verification
@@ -104,23 +116,34 @@ export class AuthService {
   }
 
   async login(input: LoginInput): Promise<LoginResult> {
+    // Progressive lockout (loginLockout.ts): a locked address is refused
+    // before the password is even checked, and every wrong password counts -
+    // including for addresses with no account, so the outcome is the same
+    // either way.
+    const identifier = loginIdentifier(input.email);
+    await assertLoginAllowed(identifier);
+    const invalidCredentials = new AppError('Invalid email or password.', 401);
+
     const user = await prisma.user.findUnique({ where: { email: input.email } });
     if (!user) {
-      throw new AppError('Invalid email or password.', 401);
+      await spendPasswordCheck(input.password);
+      return failLogin(identifier, invalidCredentials);
     }
     if (!user.isActive) {
       throw new AppError('This account has been deactivated. Please contact support.', 403);
     }
 
     if (!user.password) {
-      throw new AppError('Invalid email or password.', 401);
+      await spendPasswordCheck(input.password);
+      return failLogin(identifier, invalidCredentials);
     }
 
     const isPasswordValid = await comparePassword(input.password, user.password);
     if (!isPasswordValid) {
-      throw new AppError('Invalid email or password.', 401);
+      return failLogin(identifier, invalidCredentials);
     }
 
+    await clearLoginFailures(identifier);
     const token = signToken({ userId: user.id, role: user.role });
     const refreshToken = await this.issueRefreshToken(user.id);
     return { user: sanitizeUser(user), token, refreshToken };

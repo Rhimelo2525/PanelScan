@@ -487,6 +487,10 @@ function EditProductSheet({
       setError("Price must be a positive number in Philippine Peso.")
       return
     }
+    if (!PRICE_PATTERN.test(price.trim())) {
+      setError(PRICE_MESSAGE)
+      return
+    }
 
     const dimensionProblem = dimensionError("width", width) ?? dimensionError("height", height) ?? dimensionError("thickness", thickness)
     if (dimensionProblem) {
@@ -641,16 +645,7 @@ function EditProductSheet({
 
             <div>
               <Label htmlFor="edit-price">Price (₱ PHP) *</Label>
-              <Input
-                id="edit-price"
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                required
-                className="mt-1.5"
-              />
+              <PriceInput id="edit-price" value={price} onChange={setPrice} />
             </div>
 
             <div>
@@ -822,6 +817,10 @@ function AddProductSheet({
       setError("Price must be a positive number in Philippine Peso.")
       return
     }
+    if (!PRICE_PATTERN.test(price.trim())) {
+      setError(PRICE_MESSAGE)
+      return
+    }
 
     const dimensionProblem = dimensionError("width", width) ?? dimensionError("height", height) ?? dimensionError("thickness", thickness)
     if (dimensionProblem) {
@@ -990,17 +989,7 @@ function AddProductSheet({
 
             <div>
               <Label htmlFor="add-price">Price (₱ PHP) *</Label>
-              <Input
-                id="add-price"
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                placeholder="1850.00"
-                required
-                className="mt-1.5"
-              />
+              <PriceInput id="add-price" value={price} onChange={setPrice} placeholder="1850.00" />
             </div>
 
             <div>
@@ -1045,6 +1034,54 @@ function AddProductSheet({
         </form>
       </SheetContent>
     </Sheet>
+  )
+}
+
+// Up to 5 digits of whole pesos and 2 centavo digits (at most 99,999.99).
+// Must match the API's price rule in product validation, which enforces it.
+const PRICE_MESSAGE = "Price can have at most 5 digits (up to ₱99,999.99), with no more than 2 decimal places."
+// A trailing "." left while typing ("1850.") is still 1850.
+const PRICE_PATTERN = /^[0-9]{1,5}([.][0-9]{0,2})?$/
+
+function priceInputRejection(value: string): string | null {
+  if (!/^[0-9]*[.]?[0-9]*$/.test(value)) return "Price accepts numbers only."
+  const [pesos, centavos = ""] = value.split(".")
+  if ((pesos ?? "").length > 5 || centavos.length > 2) return PRICE_MESSAGE
+  return null
+}
+
+/**
+ * Price field limited to 5 digits of pesos and 2 of centavos. A keystroke or
+ * paste that would break that is refused whole (the field keeps its value)
+ * and the reason is shown under it.
+ */
+function PriceInput({ id, value, onChange, placeholder }: { id: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeId = `${id}-notice`
+
+  return (
+    <>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value.trim()
+          const rejection = priceInputRejection(next)
+          setNotice(rejection)
+          if (!rejection) onChange(next)
+        }}
+        onBlur={() => setNotice(null)}
+        placeholder={placeholder}
+        required
+        aria-invalid={Boolean(notice)}
+        aria-describedby={notice ? noticeId : undefined}
+        className="mt-1.5"
+      />
+      {notice && <p id={noticeId} className="mt-1 text-xs text-destructive">{notice}</p>}
+    </>
   )
 }
 

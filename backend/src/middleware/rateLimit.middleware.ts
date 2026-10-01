@@ -47,19 +47,30 @@ export const createRateLimiter = (options: RateLimiterOptions): RequestHandler =
 const skipInAutomatedTests = (): boolean => env.NODE_ENV === 'test';
 
 /**
- * Scoped to POST /api/auth/register and POST /api/auth/login only (see
- * auth.routes.ts) - not the whole /auth router, since GET /api/auth/me is
- * a normal authenticated read, not a brute-force target. Both routes share
- * ONE counter per IP, matching the "5 requests per 15 minutes" bucket for
- * authentication endpoints as a whole rather than 5 for each route
- * separately (an attacker alternating between the two shouldn't get 10
- * attempts). Apply this same limiter to Refresh Token / Forgot Password
- * routes when those are eventually built.
+ * Shared by POST /api/auth/register, /refresh and the Google sign-in routes
+ * (see auth.routes.ts) - not the whole /auth router, since GET /api/auth/me
+ * is a normal authenticated read, not a brute-force target. They share ONE
+ * counter per IP rather than one each, so alternating between them doesn't
+ * multiply the budget. Password login has its own bucket (loginRateLimiter
+ * below) plus the per-account progressive lockout.
  */
 export const authRateLimiter = createRateLimiter({
   windowMs: env.RATE_LIMIT_AUTH_WINDOW_MS,
   max: env.RATE_LIMIT_AUTH_MAX,
   message: 'Too many authentication attempts. Please try again later.',
+  skip: skipInAutomatedTests,
+});
+
+/**
+ * POST /api/auth/login only. Per IP, and roomier than authRateLimiter so the
+ * per-account progressive lockout (10 wrong passwords -> 5 minutes, then 10,
+ * 15...) is what a person mistyping their password actually meets; this
+ * bucket stops one IP from guessing across many accounts.
+ */
+export const loginRateLimiter = createRateLimiter({
+  windowMs: env.RATE_LIMIT_LOGIN_WINDOW_MS,
+  max: env.RATE_LIMIT_LOGIN_MAX,
+  message: 'Too many login attempts from this network. Please try again later.',
   skip: skipInAutomatedTests,
 });
 

@@ -241,7 +241,7 @@ describe('Customer profile', () => {
     it.each([
       ['M.', 'M'],
       ['m', 'M'],
-      ['D. C.', 'DC'],
+      ['D.C.', 'DC'],
     ])('saves the middle initial %s as %s', async (input, stored) => {
       const response = await request(app).post('/api/auth/register').send({ ...registration, middleInitial: input });
 

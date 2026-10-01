@@ -2,7 +2,7 @@ import { UserRole } from '@prisma/client';
 import { Router } from 'express';
 
 import { authenticate } from '../../middleware/auth.middleware';
-import { accountSecurityRateLimiter, authRateLimiter } from '../../middleware/rateLimit.middleware';
+import { accountSecurityRateLimiter, authRateLimiter, loginRateLimiter } from '../../middleware/rateLimit.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { authController } from './auth.controller';
@@ -23,11 +23,12 @@ import {
 
 const router = Router();
 
-// POST /api/auth/register - shares authRateLimiter's counter with /login and /refresh (brute-force protection).
+// POST /api/auth/register - shares authRateLimiter's counter with /refresh and Google sign-in (brute-force protection).
 router.post('/register', authRateLimiter, validate(registerSchema), authController.register);
 
-// POST /api/auth/login
-router.post('/login', authRateLimiter, validate(loginSchema), authController.login);
+// POST /api/auth/login - its own per-IP bucket; each account is also locked
+// progressively after repeated wrong passwords (modules/auth/loginLockout.ts).
+router.post('/login', loginRateLimiter, validate(loginSchema), authController.login);
 
 // GET /api/auth/me
 router.get('/me', authenticate, authController.getMe);

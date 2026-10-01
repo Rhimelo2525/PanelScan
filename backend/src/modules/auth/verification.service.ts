@@ -15,6 +15,7 @@ import {
   type VerificationPurpose,
 } from '../../utils/verificationCode';
 import { buildEmailVerificationMail, buildPasswordResetMail } from './auth.mail';
+import { clearLoginFailures, loginIdentifier } from './loginLockout';
 
 // One message for every way a code can be wrong (no such account, no code
 // pending, expired, used up, mistyped), so a response never reveals which.
@@ -250,6 +251,10 @@ export class VerificationService {
       // customer is recovering the account from) must log in again.
       await tx.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
     });
+
+    // The owner just proved control of the mailbox, so a login lockout
+    // (possibly started by someone else guessing) no longer applies.
+    await clearLoginFailures(loginIdentifier(user.email));
 
     await notifyUser({
       userId: user.id,

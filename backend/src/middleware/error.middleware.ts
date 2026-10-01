@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 
 import { env } from '../config/env';
 import type { ApiErrorResponse, ApiValidationIssue } from '../types/api.types';
+import { LoginLockedError } from '../modules/auth/loginLockout';
 import { AppError } from '../utils/AppError';
 
 const sendError = (res: Response, statusCode: number, body: ApiErrorResponse): void => {
@@ -16,6 +17,13 @@ const sendError = (res: Response, statusCode: number, body: ApiErrorResponse): v
  * Express recognizes error-handling middleware by its 4-argument arity.
  */
 export const globalErrorHandler = (err: unknown, _req: Request, res: Response, _next: NextFunction): void => {
+  if (err instanceof LoginLockedError) {
+    // The client counts down from the server's remaining time, never its own clock.
+    res.setHeader('Retry-After', String(err.retryAfterSeconds));
+    sendError(res, err.statusCode, { success: false, message: err.message, retryAfterSeconds: err.retryAfterSeconds });
+    return;
+  }
+
   if (err instanceof AppError) {
     sendError(res, err.statusCode, { success: false, message: err.message });
     return;

@@ -51,10 +51,10 @@ export const SYNC_ORDER = [
 ] as const;
 
 // Main-database models deliberately NOT mirrored to the backup: short-lived
-// one-time codes with no disaster-recovery value. Any other model added to
+// one-time codes and login-lockout counters, with no disaster-recovery value. Any other model added to
 // schema.prisma must either be mirrored or listed here - the parity test
 // fails until someone makes that choice explicitly.
-export const NOT_BACKED_UP_MODELS = ['PasswordResetCode', 'EmailVerificationCode'] as const;
+export const NOT_BACKED_UP_MODELS = ['PasswordResetCode', 'EmailVerificationCode', 'LoginThrottle'] as const;
 
 export const MAIN_SCHEMA_PATH = path.resolve(__dirname, '../../prisma/schema.prisma');
 export const BACKUP_SCHEMA_PATH = path.resolve(__dirname, '../../prisma/schema.backup.prisma');
