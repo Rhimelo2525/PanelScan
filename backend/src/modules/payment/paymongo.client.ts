@@ -184,3 +184,24 @@ export async function createPaymongoCheckoutSession(params: CreateCheckoutSessio
   const body = (await response.json()) as PaymongoCheckoutSessionResponse;
   return body.data;
 }
+
+/**
+ * Reads a Checkout Session back from PayMongo (it lists the session's
+ * payments and their status). Null whenever that isn't possible - no key, a
+ * session from the other mode, a network error or a timeout - so callers can
+ * simply carry on waiting for the webhook.
+ */
+export async function retrievePaymongoCheckoutSession(sessionId: string): Promise<PaymongoCheckoutSessionResponseData | null> {
+  if (!env.PAYMONGO_SECRET_KEY) return null;
+
+  try {
+    const response = await fetch(`${env.PAYMONGO_API_URL}/checkout_sessions/${encodeURIComponent(sessionId)}`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${env.PAYMONGO_SECRET_KEY}:`).toString('base64')}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return null;
+    return ((await response.json()) as PaymongoCheckoutSessionResponse).data;
+  } catch {
+    return null;
+  }
+}

@@ -299,6 +299,8 @@ describe('Payment module', () => {
     it('returns payment id, order id, amount, method, and status', async () => {
       const { customer, order } = await setupPayableOrder();
       const payment = await createTestPayment({ orderId: order.id, amount: 800, transactionRef: 'cs_test_status_check' });
+      // Reading a PENDING payment also asks PayMongo about its session (not paid yet here).
+      mockPaymongoCheckoutSuccess('cs_test_status_check');
 
       const response = await request(app).get(`/api/payments/${payment.id}`).set('Authorization', `Bearer ${customer.token}`);
 

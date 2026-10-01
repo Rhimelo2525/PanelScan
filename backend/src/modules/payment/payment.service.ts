@@ -1,4 +1,5 @@
 import { NotificationType, OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
+import type { Payment } from '@prisma/client';
 
 import { env } from '../../config/env';
 import { prisma } from '../../config/database';
@@ -8,7 +9,7 @@ import { AppError } from '../../utils/AppError';
 import { deliveryService } from '../delivery/delivery.service';
 import { ORDER_WORKFLOW_STATUSES } from '../delivery/utils/lalamove-status';
 import { mirrorOrderToBackup } from '../order/order-backup';
-import { DELIVERY_FEE_REFERENCE_PREFIX, createPaymongoCheckoutSession, paymongoMode, verifyPaymongoSignature } from './paymongo.client';
+import { DELIVERY_FEE_REFERENCE_PREFIX, createPaymongoCheckoutSession, paymongoMode, retrievePaymongoCheckoutSession, verifyPaymongoSignature } from './paymongo.client';
 import {
   paymentInclude,
   type CreatePaymentResult,
@@ -33,11 +34,35 @@ const extractReferenceNumber = (event: PaymongoWebhookEvent): string | undefined
   return undefined;
 };
 
-/** The amount PayMongo actually collected, in centavos, when the event carries it. */
-const extractPaidCentavos = (event: PaymongoWebhookEvent): number | undefined => {
-  const amount = event.data?.attributes?.data?.attributes?.amount;
-  return typeof amount === 'number' && Number.isFinite(amount) ? amount : undefined;
+/**
+ * The paid amount, in centavos, from a Checkout Session's `payments` list -
+ * a session carries its payments rather than an amount of its own.
+ */
+const paidCentavosFromSessionPayments = (payments: unknown): number | undefined => {
+  if (!Array.isArray(payments)) return undefined;
+  for (const entry of payments as { attributes?: { status?: unknown; amount?: unknown } }[]) {
+    const amount = entry?.attributes?.amount;
+    if (entry?.attributes?.status === 'paid' && typeof amount === 'number' && Number.isFinite(amount)) return amount;
+  }
+  return undefined;
 };
+
+/** The amount PayMongo actually collected, in centavos, when the event carries it (a payment's amount, or a checkout session's paid payment). */
+const extractPaidCentavos = (event: PaymongoWebhookEvent): number | undefined => {
+  const attrs = event.data?.attributes?.data?.attributes;
+  const amount = attrs?.amount;
+  if (typeof amount === 'number' && Number.isFinite(amount)) return amount;
+  return paidCentavosFromSessionPayments(attrs?.payments);
+};
+
+/**
+ * Webhook event types that mean "paid". A `payment.paid` event describes the
+ * PayMongo payment (pay_...), which does not carry our order reference; the
+ * `checkout_session.payment.paid` event describes the Checkout Session we
+ * opened (cs_..., the id stored on the Payment) and carries the order id as
+ * its reference_number, so that is the one that can be matched.
+ */
+const PAID_EVENT_TYPES = new Set(['payment.paid', 'checkout_session.payment.paid']);
 
 const toCentavos = (amount: Prisma.Decimal | number): number => Math.round(Number(amount) * 100);
 
@@ -134,7 +159,34 @@ export class PaymentService {
     if (requesterRole === UserRole.CUSTOMER && payment.order.customerId !== requesterId) {
       throw new AppError('Payment not found.', 404);
     }
+    if (payment.status === PaymentStatus.PENDING && (await this.reconcileWithPaymongo(payment))) {
+      return prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: paymentInclude });
+    }
     return payment;
+  }
+
+  /**
+   * Asks PayMongo directly whether a still-PENDING payment's Checkout Session
+   * has been paid, and records it if so. The payment page polls this while
+   * it waits, so an order is marked paid even when the webhook is late, was
+   * missed, or can't reach this server at all (e.g. a local backend). True
+   * when the payment was just marked PAID. Any problem: false, keep waiting.
+   */
+  private async reconcileWithPaymongo(payment: Payment): Promise<boolean> {
+    if (!payment.transactionRef?.startsWith('cs_')) return false;
+
+    const session = await retrievePaymongoCheckoutSession(payment.transactionRef);
+    // Same rules as the webhook: this order's session, and the configured mode.
+    const mode = paymongoMode();
+    const livemode = session?.attributes.livemode;
+    if (!session || session.attributes.reference_number !== payment.orderId) return false;
+    if ((mode === 'live' && livemode !== true) || (mode === 'test' && livemode === true)) return false;
+
+    const paidCentavos = paidCentavosFromSessionPayments(session.attributes.payments);
+    if (paidCentavos === undefined) return false;
+
+    await this.markPaymentPaid(payment, new Prisma.Decimal(paidCentavos).div(100), payment.transactionRef);
+    return true;
   }
 
   /** CUSTOMER's own payments. */
@@ -166,13 +218,14 @@ export class PaymentService {
   }
 
   /**
-   * Verifies the webhook signature, then handles two event types:
-   *  - `payment.paid`: marks the matching Payment PAID (idempotent - a
-   *    redelivered webhook for an already-PAID payment is a silent no-op),
-   *    advances a still-PENDING Order to PROCESSING, and moves the order's
-   *    delivery to "Ready to book" so the moderator can book Lalamove. This
-   *    webhook is the ONLY thing that marks an order paid - returning from
-   *    PayMongo's checkout page proves nothing.
+   * Verifies the webhook signature, then handles:
+   *  - `checkout_session.payment.paid` / `payment.paid`: marks the matching
+   *    Payment PAID (see markPaymentPaid). Only the checkout-session event
+   *    can be matched to our Payment (cs_ id + order reference); the plain
+   *    payment event is still accepted for anything that does match. Only
+   *    PayMongo itself marks an order paid - this webhook, or the same
+   *    answer read straight from PayMongo's API (reconcileWithPaymongo).
+   *    Returning from PayMongo's checkout page proves nothing.
    *  - `payment.failed`: marks the matching Payment FAILED. The Order is
    *    deliberately left untouched - a failed payment doesn't cancel the
    *    order, it just means the customer needs to retry via
@@ -203,9 +256,10 @@ export class PaymentService {
     }
 
     const eventType = event.data?.attributes?.type;
-    if (eventType !== 'payment.paid' && eventType !== 'payment.failed') {
+    if (!PAID_EVENT_TYPES.has(eventType) && eventType !== 'payment.failed') {
       return;
     }
+    const outcome = PAID_EVENT_TYPES.has(eventType) ? 'payment.paid' : 'payment.failed';
 
     // A live deployment only acts on live-mode events (and a test one only on
     // test events), so a test payment can never mark a real order paid.
@@ -223,7 +277,7 @@ export class PaymentService {
     // the delivery module entirely and stop here.
     if (referenceNumber?.startsWith(DELIVERY_FEE_REFERENCE_PREFIX)) {
       const deliveryId = referenceNumber.slice(DELIVERY_FEE_REFERENCE_PREFIX.length);
-      await deliveryService.handleDeliveryFeeWebhook(deliveryId, eventType, eventPaymentId);
+      await deliveryService.handleDeliveryFeeWebhook(deliveryId, outcome, eventPaymentId);
       return;
     }
 
@@ -240,82 +294,12 @@ export class PaymentService {
       return;
     }
 
-    if (eventType === 'payment.paid') {
-      if (payment.status === PaymentStatus.PAID) {
-        return;
-      }
-
+    if (outcome === 'payment.paid') {
       // Record what PayMongo actually collected. It can differ from the order
       // total only if the customer completed an older checkout opened before
-      // the shipping fee was re-quoted - staff are alerted below.
+      // the shipping fee was re-quoted - staff are alerted in markPaymentPaid.
       const paidCentavos = extractPaidCentavos(event);
-      const paidAmount = paidCentavos !== undefined ? new Prisma.Decimal(paidCentavos).div(100) : payment.amount;
-
-      const paidOrder = await prisma.$transaction(async (tx) => {
-        await tx.payment.update({
-          where: { id: payment.id },
-          data: {
-            status: PaymentStatus.PAID,
-            paidAt: new Date(),
-            amount: paidAmount,
-            transactionRef: eventPaymentId ?? payment.transactionRef,
-          },
-        });
-
-        const order = await tx.order.findUnique({ where: { id: payment.orderId }, include: { delivery: true } });
-        if (order && order.status === OrderStatus.PENDING) {
-          await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.PROCESSING } });
-        }
-        // Paid -> ready for the moderator to book Lalamove.
-        if (order?.delivery && !order.delivery.lalamoveOrderId && order.status !== OrderStatus.CANCELLED) {
-          await tx.delivery.update({
-            where: { id: order.delivery.id },
-            data: { deliveryStatus: ORDER_WORKFLOW_STATUSES.READY_TO_BOOK, bookingError: null, bookingFailedAt: null },
-          });
-        }
-
-        if (order) {
-          await createNotification(
-            {
-              userId: order.customerId,
-              type: NotificationType.PAYMENT,
-              title: 'Payment successful',
-              message: `Payment successful. Your payment of ${formatPeso(paidAmount)} for order ${order.orderNumber} was confirmed. Your delivery is being prepared.`,
-              metadata: { paymentId: payment.id, orderId: order.id, event: 'PAYMENT_RECEIVED' },
-            },
-            tx,
-          );
-        }
-        return order;
-      });
-
-      if (paidOrder) {
-        await mirrorOrderToBackup(paidOrder.id, null, 'payment confirmed');
-
-        const shipping = paidOrder.delivery?.quotedAt ? ` incl. ${formatPeso(paidOrder.shippingFee)} shipping` : '';
-        const deliveryPointer = paidOrder.delivery ? { deliveryId: paidOrder.delivery.id } : {};
-        await notifyStaff({
-          type: NotificationType.PAYMENT,
-          title: 'Payment received',
-          message: `GCash payment of ${formatPeso(paidAmount)}${shipping} received for order ${paidOrder.orderNumber}.`,
-          metadata: { paymentId: payment.id, orderId: paidOrder.id, ...deliveryPointer, event: 'PAYMENT_RECEIVED' },
-          byRole: {
-            [UserRole.MODERATOR]: {
-              title: 'Paid - ready to book',
-              message: `Order ${paidOrder.orderNumber} is paid (${formatPeso(paidAmount)}${shipping}). Select the Lalamove vehicle and book the delivery.`,
-            },
-          },
-        });
-
-        if (toCentavos(paidAmount) !== toCentavos(paidOrder.totalAmount)) {
-          await notifyStaff({
-            type: NotificationType.PAYMENT,
-            title: 'Payment amount differs from order total',
-            message: `Order ${paidOrder.orderNumber} was paid ${formatPeso(paidAmount)}, but its current total is ${formatPeso(paidOrder.totalAmount)}. Review the order before booking.`,
-            metadata: { paymentId: payment.id, orderId: paidOrder.id, ...deliveryPointer, event: 'PAYMENT_AMOUNT_MISMATCH' },
-          });
-        }
-      }
+      await this.markPaymentPaid(payment, paidCentavos !== undefined ? new Prisma.Decimal(paidCentavos).div(100) : payment.amount, eventPaymentId ?? payment.transactionRef);
       return;
     }
 
@@ -344,6 +328,80 @@ export class PaymentService {
           message: `A GCash payment for order ${order.orderNumber} failed.`,
           metadata: { paymentId: payment.id, orderId: order.id, event: 'PAYMENT_FAILED' },
           roles: [UserRole.MODERATOR],
+        });
+      }
+    }
+  }
+
+  /**
+   * Marks a Payment PAID once PayMongo has confirmed it (webhook or API read):
+   * advances a still-PENDING Order to PROCESSING, moves its delivery to
+   * "Ready to book" so the moderator can book Lalamove, and notifies the
+   * customer and staff. A payment that is already PAID is left alone.
+   */
+  private async markPaymentPaid(payment: Payment, paidAmount: Prisma.Decimal, transactionRef: string | null): Promise<void> {
+    if (payment.status === PaymentStatus.PAID) return;
+
+    const paidOrder = await prisma.$transaction(async (tx) => {
+      // Conditional, so the webhook and a status check arriving together can
+      // only mark it paid (and notify everyone) once.
+      const { count } = await tx.payment.updateMany({
+        where: { id: payment.id, status: { not: PaymentStatus.PAID } },
+        data: { status: PaymentStatus.PAID, paidAt: new Date(), amount: paidAmount, transactionRef },
+      });
+      if (count === 0) return null;
+
+      const order = await tx.order.findUnique({ where: { id: payment.orderId }, include: { delivery: true } });
+      if (order && order.status === OrderStatus.PENDING) {
+        await tx.order.update({ where: { id: order.id }, data: { status: OrderStatus.PROCESSING } });
+      }
+      // Paid -> ready for the moderator to book Lalamove.
+      if (order?.delivery && !order.delivery.lalamoveOrderId && order.status !== OrderStatus.CANCELLED) {
+        await tx.delivery.update({
+          where: { id: order.delivery.id },
+          data: { deliveryStatus: ORDER_WORKFLOW_STATUSES.READY_TO_BOOK, bookingError: null, bookingFailedAt: null },
+        });
+      }
+
+      if (order) {
+        await createNotification(
+          {
+            userId: order.customerId,
+            type: NotificationType.PAYMENT,
+            title: 'Payment successful',
+            message: `Payment successful. Your payment of ${formatPeso(paidAmount)} for order ${order.orderNumber} was confirmed. Your delivery is being prepared.`,
+            metadata: { paymentId: payment.id, orderId: order.id, event: 'PAYMENT_RECEIVED' },
+          },
+          tx,
+        );
+      }
+      return order;
+    });
+
+    if (paidOrder) {
+      await mirrorOrderToBackup(paidOrder.id, null, 'payment confirmed');
+
+      const shipping = paidOrder.delivery?.quotedAt ? ` incl. ${formatPeso(paidOrder.shippingFee)} shipping` : '';
+      const deliveryPointer = paidOrder.delivery ? { deliveryId: paidOrder.delivery.id } : {};
+      await notifyStaff({
+        type: NotificationType.PAYMENT,
+        title: 'Payment received',
+        message: `GCash payment of ${formatPeso(paidAmount)}${shipping} received for order ${paidOrder.orderNumber}.`,
+        metadata: { paymentId: payment.id, orderId: paidOrder.id, ...deliveryPointer, event: 'PAYMENT_RECEIVED' },
+        byRole: {
+          [UserRole.MODERATOR]: {
+            title: 'Paid - ready to book',
+            message: `Order ${paidOrder.orderNumber} is paid (${formatPeso(paidAmount)}${shipping}). Select the Lalamove vehicle and book the delivery.`,
+          },
+        },
+      });
+
+      if (toCentavos(paidAmount) !== toCentavos(paidOrder.totalAmount)) {
+        await notifyStaff({
+          type: NotificationType.PAYMENT,
+          title: 'Payment amount differs from order total',
+          message: `Order ${paidOrder.orderNumber} was paid ${formatPeso(paidAmount)}, but its current total is ${formatPeso(paidOrder.totalAmount)}. Review the order before booking.`,
+          metadata: { paymentId: payment.id, orderId: paidOrder.id, ...deliveryPointer, event: 'PAYMENT_AMOUNT_MISMATCH' },
         });
       }
     }
