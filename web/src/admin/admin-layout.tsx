@@ -5,6 +5,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { adminNavGroups, navGroupsForRole } from "@/admin/admin-nav"
 import { useSupportChatUnread } from "@/admin/use-support-chat-unread"
 import { useAuth } from "@/auth/use-auth"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { BrandMark } from "@/components/layout/brand"
 import { NotificationBell } from "@/components/notifications/notification-bell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -20,6 +21,7 @@ export function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
+  const confirm = useConfirm()
 
   useEffect(() => { setIsMobileNavOpen(false) }, [location.pathname])
 
@@ -43,6 +45,7 @@ export function AdminLayout() {
   const initials = `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase()
 
   async function handleSignOut() {
+    if (!(await confirm({ title: "Are you sure you want to sign out?", confirmLabel: "Sign Out" }))) return
     await logout()
     navigate("/login", { replace: true })
   }

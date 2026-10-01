@@ -1,5 +1,5 @@
 import { Loader2, UserPlus, Users } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { createModerator, deactivateUser, getUsers } from "@/api/admin"
@@ -123,6 +123,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
   const [errorConfirmPassword, setErrorConfirmPassword] = useState<string | undefined>()
   const [errorPhone, setErrorPhone] = useState<string | undefined>()
   const [isSaving, setIsSaving] = useState(false)
+  const savingRef = useRef(false)
   const [isPasswordFocused, setIsPasswordFocused] = useState(false)
   const confirm = useConfirm()
 
@@ -187,11 +188,14 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
     }
 
     if (!(await confirm({
-      title: "Create this moderator account?",
+      title: "Are you sure you want to create this Moderator account?",
       description: "They will be able to sign in with the temporary password and manage orders, deliveries, and inventory.",
       details: [{ label: "Name", value: `${firstName.trim()} ${lastName.trim()}` }, { label: "Email", value: email.trim() }],
-      confirmLabel: "Create Account",
+      confirmLabel: "Create Moderator",
     }))) return
+    // A second submit while this one is still saving never creates a second account.
+    if (savingRef.current) return
+    savingRef.current = true
 
     setIsSaving(true)
     try {
@@ -209,6 +213,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
     } catch (error) {
       toast.error("Could not create moderator", { description: getAdminErrorMessage(error) })
     } finally {
+      savingRef.current = false
       setIsSaving(false)
     }
   }

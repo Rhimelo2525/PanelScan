@@ -160,8 +160,22 @@ describe('Inventory module', () => {
   });
 
   describe('PATCH /api/inventory/:productId/reserve (reserve stock)', () => {
-    it('increases reservedQty when enough stock is available', async () => {
+    it('rejects direct reserve by OWNER with 403 and leaves the row unchanged', async () => {
       const { token } = await createOwner();
+      const product = await createTestProduct({ withInventory: true, quantity: 20, reservedQty: 5 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${product.id}/reserve`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 2 });
+
+      expect(response.status).toBe(403);
+      const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(dbInventory?.reservedQty).toBe(5);
+    });
+
+    it('increases reservedQty when enough stock is available', async () => {
+      const { token } = await createModerator();
       const product = await createTestProduct({ withInventory: true, quantity: 20, reservedQty: 0 });
 
       const response = await request(app)
@@ -174,7 +188,7 @@ describe('Inventory module', () => {
     });
 
     it('rejects reserving more than the available quantity and leaves the row unchanged', async () => {
-      const { token } = await createOwner();
+      const { token } = await createModerator();
       // quantity 10, already reservedQty 8 -> only 2 available
       const product = await createTestProduct({ withInventory: true, quantity: 10, reservedQty: 8 });
 
@@ -192,8 +206,22 @@ describe('Inventory module', () => {
   });
 
   describe('PATCH /api/inventory/:productId/release (release reserved stock)', () => {
-    it('decreases reservedQty', async () => {
+    it('rejects direct release by OWNER with 403 and leaves the row unchanged', async () => {
       const { token } = await createOwner();
+      const product = await createTestProduct({ withInventory: true, quantity: 20, reservedQty: 5 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${product.id}/release`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 2 });
+
+      expect(response.status).toBe(403);
+      const dbInventory = await prisma.inventory.findUnique({ where: { productId: product.id } });
+      expect(dbInventory?.reservedQty).toBe(5);
+    });
+
+    it('decreases reservedQty', async () => {
+      const { token } = await createModerator();
       const product = await createTestProduct({ withInventory: true, quantity: 20, reservedQty: 10 });
 
       const response = await request(app)
@@ -206,7 +234,7 @@ describe('Inventory module', () => {
     });
 
     it('rejects releasing more than is currently reserved and leaves the row unchanged', async () => {
-      const { token } = await createOwner();
+      const { token } = await createModerator();
       const product = await createTestProduct({ withInventory: true, quantity: 20, reservedQty: 3 });
 
       const response = await request(app)

@@ -1,5 +1,5 @@
 import { HardHat, Loader2, Plus } from "lucide-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { createInstaller, deactivateInstaller, getInstallers } from "@/api/admin"
@@ -86,6 +86,8 @@ export function AdminInstallersPage() {
 function CreateInstallerSheet({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({ firstName: "", lastName: "", phone: "", email: "", specialty: "" })
   const [isSaving, setIsSaving] = useState(false)
+  const savingRef = useRef(false)
+  const confirm = useConfirm()
 
   function update(field: keyof typeof form, value: string) {
     setForm((previous) => ({ ...previous, [field]: sanitizeNameInput(field, value) }))
@@ -104,6 +106,15 @@ function CreateInstallerSheet({ open, onClose, onCreated }: { open: boolean; onC
       toast.error(PHILIPPINE_PHONE_MESSAGE)
       return
     }
+    if (savingRef.current) return
+    if (!(await confirm({
+      title: "Are you sure you want to add this Installer?",
+      details: [{ label: "Name", value: `${form.firstName.trim()} ${form.lastName.trim()}` }, { label: "Phone", value: formatPhoneForDisplay(form.phone) }],
+      confirmLabel: "Add Installer",
+    }))) return
+    // A second click while this one is still saving never adds the installer twice.
+    if (savingRef.current) return
+    savingRef.current = true
     setIsSaving(true)
     try {
       await createInstaller({
@@ -119,6 +130,7 @@ function CreateInstallerSheet({ open, onClose, onCreated }: { open: boolean; onC
     } catch (error) {
       toast.error("Installer not added", { description: getAdminErrorMessage(error) })
     } finally {
+      savingRef.current = false
       setIsSaving(false)
     }
   }

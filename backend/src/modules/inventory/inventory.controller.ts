@@ -290,11 +290,19 @@ export class InventoryController {
   });
 
   reserveStock = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'OWNER') {
+      throw new AppError('Owners cannot directly perform operational changes. Changes must be requested by a Moderator and approved by an Owner.', 403);
+    }
+
     const inventory = await this.inventoryService.reserveStock(req.params.productId as string, req.body.quantity);
     sendSuccess(res, 200, 'Stock reserved successfully.', { inventory });
   });
 
   releaseStock = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (req.user?.role === 'OWNER') {
+      throw new AppError('Owners cannot directly perform operational changes. Changes must be requested by a Moderator and approved by an Owner.', 403);
+    }
+
     const inventory = await this.inventoryService.releaseReservedStock(req.params.productId as string, req.body.quantity);
     sendSuccess(res, 200, 'Reserved stock released successfully.', { inventory });
   });

@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { isAdminRole } from "@/admin/admin-nav"
 import { useAuth } from "@/auth/use-auth"
 import { useCart } from "@/cart/use-cart"
+import { useConfirm } from "@/components/confirm/use-confirm"
 import { Brand } from "@/components/layout/brand"
 import { Container } from "@/components/layout/container"
 import { NotificationBell } from "@/components/notifications/notification-bell"
@@ -35,6 +36,7 @@ export function SiteHeader() {
   const navigate = useNavigate()
   const location = useLocation()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const confirm = useConfirm()
 
   const handleNavClick = (href: string, e: React.MouseEvent) => {
     if (href.includes("#")) {
@@ -53,6 +55,7 @@ export function SiteHeader() {
   }
 
   async function handleLogout() {
+    if (!(await confirm({ title: "Are you sure you want to sign out?", confirmLabel: "Sign Out" }))) return
     setIsLoggingOut(true)
     try {
       await logout()
