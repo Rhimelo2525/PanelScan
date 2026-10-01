@@ -79,6 +79,8 @@
     --border: #d9d0c5;
     --input: #d9d0c5;
     --ring: #8a6d58;
+    /* Unread-chat dot: the storefront's light brown, also used inside .admin-surface (which re-themes --primary/--ring). */
+    --unread-dot: #8a6d58;
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);

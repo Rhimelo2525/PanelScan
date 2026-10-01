@@ -336,11 +336,12 @@ export interface ChatParticipant {
 export interface ChatMessage {
   id: string
   chatRoomId: string
-  senderId: string
+  /** Null for the automated support reply. */
+  senderId: string | null
   content: string
   isRead: boolean
   createdAt: string
-  sender?: ChatUser
+  sender?: ChatUser | null
 }
 
 export interface ChatConversation {

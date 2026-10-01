@@ -38,7 +38,7 @@ router.delete(
   chatController.deleteMessage,
 );
 
-// POST /api/chat - CUSTOMER creates their own conversation.
+// POST /api/chat - CUSTOMER opens their support conversation (reuses their ongoing one; 201 only when new).
 router.post('/', restrictTo(UserRole.CUSTOMER), validate(createChatRoomSchema), chatController.createRoom);
 
 // GET /api/chat - CUSTOMER: own conversations only. MODERATOR/OWNER: every conversation.

@@ -5,7 +5,7 @@ import type { BookingStatus, ChatConversation, ChatMessage, Pagination } from "@
 
 // --------------------------------------------------------------------- chat
 
-/** CUSTOMER only. `subject` is the only field the backend accepts. */
+/** CUSTOMER only. Returns the customer's ongoing support conversation, opening one only when they have none. */
 export async function createConversation(subject?: string): Promise<ChatConversation> {
   const response = await apiRequest<{ conversation: ChatConversation }>("/chat", {
     method: "POST",

@@ -4,6 +4,7 @@ import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { retryOnConflict } from '../../utils/retryOnConflict';
 import { chatRoomInclude, messageInclude } from './chat.types';
 import type {
   ChatRoomWithParticipants,
@@ -32,18 +33,43 @@ const isParticipant = (room: { participants: Array<{ userId: string }> }, userId
  */
 const unreadForRequester = (requesterId: string, requesterRole: UserRole): Prisma.MessageWhereInput =>
   requesterRole === UserRole.CUSTOMER
-    ? { senderId: { not: requesterId }, isRead: false }
+    ? // An automated reply has no sender (null), which a plain "not me" filter would skip.
+      { OR: [{ senderId: { not: requesterId } }, { senderId: null }], isRead: false }
     : { sender: { role: UserRole.CUSTOMER }, isRead: false };
 
+/**
+ * One automated reply when a customer writes and nobody on the support team
+ * has said anything in the conversation for this long - so a customer gets an
+ * acknowledgement, but never one per message, and never in the middle of a
+ * conversation a moderator is actively answering.
+ */
+export const AUTO_REPLY_QUIET_MS = 12 * 60 * 60 * 1000;
+
+export const autoReplyMessage = (firstName: string | undefined): string =>
+  `Hi${firstName ? ` ${firstName}` : ''}! Thanks for reaching out to PanelScan Support. Our team isn't available at the moment, but a moderator will reply right here as soon as possible. In the meantime, feel free to share details like your room measurements, the panels you're interested in, or your order number so we can help you faster.`;
+
 export class ChatService {
-  async createChatRoom(customerId: string, input: CreateChatRoomInput): Promise<ChatRoomWithParticipants> {
-    return prisma.chatRoom.create({
+  /**
+   * A customer has one ongoing support conversation: their most recently
+   * active one is reused, and a new one is only opened when they have none.
+   * `created` tells the caller which happened.
+   */
+  async createChatRoom(customerId: string, input: CreateChatRoomInput): Promise<{ conversation: ChatRoomWithParticipants; created: boolean }> {
+    const existing = await prisma.chatRoom.findFirst({
+      where: { participants: { some: { userId: customerId } } },
+      include: chatRoomInclude,
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    if (existing) return { conversation: existing, created: false };
+
+    const conversation = await prisma.chatRoom.create({
       data: {
         subject: input.subject,
         participants: { create: { userId: customerId } },
       },
       include: chatRoomInclude,
     });
+    return { conversation, created: true };
   }
 
   async getConversations(
@@ -129,7 +155,8 @@ export class ChatService {
     senderRole: UserRole,
     input: SendMessageInput,
   ): Promise<MessageWithSender> {
-    const { message, otherParticipantIds } = await prisma.$transaction(async (tx) => {
+    // Retried when it collides with the same chat being marked read (see retryOnConflict).
+    const { message, otherParticipantIds } = await retryOnConflict(() => prisma.$transaction(async (tx) => {
       const room = await tx.chatRoom.findUnique({ where: { id: chatRoomId }, include: { participants: true } });
       if (!room) {
         throw new AppError('Conversation not found.', 404);
@@ -176,10 +203,13 @@ export class ChatService {
       }
 
       return { message, otherParticipantIds: [...recipientIds] };
-    });
+    }));
 
     if (senderRole === UserRole.CUSTOMER) {
+      // Notify first: it only fires for a conversation's very first message,
+      // which the auto-reply below would otherwise already have outnumbered.
       await this.notifyModeratorsOfNewCustomerMessage(chatRoomId, message, otherParticipantIds);
+      await this.autoReplyIfTeamQuiet(chatRoomId, message.sender?.firstName);
     }
 
     return message;
@@ -207,12 +237,36 @@ export class ChatService {
       await notifyStaff({
         type: NotificationType.CHAT,
         title: 'New customer message',
-        message: `${message.sender.firstName} ${message.sender.lastName}: ${preview}`,
+        message: `${message.sender ? `${message.sender.firstName} ${message.sender.lastName}` : 'Customer'}: ${preview}`,
         metadata: { chatRoomId, messageId: message.id, event: 'CUSTOMER_MESSAGE' },
         roles: [UserRole.MODERATOR],
       });
     } catch (error) {
       console.error('[chat] New-customer-message notification failed:', error);
+    }
+  }
+
+  /** Sends the automated acknowledgement (see AUTO_REPLY_QUIET_MS) when the team has been quiet. Never fails the customer's message. */
+  private async autoReplyIfTeamQuiet(chatRoomId: string, firstName: string | undefined): Promise<void> {
+    try {
+      const since = new Date(Date.now() - AUTO_REPLY_QUIET_MS);
+      // Retried on a write conflict: when two messages arrive at once, the
+      // retry sees the reply the other one just sent and stays silent.
+      await retryOnConflict(() => prisma.$transaction(async (tx) => {
+        // A staff reply or an earlier auto-reply in the window means the team is already here (or already said so).
+        const recentTeamMessage = await tx.message.findFirst({
+          where: {
+            chatRoomId,
+            createdAt: { gte: since },
+            OR: [{ senderId: null }, { sender: { role: { in: [UserRole.MODERATOR, UserRole.OWNER] } } }],
+          },
+          select: { id: true },
+        });
+        if (recentTeamMessage) return;
+        await tx.message.create({ data: { chatRoomId, senderId: null, content: autoReplyMessage(firstName) } });
+      }));
+    } catch (error) {
+      console.error('[chat] Auto-reply failed:', error);
     }
   }
 
@@ -252,16 +306,21 @@ export class ChatService {
     // the mark-read endpoint for every message individually.
     // Staff opening a conversation reads the customer's messages only - a
     // colleague's reply stays unread until the customer sees it.
-    await prisma.$transaction([
-      prisma.message.updateMany({
-        where: { chatRoomId, ...unreadForRequester(requesterId, requesterRole) },
-        data: { isRead: true },
-      }),
-      prisma.chatParticipant.updateMany({
-        where: { chatRoomId, userId: requesterId },
-        data: { lastReadAt: new Date() },
-      }),
-    ]);
+    // Best effort: a read marker that keeps colliding with a message being
+    // sent must never stop the conversation from loading - the next view
+    // marks it read instead.
+    await retryOnConflict(() =>
+      prisma.$transaction([
+        prisma.message.updateMany({
+          where: { chatRoomId, ...unreadForRequester(requesterId, requesterRole) },
+          data: { isRead: true },
+        }),
+        prisma.chatParticipant.updateMany({
+          where: { chatRoomId, userId: requesterId },
+          data: { lastReadAt: new Date() },
+        }),
+      ]),
+    ).catch((error) => console.error('[chat] Could not mark the conversation read:', error));
 
     return {
       messages,

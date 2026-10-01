@@ -610,13 +610,14 @@ model ChatParticipant {
 model Message {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   chatRoomId String   @map("chat_room_id") @db.Uuid
-  senderId   String   @map("sender_id") @db.Uuid
+  /// Null for an automated support reply (chat.service.ts); always set for a person's message.
+  senderId   String?  @map("sender_id") @db.Uuid
   content    String
   isRead     Boolean  @default(false) @map("is_read")
   createdAt  DateTime @default(now()) @map("created_at")
 
   chatRoom ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
-  sender   User     @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  sender   User?    @relation(fields: [senderId], references: [id], onDelete: Restrict)
 
   @@index([chatRoomId, createdAt])
   @@index([senderId])

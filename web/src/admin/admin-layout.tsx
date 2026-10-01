@@ -33,7 +33,7 @@ export function AdminLayout() {
   const navLabel = (item: { to: string; label: string }) => (
     <>
       {item.label}
-      {item.to === "/admin/chat" && hasUnreadChat && <span className="size-2 shrink-0 rounded-full bg-destructive" role="status" aria-label="Unread messages" />}
+      {item.to === "/admin/chat" && hasUnreadChat && <span className="size-2 shrink-0 rounded-full bg-(--unread-dot)" role="status" aria-label="Unread messages" />}
     </>
   )
 

@@ -242,15 +242,19 @@ describe('Chat module', () => {
       expect((after.body.data.conversations as Array<{ id: string }>).map((c) => c.id)).toEqual([olderRoom.id, newerRoom.id]);
     });
 
-    it("shows a newly created conversation at the top of the list", async () => {
+    it("reuses the customer's ongoing conversation instead of opening a second one", async () => {
       const { token, user } = await createCustomer();
-      const firstRoom = await prisma.chatRoom.create({ data: { subject: "Existing chat", updatedAt: new Date(Date.now() - 10000), participants: { create: { userId: user.id } } } });
+      const olderRoom = await prisma.chatRoom.create({ data: { subject: "Older chat", updatedAt: new Date(Date.now() - 60000), participants: { create: { userId: user.id } } } });
+      const latestRoom = await prisma.chatRoom.create({ data: { subject: "Existing chat", updatedAt: new Date(Date.now() - 10000), participants: { create: { userId: user.id } } } });
 
-      const createRes = await request(app).post("/api/chat").set("Authorization", `Bearer ${token}`).send({ subject: "Newly arrived chat" });
-      expectApiSuccess(createRes, 201);
+      const createRes = await request(app).post("/api/chat").set("Authorization", `Bearer ${token}`).send({ subject: "Another chat" });
+      expectApiSuccess(createRes, 200, "Conversation retrieved successfully.");
+      expect(createRes.body.data.conversation.id).toBe(latestRoom.id);
 
-      const listRes = await request(app).get("/api/chat").set("Authorization", `Bearer ${token}`);
-      expect((listRes.body.data.conversations as Array<{ id: string }>).map((c) => c.id)).toEqual([createRes.body.data.conversation.id, firstRoom.id]);
+      const again = await request(app).post("/api/chat").set("Authorization", `Bearer ${token}`).send({});
+      expect(again.body.data.conversation.id).toBe(latestRoom.id);
+      expect(await prisma.chatRoom.count({ where: { participants: { some: { userId: user.id } } } })).toBe(2);
+      expect(olderRoom.id).not.toBe(latestRoom.id);
     });
   });
 

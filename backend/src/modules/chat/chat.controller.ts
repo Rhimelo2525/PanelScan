@@ -36,8 +36,8 @@ export class ChatController {
 
   createRoom = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
-    const conversation = await this.chatService.createChatRoom(requester.id, req.body);
-    sendSuccess(res, 201, 'Conversation created successfully.', { conversation });
+    const { conversation, created } = await this.chatService.createChatRoom(requester.id, req.body);
+    sendSuccess(res, created ? 201 : 200, created ? 'Conversation created successfully.' : 'Conversation retrieved successfully.', { conversation });
   });
 
   getConversations = catchAsync(async (req: Request, res: Response): Promise<void> => {
