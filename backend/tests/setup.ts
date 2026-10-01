@@ -1,8 +1,15 @@
 import { afterAll, afterEach, beforeAll } from 'vitest';
 
 import { prisma } from '../src/config/database';
+import { screeningDeps } from '../src/utils/emailScreening';
 import { cleanDatabase, disconnectDatabase } from './helpers/db';
 import { seedDatabase } from '../prisma/seed';
+
+// No real DNS from sign-up tests: a domain's mail servers look "unknown" unless
+// a test says otherwise (tests/auth/emailScreening.test.ts).
+screeningDeps.resolveMx = async () => {
+  throw new Error('DNS is disabled in tests.');
+};
 
 beforeAll(async () => {
   const dbUrl = process.env.DATABASE_URL || '';

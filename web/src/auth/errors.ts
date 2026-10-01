@@ -63,6 +63,15 @@ export function isDisposableEmailError(error: unknown): boolean {
   return error instanceof ApiRequestError && error.status === 400 && error.message === DISPOSABLE_EMAIL_MESSAGE
 }
 
+/** Must match UNDELIVERABLE_EMAIL_MESSAGE in the API (utils/emailScreening.ts). */
+export const UNDELIVERABLE_EMAIL_MESSAGE = "We couldn't find a mailbox at this email address. Please check it and try again."
+
+/** The sign-up email problems shown under the Email field rather than as a form error. */
+export function registerEmailErrorMessage(error: unknown): string | null {
+  if (!(error instanceof ApiRequestError) || error.status !== 400) return null
+  return error.message === DISPOSABLE_EMAIL_MESSAGE || error.message === UNDELIVERABLE_EMAIL_MESSAGE ? error.message : null
+}
+
 export function getRegisterErrorMessage(error: unknown): string {
   if (error instanceof ActiveAccountConflictError) return error.message
   if (!(error instanceof ApiRequestError)) return "We couldn't create your account. Please try again."

@@ -92,6 +92,13 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
 
+  // Abstract Email Reputation API (utils/emailScreening.ts): a third check,
+  // after the local disposable list and the mail-server check, for new
+  // accounts on less common email domains. Optional: without a key, or when
+  // the service is down or out of credits, registration carries on with the
+  // other two checks.
+  ABSTRACT_EMAIL_API_KEY: z.string().optional(),
+
   // Transactional email (backend/src/utils/mailer.ts) - the one-time codes
   // sent for email verification and password recovery. Entirely optional at
   // startup so the backend boots without SMTP credentials: outside

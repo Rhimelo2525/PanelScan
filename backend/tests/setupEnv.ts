@@ -35,6 +35,8 @@ process.env.UPLOAD_DIR = path.join(os.tmpdir(), `panelscan-test-uploads-${proces
  * and attempt a real write against it, rather than exercising the "backup
  * not configured" code path those tests actually mean to test.
  */
-for (const key of ['MAPBOX_ACCESS_TOKEN', 'GOOGLE_MAPS_API_KEY', 'BLOB_READ_WRITE_TOKEN', 'BLOB_STORE_ID', 'BACKUP_DATABASE_URL', 'BACKUP_DIRECT_URL']) {
+// ABSTRACT_EMAIL_API_KEY: same again - a sign-up test would otherwise spend a
+// real Abstract credit (utils/emailScreening.ts) with the key from backend/.env.
+for (const key of ['MAPBOX_ACCESS_TOKEN', 'GOOGLE_MAPS_API_KEY', 'BLOB_READ_WRITE_TOKEN', 'BLOB_STORE_ID', 'BACKUP_DATABASE_URL', 'BACKUP_DIRECT_URL', 'ABSTRACT_EMAIL_API_KEY']) {
   if (!(key in process.env)) process.env[key] = '';
 }

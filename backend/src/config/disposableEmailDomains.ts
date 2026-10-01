@@ -71,3 +71,14 @@ export const ALLOWED_EMAIL_DOMAINS: readonly string[] = [
   'anonaddy.me',
   'privaterelay.appleid.com',
 ];
+
+/**
+ * Mail-server IP addresses that only temporary-mail services use. A new
+ * temp-mail domain usually points its MX record at the same few servers, so
+ * this catches domains no list has seen yet (utils/emailScreening.ts).
+ * Add an address only after checking that the server hosts temp mail alone.
+ */
+export const DISPOSABLE_MAIL_SERVER_IPS: readonly string[] = [
+  // mail.caps7.com, mail.hudzer.com (October 2026)
+  '134.199.179.131',
+];

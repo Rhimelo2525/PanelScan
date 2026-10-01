@@ -5,6 +5,7 @@ import { prisma } from '../../config/database';
 import { notifyOwnersOfNewCustomer, notifyUser } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '../../utils/disposableEmail';
+import { screenNewAccountEmail } from '../../utils/emailScreening';
 import { signToken } from '../../utils/jwt';
 import { comparePassword, hashPassword } from '../../utils/password';
 import { generateRefreshToken, hashRefreshToken } from '../../utils/refreshToken';
@@ -87,6 +88,10 @@ export class AuthService {
     if (existingUser) {
       throw new AppError('An account with this email already exists.', 409);
     }
+
+    // Temp-mail domains the list above does not know yet, and mailboxes that
+    // do not exist (utils/emailScreening.ts). Last, as it may call a paid API.
+    await screenNewAccountEmail(input.email, { checkMailbox: true });
 
     const hashedPassword = await hashPassword(input.password);
 
@@ -190,6 +195,8 @@ export class AuthService {
     if (isDisposableEmail(email)) {
       throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
     }
+    // Google has verified the mailbox, so only the temp-mail checks apply.
+    await screenNewAccountEmail(email, { checkMailbox: false });
     // A brand-new account created via Google customer login receives CUSTOMER role only.
     // Do NOT automatically mark a Google customer as having accepted Terms/Privacy without explicit user action.
     user = await prisma.user.create({

@@ -3,7 +3,7 @@ import { useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
-import { DISPOSABLE_EMAIL_MESSAGE, getRegisterErrorMessage, isDisposableEmailError } from "@/auth/errors"
+import { getRegisterErrorMessage, registerEmailErrorMessage } from "@/auth/errors"
 import { checkPasswordRequirements } from "@/auth/password-policy"
 import { getSafeRedirect } from "@/auth/redirect"
 import { calculateAge, dateInputValue, normalizeMiddleInitial, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, registerSpaceRejection, sanitizeNameInput, validateRegistration } from "@/auth/registration-validation"
@@ -155,7 +155,8 @@ export function RegisterPage() {
       })
       navigate(destination, { replace: true })
     } catch (error) {
-      if (isDisposableEmailError(error)) setErrors((current) => ({ ...current, email: DISPOSABLE_EMAIL_MESSAGE }))
+      const emailError = registerEmailErrorMessage(error)
+      if (emailError) setErrors((current) => ({ ...current, email: emailError }))
       else setSubmissionError(getRegisterErrorMessage(error))
     } finally {
       setIsSubmitting(false)

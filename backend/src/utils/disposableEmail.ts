@@ -37,6 +37,16 @@ export const emailDomain = (email: string): string | null => {
   return domain && domain.includes('.') ? domain : null;
 };
 
+/** True when the domain (or a parent domain) is a known permanent provider that is never treated as disposable. */
+export const isAllowedEmailDomain = (domain: string): boolean => {
+  const { allowed: allowedDomains } = lists();
+  const labels = domain.split('.');
+  for (let index = 0; index < labels.length - 1; index += 1) {
+    if (allowedDomains.has(labels.slice(index).join('.'))) return true;
+  }
+  return false;
+};
+
 /**
  * True when the address belongs to a temporary/disposable mail service. The
  * domain and each parent domain are checked, most specific first, so a
