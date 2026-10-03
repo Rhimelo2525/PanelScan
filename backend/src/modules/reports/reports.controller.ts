@@ -45,7 +45,10 @@ export class ReportsController {
 
   getSales = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
-    const report = await this.reportsService.getSalesReport(requester.role, parsePaginatedFilters(req.query));
+    const report = await this.reportsService.getSalesReport(requester.role, {
+      ...parseStatusFilters(req.query),
+      search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    });
     sendSuccess(res, 200, 'Sales report retrieved successfully.', report);
   });
 

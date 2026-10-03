@@ -4,7 +4,8 @@ import { Link } from "react-router-dom"
 
 import { getFeedback } from "@/api/admin"
 import { formatDateTime, fullName } from "@/admin/admin-format"
-import { useAdminResource } from "@/admin/use-admin-resource"
+import { useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
+import { FilterBar } from "@/components/admin/filter-bar"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
 import { EmptyState, ErrorState } from "@/components/admin/empty-state"
@@ -15,7 +16,9 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 export function AdminFeedbackPage() {
   useDocumentTitle("Feedback | PanelScan Admin")
   const [page, setPage] = useState(1)
-  const feedback = useAdminResource((signal) => getFeedback({ page, limit: 20 }, signal), [page], { pollIntervalMs: 30_000 })
+  const [searchInput, setSearchInput] = useState("")
+  const search = useDebouncedValue(searchInput.trim())
+  const feedback = useAdminResource((signal) => getFeedback({ page, limit: 10, search: search || undefined }, signal), [page, search], { pollIntervalMs: 30_000 })
   const rows = feedback.data?.feedbacks ?? []
   const average = rows.length === 0 ? null : rows.reduce((sum, row) => sum + row.rating, 0) / rows.length
 
@@ -31,12 +34,14 @@ export function AdminFeedbackPage() {
             <MetricCard label="Total entries" value={feedback.data?.pagination.total ?? 0} isLoading={feedback.isLoading} />
           </section>
 
+          <FilterBar searchValue={searchInput} searchPlaceholder="Search comment, customer or order number" onSearchChange={(value) => { setSearchInput(value); setPage(1) }} hasActiveFilters={Boolean(searchInput)} onClear={() => { setSearchInput(""); setPage(1) }} />
+
           <DataTable
             caption="Customer feedback with rating and comment"
             isLoading={feedback.isLoading}
             rows={rows}
             getRowId={(row) => row.id}
-            empty={<EmptyState icon={Star} title="No feedback yet" description="Customer ratings appear here once orders have been completed and reviewed." />}
+            empty={search ? <EmptyState icon={Star} title="No feedback matches your search" description="Try a different comment, customer name or order number." /> : <EmptyState icon={Star} title="No feedback yet" description="Customer ratings appear here once orders have been completed and reviewed." />}
             columns={[
               { key: "customer", header: "Customer", primary: true, cell: (row) => <span className="font-medium">{fullName(row.customer)}</span> },
               { key: "rating", header: "Rating", cell: (row) => <span className="flex items-center gap-1 tabular-nums" aria-label={`${row.rating} out of 5`}><Star className="size-3.5 fill-current text-[var(--status-warning)]" aria-hidden="true" />{row.rating}/5</span> },

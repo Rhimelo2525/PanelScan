@@ -31,7 +31,7 @@ export function AdminChatPage() {
   const [isSending, setIsSending] = useState(false)
   // Guards against a second send before the first finishes (e.g. Enter pressed twice quickly).
   const sendingRef = useRef(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
 
   const conversations = useAdminResource((signal) => getConversations({ limit: 30 }, signal), [], { pollIntervalMs: 20_000 })
   // Conversation LIST only: latest activity at the top. The thread below keeps its own oldest-to-newest order.
@@ -49,7 +49,24 @@ export function AdminChatPage() {
     return [...result.messages].reverse()
   }, [activeId], { pollIntervalMs: 8_000 })
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ block: "nearest" }) }, [messages.data])
+  // Scroll the message panel (not the page) to the newest message when a
+  // conversation opens, when you send, or when one arrives while you're
+  // already at the bottom - never while you've scrolled up to read (the
+  // list refreshes every few seconds).
+  const scrolledFor = useRef<{ roomId: string | null; lastMessageId: string | null }>({ roomId: null, lastMessageId: null })
+  const wasAtBottomRef = useRef(true)
+  useEffect(() => {
+    if (messages.isLoading) return
+    const panel = messagesScrollRef.current
+    const list = messages.data ?? []
+    const last = list.at(-1)
+    const previous = scrolledFor.current
+    const opened = previous.roomId !== activeId
+    const hasNewMessage = (last?.id ?? null) !== previous.lastMessageId
+    scrolledFor.current = { roomId: activeId, lastMessageId: last?.id ?? null }
+    if (!panel || !(opened || (hasNewMessage && (wasAtBottomRef.current || last?.senderId === user?.id)))) return
+    panel.scrollTop = panel.scrollHeight
+  }, [messages.data, messages.isLoading, activeId, user?.id])
 
   // Loading the open conversation's messages marks them read on the server.
   // Once that has happened, refresh the list (its dot) and the sidebar's
@@ -126,8 +143,9 @@ export function AdminChatPage() {
             })}
           </ul>
 
-          <section className="flex min-h-[28rem] flex-col surface-card" aria-label="Conversation messages">
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          {/* Fixed height: messages scroll inside the panel and the reply box stays in view. */}
+          <section className="flex h-[calc(100dvh-10rem)] min-h-[28rem] flex-col surface-card" aria-label="Conversation messages">
+            <div ref={messagesScrollRef} onScroll={(event) => { const panel = event.currentTarget; wasAtBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80 }} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
               {!activeId ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">Select a conversation to read it.</p>
               ) : messages.isLoading ? <Skeleton className="h-40 w-full" /> : messages.error ? <ErrorState message={messages.error} onRetry={messages.reload} /> : (messages.data ?? []).length === 0 ? (
@@ -143,7 +161,6 @@ export function AdminChatPage() {
                   )
                 })
               )}
-              <div ref={messagesEndRef} />
             </div>
 
             {!activeId ? null : canReply ? (

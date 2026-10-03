@@ -31,6 +31,7 @@ export interface BookingFilters {
   limit?: number;
   status?: BookingStatus;
   onlyOrders?: boolean;
+  search?: string;
 }
 
 export interface PaginationMeta {

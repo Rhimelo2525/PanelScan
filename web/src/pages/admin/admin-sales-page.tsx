@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { approveOrder, getSalesReport, updateOrderStatus } from "@/api/admin"
 import { useConfirm } from "@/components/confirm/use-confirm"
 import { formatCount, formatDateTime, formatMoney } from "@/admin/admin-format"
-import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
+import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
 import { EmptyState, ErrorState } from "@/components/admin/empty-state"
@@ -71,12 +71,14 @@ export function AdminSalesPage() {
   const isModerator = user?.role === "MODERATOR"
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState("")
+  const [searchInput, setSearchInput] = useState("")
+  const search = useDebouncedValue(searchInput.trim())
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
   const [detailsOrder, setDetailsOrder] = useState<OrderReportRow | null>(null)
   const confirm = useConfirm()
 
-  const report = useAdminResource((signal) => getSalesReport({ page, limit: 20, status: status || undefined }, signal), [page, status])
+  const report = useAdminResource((signal) => getSalesReport({ page, limit: 10, status: status || undefined, search: search || undefined }, signal), [page, status, search])
   const summary = report.data?.summary
   const orders = report.data?.orders ?? []
 
@@ -146,7 +148,7 @@ export function AdminSalesPage() {
             </div>
           </section>
 
-          <FilterBar hasActiveFilters={Boolean(status)} onClear={() => { setStatus(""); setPage(1) }}>
+          <FilterBar searchValue={searchInput} searchPlaceholder="Search order number or customer" onSearchChange={(value) => { setSearchInput(value); setPage(1) }} hasActiveFilters={Boolean(status || searchInput)} onClear={() => { setStatus(""); setSearchInput(""); setPage(1) }}>
             <FilterSelect label="Status" value={status} allLabel="All statuses" options={ORDER_STATUSES.map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase() }))} onChange={(value) => { setStatus(value); setPage(1) }} />
           </FilterBar>
 

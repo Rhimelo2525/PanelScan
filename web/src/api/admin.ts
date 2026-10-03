@@ -237,7 +237,7 @@ export function approveOrder(orderId: string) {
 
 // ----------------------------------------------------------------- requests
 
-export function getRequests(query: AdminListQuery & { type?: string; kind?: string } = {}, signal?: AbortSignal) {
+export function getRequests(query: AdminListQuery & { type?: string; kind?: string; sortBy?: "title" | "createdAt" | "reviewedAt"; sortOrder?: "asc" | "desc" } = {}, signal?: AbortSignal) {
   return apiRequest<{ requests: AdminRequest[]; pagination: Pagination }>(`/requests${toQuery({ ...query })}`, { authenticated: true, signal })
 }
 

@@ -51,7 +51,7 @@ export function AdminInventoryPage() {
   const [adjusting, setAdjusting] = useState<InventoryRecord | null>(null)
   const [showRecordStock, setShowRecordStock] = useState(false)
 
-  const inventory = useAdminResource((signal) => getInventory({ page, limit: 20 }, signal), [page], { pollIntervalMs: 30_000 })
+  const inventory = useAdminResource((signal) => getInventory({ page, limit: 10 }, signal), [page], { pollIntervalMs: 30_000 })
   // Second read purely for the value/price summary the inventory routes do not carry.
   const report = useAdminResource((signal) => getInventoryReport({ limit: 1 }, signal), [])
 

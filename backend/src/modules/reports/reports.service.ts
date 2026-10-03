@@ -1,6 +1,7 @@
 import { BookingStatus, OrderStatus, PaymentStatus, Prisma, ProjectStatus, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
+import { containsText, searchWords } from '../../utils/searchWhere';
 import type {
   BookingReportRow,
   BookingsReport,
@@ -95,15 +96,27 @@ export class ReportsService {
    * a second meaning of "revenue" here. Per-row `totalAmount` (also
    * OWNER-only) is the order's own value regardless of payment status.
    */
-  async getSalesReport(role: UserRole, filters: DateRangeFilters & PaginatedListFilters): Promise<SalesReport> {
+  async getSalesReport(role: UserRole, filters: OrderStatusFilter & { search?: string }): Promise<SalesReport> {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
+    // The summary covers every order in the date range; the status filter and
+    // the search (order number or customer) only narrow the order list.
     const where: Prisma.OrderWhereInput = buildCreatedAtWhere(filters);
+    const listWhere: Prisma.OrderWhereInput = {
+      ...where,
+      ...(filters.status ? { status: filters.status as OrderStatus } : {}),
+      ...searchWords<Prisma.OrderWhereInput>(filters.search, (word) => [
+        { orderNumber: containsText(word) },
+        { customer: { firstName: containsText(word) } },
+        { customer: { lastName: containsText(word) } },
+        { customer: { email: containsText(word) } },
+      ]),
+    };
 
-    const [ordersByStatusRaw, orders] = await Promise.all([
+    const [ordersByStatusRaw, orders, listTotal] = await Promise.all([
       prisma.order.groupBy({ by: ['status'], where, _count: { _all: true } }),
       prisma.order.findMany({
-        where,
+        where: listWhere,
         include: {
           customer: { select: { firstName: true, lastName: true } },
           items: orderItemsInclude,
@@ -132,6 +145,7 @@ export class ReportsService {
         skip: (page - 1) * limit,
         take: limit,
       }),
+      prisma.order.count({ where: listWhere }),
     ]);
 
     const totalOrders = ordersByStatusRaw.reduce((sum, row) => sum + row._count._all, 0);
@@ -156,7 +170,7 @@ export class ReportsService {
     return {
       summary,
       orders: orders.map((order) => this.toOrderRow(order, role === UserRole.OWNER || role === UserRole.MODERATOR)),
-      pagination: paginationMeta(page, limit, totalOrders),
+      pagination: paginationMeta(page, limit, listTotal),
     };
   }
 

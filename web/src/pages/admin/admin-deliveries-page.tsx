@@ -49,9 +49,6 @@ const STATE_OPTIONS: { value: DeliveryStateFilter; label: string }[] = [
 
 type DeliveryState = "" | DeliveryStateFilter
 
-/** Paid and waiting for the moderator to book (including an in-flight or failed attempt). */
-const TO_BOOK = new Set(["READY_TO_BOOK", "BOOKING", "BOOKING_FAILED"])
-
 /** One status for the whole workflow: PanelScan's order-driven stage until Lalamove has the order, then Lalamove's own status. */
 function workflowStatus(delivery: DeliveryRecord): { status: string; label: string } {
   if (!delivery.lalamoveOrderId && delivery.order?.status === "CANCELLED") return { status: "CANCELLED", label: "Cancelled" }
@@ -100,7 +97,7 @@ export function AdminDeliveriesPage() {
   const [showFailedRequests, setShowFailedRequests] = useState(false)
 
   const deliveriesResource = useAdminResource(
-    (signal) => getDeliveries({ page, limit: 20, deliveryState: deliveryState || undefined, search: search || undefined, sortBy: "createdAt", sortOrder: "desc" }, signal),
+    (signal) => getDeliveries({ page, limit: 10, deliveryState: deliveryState || undefined, search: search || undefined, sortBy: "createdAt", sortOrder: "desc" }, signal),
     [page, deliveryState, search],
     { pollIntervalMs: 20_000 },
   )
@@ -136,11 +133,16 @@ export function AdminDeliveriesPage() {
   function handleChanged(delivery: DeliveryRecord) {
     setSelectedDelivery(delivery)
     deliveriesResource.reload()
+    counts.reload()
   }
 
-  const awaitingQuoteCount = rows.filter((row) => row.deliveryStatus === "AWAITING_QUOTE").length
-  const toBookCount = rows.filter((row) => !row.lalamoveOrderId && TO_BOOK.has(row.deliveryStatus ?? "")).length
-  const activeCount = rows.filter((row) => ["ASSIGNING_DRIVER", "ON_GOING", "PICKED_UP"].includes(row.deliveryStatus ?? "")).length
+  // Totals across every delivery (not just the 10 on this page or the active filter).
+  const counts = useAdminResource(async (signal) => {
+    const total = async (deliveryState: DeliveryStateFilter) => (await getDeliveries({ limit: 1, deliveryState }, signal)).pagination.total
+    const [awaitingQuote, toBook, active] = await Promise.all([total("awaiting_quote"), total("to_book"), total("active")])
+    return { awaitingQuote, toBook, active }
+  }, [], { pollIntervalMs: 20_000 })
+  const countsLoading = counts.isLoading && !counts.data
 
   return (
     <div className="space-y-6">
@@ -151,9 +153,9 @@ export function AdminDeliveriesPage() {
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Delivery summary">
-        <MetricCard label="Awaiting shipping quote" value={deliveriesResource.isLoading ? "—" : awaitingQuoteCount} isLoading={deliveriesResource.isLoading} />
-        <MetricCard label="Paid — ready to book" value={deliveriesResource.isLoading ? "—" : toBookCount} isLoading={deliveriesResource.isLoading} />
-        <MetricCard label="Active deliveries" value={deliveriesResource.isLoading ? "—" : activeCount} isLoading={deliveriesResource.isLoading} />
+        <MetricCard label="Awaiting shipping quote" value={counts.data?.awaitingQuote ?? "—"} isLoading={countsLoading} />
+        <MetricCard label="Paid — ready to book" value={counts.data?.toBook ?? "—"} isLoading={countsLoading} />
+        <MetricCard label="Active deliveries" value={counts.data?.active ?? "—"} isLoading={countsLoading} />
         <button type="button" onClick={() => setShowFailedRequests(true)} className="text-left">
           <MetricCard label="Failed API requests" value="View" isLoading={false} />
         </button>

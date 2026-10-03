@@ -4,7 +4,7 @@ import { toast } from "sonner"
 
 import { assignBookingInstaller, getBookings, getInstallers, updateBookingStatus } from "@/api/admin"
 import { formatDate, formatDateTime, fullName } from "@/admin/admin-format"
-import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
+import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
 import { useAuth } from "@/auth/use-auth"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
@@ -56,6 +56,8 @@ export function AdminInstallationRequestsPage() {
 
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState("")
+  const [searchInput, setSearchInput] = useState("")
+  const search = useDebouncedValue(searchInput.trim())
   const [selectedBooking, setSelectedBooking] = useState<AdminBooking | null>(null)
 
   const requestsResource = useAdminResource(
@@ -63,13 +65,14 @@ export function AdminInstallationRequestsPage() {
       getBookings(
         {
           page,
-          limit: 20,
+          limit: 10,
           status: status || undefined,
+          search: search || undefined,
           onlyOrders: true,
         },
         signal,
       ),
-    [page, status],
+    [page, status, search],
     { pollIntervalMs: 20_000 },
   )
 
@@ -84,9 +87,13 @@ export function AdminInstallationRequestsPage() {
   }, [rows, selectedBooking])
 
   // Count summaries for metrics
-  const requestedCount = rows.filter((r) => r.status === "PENDING").length
-  const scheduledCount = rows.filter((r) => r.status === "SCHEDULED" || r.status === "APPROVED").length
-  const completedCount = rows.filter((r) => r.status === "COMPLETED").length
+  // Totals across every installation request (not just the 10 on this page or the active filter).
+  const counts = useAdminResource(async (signal) => {
+    const total = async (bookingStatus: string) => (await getBookings({ limit: 1, status: bookingStatus, onlyOrders: true }, signal)).pagination.total
+    const [pending, approved, scheduled, completed] = await Promise.all([total("PENDING"), total("APPROVED"), total("SCHEDULED"), total("COMPLETED")])
+    return { pending, scheduled: approved + scheduled, completed }
+  }, [], { pollIntervalMs: 20_000 })
+  const countsLoading = counts.isLoading && !counts.data
 
   return (
     <div className="space-y-6">
@@ -101,12 +108,12 @@ export function AdminInstallationRequestsPage() {
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Installation summary">
-        <MetricCard label="Pending requests" value={requestsResource.isLoading ? "—" : requestedCount} isLoading={requestsResource.isLoading} />
-        <MetricCard label="Confirmed / Scheduled" value={requestsResource.isLoading ? "—" : scheduledCount} isLoading={requestsResource.isLoading} />
-        <MetricCard label="Completed installations" value={requestsResource.isLoading ? "—" : completedCount} isLoading={requestsResource.isLoading} />
+        <MetricCard label="Pending requests" value={counts.data?.pending ?? "—"} isLoading={countsLoading} />
+        <MetricCard label="Confirmed / Scheduled" value={counts.data?.scheduled ?? "—"} isLoading={countsLoading} />
+        <MetricCard label="Completed installations" value={counts.data?.completed ?? "—"} isLoading={countsLoading} />
       </section>
 
-      <FilterBar hasActiveFilters={Boolean(status)} onClear={() => { setStatus(""); setPage(1) }}>
+      <FilterBar searchValue={searchInput} searchPlaceholder="Search customer, order, address or installer" onSearchChange={(value) => { setSearchInput(value); setPage(1) }} hasActiveFilters={Boolean(status || searchInput)} onClear={() => { setStatus(""); setSearchInput(""); setPage(1) }}>
         <FilterSelect
           label="Status"
           value={status}
@@ -204,6 +211,7 @@ export function AdminInstallationRequestsPage() {
         onClose={() => setSelectedBooking(null)}
         onUpdated={() => {
           requestsResource.reload()
+          counts.reload()
         }}
       />
     </div>

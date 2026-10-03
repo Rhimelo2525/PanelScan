@@ -4,7 +4,8 @@ import { toast } from "sonner"
 
 import { createInstaller, deactivateInstaller, getInstallers } from "@/api/admin"
 import { formatDate } from "@/admin/admin-format"
-import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
+import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
+import { FilterBar } from "@/components/admin/filter-bar"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
 import { EmptyState, ErrorState } from "@/components/admin/empty-state"
@@ -28,7 +29,9 @@ export function AdminInstallersPage() {
   const [isCreating, setIsCreating] = useState(false)
   const confirm = useConfirm()
 
-  const installers = useAdminResource((signal) => getInstallers({ page, limit: 20 }, signal), [page])
+  const [searchInput, setSearchInput] = useState("")
+  const search = useDebouncedValue(searchInput.trim())
+  const installers = useAdminResource((signal) => getInstallers({ page, limit: 10, search: search || undefined }, signal), [page, search])
   const rows = installers.data?.installers ?? []
 
   async function handleDeactivate(installer: Installer) {
@@ -56,6 +59,8 @@ export function AdminInstallersPage() {
         actions={<Button size="sm" onClick={() => setIsCreating(true)}><Plus data-icon="inline-start" aria-hidden="true" />Add installer</Button>}
       />
 
+      <FilterBar searchValue={searchInput} searchPlaceholder="Search name, phone, email or specialty" onSearchChange={(value) => { setSearchInput(value); setPage(1) }} hasActiveFilters={Boolean(searchInput)} onClear={() => { setSearchInput(""); setPage(1) }} />
+
       {installers.error ? <ErrorState message={installers.error} onRetry={installers.reload} /> : (
         <>
           <DataTable
@@ -63,7 +68,7 @@ export function AdminInstallersPage() {
             isLoading={installers.isLoading}
             rows={rows}
             getRowId={(row) => row.id}
-            empty={<EmptyState icon={HardHat} title="No installers yet" description="Add the installers who carry out PanelScan installations so they can be assigned to bookings." action={<Button size="sm" onClick={() => setIsCreating(true)}>Add installer</Button>} />}
+            empty={search ? <EmptyState icon={HardHat} title="No installers match your search" description="Try a different name, phone number or specialty." /> : <EmptyState icon={HardHat} title="No installers yet" description="Add the installers who carry out PanelScan installations so they can be assigned to bookings." action={<Button size="sm" onClick={() => setIsCreating(true)}>Add installer</Button>} />}
             columns={[
               { key: "name", header: "Installer", primary: true, cell: (row) => <span className="font-medium">{[row.firstName, formatMiddleInitial(row.middleInitial), row.lastName].filter(Boolean).join(" ")}</span> },
               { key: "specialty", header: "Specialty", cell: (row) => row.specialty ?? <span className="text-muted-foreground">—</span> },

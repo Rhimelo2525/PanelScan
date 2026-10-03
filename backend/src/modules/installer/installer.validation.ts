@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { middleInitialSchema, optionalMiddleInitialSchema, personNameSchema, tidyPersonNameSchema } from '../../utils/nameSchema';
 import { optionalPhilippinePhoneSchema, philippinePhoneSchema } from '../../utils/phoneSchema';
+import { listSearchQuery } from '../../utils/searchWhere';
 
 const NUMERIC_STRING = /^\d+$/;
 
@@ -40,6 +41,7 @@ export const listInstallersSchema = z.object({
   query: z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
+    search: listSearchQuery,
   }),
 });
 

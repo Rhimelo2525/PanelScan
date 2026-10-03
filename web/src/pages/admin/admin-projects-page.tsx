@@ -38,7 +38,7 @@ export function AdminProjectsPage() {
   const search = useDebouncedValue(searchInput)
   const [selected, setSelected] = useState<AdminProject | null>(null)
 
-  const projects = useAdminResource((signal) => getProjects({ page, limit: 20, status: status || undefined, search: search || undefined, source: "MOBILE_AR_3D" }, signal), [page, status, search])
+  const projects = useAdminResource((signal) => getProjects({ page, limit: 10, status: status || undefined, search: search || undefined, source: "MOBILE_AR_3D" }, signal), [page, status, search])
   const rows = (projects.data?.projects ?? []).filter((row) => row.source === "MOBILE_AR_3D")
 
   return (

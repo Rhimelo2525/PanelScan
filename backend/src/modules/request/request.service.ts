@@ -6,6 +6,7 @@ import type { NotificationDbClient } from '../notifications/notification.types';
 import { notifyStockLevelChange } from '../notifications/notification.triggers';
 import type { StockChange } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { containsText, searchWords } from '../../utils/searchWhere';
 import { slugify } from '../../utils/slugify';
 import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
 import { DIMENSION_DIGIT_LIMITS, PRICE_MESSAGE, dimensionDigitMessage, hasAllowedDimensionDigits, hasAllowedPriceDigits, type DimensionField } from '../product/product.validation';
@@ -102,14 +103,15 @@ export class RequestService {
       ...(filters.reviewedById ? { reviewedById: filters.reviewedById } : {}),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.type ? { type: filters.type } : {}),
-      ...(filters.kind || filters.search
-        ? {
-            AND: [
-              ...(filters.kind ? [{ title: { startsWith: REQUEST_KIND_TITLE_PREFIXES[filters.kind] } }] : []),
-              ...(filters.search ? [{ title: { contains: filters.search, mode: 'insensitive' as const } }] : []),
-            ],
-          }
-        : {}),
+      // Kind, plus a search over the title (product name) and who submitted it.
+      AND: [
+        ...(filters.kind ? [{ title: { startsWith: REQUEST_KIND_TITLE_PREFIXES[filters.kind] } }] : []),
+        ...(searchWords<Prisma.RequestWhereInput>(filters.search, (word) => [
+          { title: containsText(word) },
+          { requestedBy: { firstName: containsText(word) } },
+          { requestedBy: { lastName: containsText(word) } },
+        ])?.AND ?? []),
+      ],
       ...(filters.dateFrom || filters.dateTo
         ? {
             createdAt: {

@@ -4,7 +4,7 @@ import { toast } from "sonner"
 
 import { approveRequest, getRequests, rejectRequest } from "@/api/admin"
 import { formatCount, formatDateTime, formatEnumLabel, fullName } from "@/admin/admin-format"
-import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
+import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
 import { useAuth } from "@/auth/use-auth"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
@@ -110,35 +110,37 @@ export function AdminRequestsPage() {
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState("")
   const [type, setType] = useState("")
+  const [searchInput, setSearchInput] = useState("")
+  const search = useDebouncedValue(searchInput.trim())
   const [selectedRequest, setSelectedRequest] = useState<AdminRequest | null>(null)
   const [reviewing, setReviewing] = useState<{ request: AdminRequest; decision: "approve" | "reject" } | null>(null)
 
   const requests = useAdminResource(
-    (signal) => getRequests({ page, limit: 50, status: status || undefined, kind: type || undefined }, signal),
-    [page, status, type],
+    (signal) => getRequests({ page, limit: 10, status: status || undefined, kind: type || undefined, search: search || undefined }, signal),
+    [page, status, type, search],
     { pollIntervalMs: 20_000 }
   )
   const rows = useMemo(() => requests.data?.requests ?? [], [requests.data])
 
-  // Compute live real metrics from database requests
-  const { pendingCount, approvedThisMonth, rejectedThisMonth } = useMemo(() => {
-    const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-
-    const pending = rows.filter((r) => r.status === "PENDING").length
-    const approved = rows.filter((r) => {
-      if (r.status !== "APPROVED") return false
-      const d = new Date(r.reviewedAt || r.updatedAt || r.createdAt)
-      return d >= startOfMonth
-    }).length
-    const rejected = rows.filter((r) => {
-      if (r.status !== "REJECTED") return false
-      const d = new Date(r.reviewedAt || r.updatedAt || r.createdAt)
-      return d >= startOfMonth
-    }).length
-
-    return { pendingCount: pending, approvedThisMonth: approved, rejectedThisMonth: rejected }
-  }, [rows])
+  // The summary cards count every request, not just the 10 on this page or
+  // the active filters: pending from the API's total, and this month's
+  // decisions from the most recently reviewed approved/rejected requests.
+  const metrics = useAdminResource(async (signal) => {
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    const decidedThisMonth = (list: AdminRequest[]) => list.filter((r) => new Date(r.reviewedAt || r.updatedAt || r.createdAt) >= startOfMonth).length
+    const recentlyReviewed = { limit: 100, sortBy: "reviewedAt", sortOrder: "desc" } as const
+    const [pending, approved, rejected] = await Promise.all([
+      getRequests({ status: "PENDING", limit: 1 }, signal),
+      getRequests({ status: "APPROVED", ...recentlyReviewed }, signal),
+      getRequests({ status: "REJECTED", ...recentlyReviewed }, signal),
+    ])
+    return {
+      pendingCount: pending.pagination.total,
+      approvedThisMonth: decidedThisMonth(approved.requests),
+      rejectedThisMonth: decidedThisMonth(rejected.requests),
+    }
+  }, [], { pollIntervalMs: 20_000 })
+  const { pendingCount = 0, approvedThisMonth = 0, rejectedThisMonth = 0 } = metrics.data ?? {}
 
   // Table columns for Moderator view (exact match to desired design)
   const moderatorColumns: Column<AdminRequest>[] = [
@@ -261,7 +263,7 @@ export function AdminRequestsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => requests.reload()}
+                onClick={() => { requests.reload(); metrics.reload() }}
                 disabled={requests.isLoading}
               >
                 <RotateCw
@@ -307,38 +309,43 @@ export function AdminRequestsPage() {
             </section>
           )}
 
-          {/* Owner Filter Controls */}
-          {isOwner && (
-            <FilterBar
-              hasActiveFilters={Boolean(status || type)}
-              onClear={() => {
-                setStatus("")
-                setType("")
+          {/* Filter Controls (owner and moderator) */}
+          <FilterBar
+            searchValue={searchInput}
+            searchPlaceholder={isOwner ? "Search product or moderator" : "Search product"}
+            onSearchChange={(value) => {
+              setSearchInput(value)
+              setPage(1)
+            }}
+            hasActiveFilters={Boolean(status || type || searchInput)}
+            onClear={() => {
+              setStatus("")
+              setType("")
+              setSearchInput("")
+              setPage(1)
+            }}
+          >
+            <FilterSelect
+              label="Status"
+              value={status}
+              allLabel="All statuses"
+              options={REQUEST_STATUSES.map((val) => ({ value: val, label: formatEnumLabel(val) }))}
+              onChange={(val) => {
+                setStatus(val)
                 setPage(1)
               }}
-            >
-              <FilterSelect
-                label="Status"
-                value={status}
-                allLabel="All statuses"
-                options={REQUEST_STATUSES.map((val) => ({ value: val, label: formatEnumLabel(val) }))}
-                onChange={(val) => {
-                  setStatus(val)
-                  setPage(1)
-                }}
-              />
-              <FilterSelect
-                label="Type"
-                value={type}
-                allLabel="All types"
-                options={REQUEST_KINDS}
-                onChange={(val) => {
-                  setType(val)
-                  setPage(1)
-                }}
-              />
-            </FilterBar>
-          )}
+            />
+            <FilterSelect
+              label="Type"
+              value={type}
+              allLabel="All types"
+              options={REQUEST_KINDS}
+              onChange={(val) => {
+                setType(val)
+                setPage(1)
+              }}
+            />
+          </FilterBar>
 
           {/* Moderator Section Header */}
           {!isOwner && (
@@ -413,6 +420,7 @@ export function AdminRequestsPage() {
         onDone={() => {
           setReviewing(null)
           requests.reload()
+          metrics.reload()
         }}
       />
     </div>

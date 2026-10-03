@@ -1,6 +1,8 @@
 import { BookingStatus, OrderStatus, ProjectStatus } from '@prisma/client';
 import { z } from 'zod';
 
+import { listSearchQuery } from '../../utils/searchWhere';
+
 const NUMERIC_STRING = /^\d+$/;
 const DATE_STRING = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -15,7 +17,12 @@ const paginationQuery = {
 };
 
 export const salesReportSchema = z.object({
-  query: z.object({ ...dateRangeQuery, ...paginationQuery }),
+  query: z.object({
+    ...dateRangeQuery,
+    ...paginationQuery,
+    status: z.nativeEnum(OrderStatus, { errorMap: () => ({ message: 'Invalid order status.' }) }).optional(),
+    search: listSearchQuery,
+  }),
 });
 
 export const inventoryReportSchema = z.object({

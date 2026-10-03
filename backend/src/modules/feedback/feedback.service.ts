@@ -3,6 +3,7 @@ import { NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client'
 import { prisma } from '../../config/database';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { containsText, searchWords } from '../../utils/searchWhere';
 import { feedbackInclude } from './feedback.types';
 import type { FeedbackFilters, FeedbackWithRelations, PaginatedFeedback } from './feedback.types';
 import type { CreateFeedbackInput, UpdateFeedbackInput } from './feedback.validation';
@@ -102,7 +103,14 @@ export class FeedbackService {
             },
           }
         : {}),
-      ...(filters.search ? { comment: { contains: filters.search, mode: 'insensitive' } } : {}),
+      // Comment, customer or order number.
+      ...searchWords<Prisma.FeedbackWhereInput>(filters.search, (word) => [
+        { comment: containsText(word) },
+        { customer: { firstName: containsText(word) } },
+        { customer: { lastName: containsText(word) } },
+        { customer: { email: containsText(word) } },
+        { order: { orderNumber: containsText(word) } },
+      ]),
     };
 
     const [feedbacks, total] = await Promise.all([

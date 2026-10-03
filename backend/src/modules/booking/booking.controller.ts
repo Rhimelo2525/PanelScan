@@ -24,6 +24,7 @@ const parseBookingFilters = (query: Request['query']): BookingFilters => ({
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   status: typeof query.status === 'string' ? (query.status as BookingFilters['status']) : undefined,
   onlyOrders: query.onlyOrders === 'true' ? true : undefined,
+  search: typeof query.search === 'string' ? query.search : undefined,
 });
 
 export class BookingController {

@@ -1,6 +1,8 @@
 import { BookingStatus } from '@prisma/client';
 import { z } from 'zod';
 
+import { listSearchQuery } from '../../utils/searchWhere';
+
 const NUMERIC_STRING = /^\d+$/;
 
 export const createBookingSchema = z.object({
@@ -39,6 +41,7 @@ export const listBookingsSchema = z.object({
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     status: z.nativeEnum(BookingStatus).optional(),
     onlyOrders: z.enum(['true', 'false']).optional(),
+    search: listSearchQuery,
   }),
 });
 

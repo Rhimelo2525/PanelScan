@@ -8,6 +8,7 @@ import type { InstallerFilters } from './installer.types';
 const parseInstallerFilters = (query: Request['query']): InstallerFilters => ({
   page: typeof query.page === 'string' ? Number(query.page) : undefined,
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
+  search: typeof query.search === 'string' ? query.search : undefined,
 });
 
 export class InstallerController {

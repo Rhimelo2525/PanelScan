@@ -1,9 +1,10 @@
-import type { Installer } from '@prisma/client';
+import type { Installer, Prisma } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
 import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '../../utils/disposableEmail';
 import { screenNewAccountEmail } from '../../utils/emailScreening';
+import { containsText, searchWords } from '../../utils/searchWhere';
 import type { InstallerFilters, PaginatedInstallers } from './installer.types';
 import type { CreateInstallerInput, UpdateInstallerInput } from './installer.validation';
 
@@ -40,7 +41,14 @@ export class InstallerService {
   async getActiveInstallers(filters: InstallerFilters): Promise<PaginatedInstallers> {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
-    const where = { isActive: true };
+    const search = searchWords<Prisma.InstallerWhereInput>(filters.search, (word) => [
+      { firstName: containsText(word) },
+      { lastName: containsText(word) },
+      { email: containsText(word) },
+      { phone: containsText(word.replace(/^0/, '')) },
+      { specialty: containsText(word) },
+    ]);
+    const where: Prisma.InstallerWhereInput = { isActive: true, ...search };
 
     const [installers, total] = await Promise.all([
       prisma.installer.findMany({ where, orderBy: { firstName: 'asc' }, skip: (page - 1) * limit, take: limit }),

@@ -4,6 +4,7 @@ import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { containsText, searchWords } from '../../utils/searchWhere';
 import { bookingInclude } from './booking.types';
 import type { BookingFilters, BookingWithRelations, PaginatedBookings } from './booking.types';
 import type { CreateBookingInput } from './booking.validation';
@@ -106,6 +107,16 @@ export class BookingService {
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.onlyOrders ? { orderId: { not: null } } : {}),
+      // Customer, order number, address or installer.
+      ...searchWords<Prisma.BookingWhereInput>(filters.search, (word) => [
+        { customer: { firstName: containsText(word) } },
+        { customer: { lastName: containsText(word) } },
+        { customer: { email: containsText(word) } },
+        { order: { orderNumber: containsText(word) } },
+        { address: containsText(word) },
+        { installer: { firstName: containsText(word) } },
+        { installer: { lastName: containsText(word) } },
+      ]),
     };
 
     const [bookings, total] = await Promise.all([
