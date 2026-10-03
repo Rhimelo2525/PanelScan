@@ -2,7 +2,7 @@ import { Loader2, UserPlus, Users } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { createModerator, deactivateUser, getUsers } from "@/api/admin"
+import { createModerator, deactivateUser, getUsers, reactivateUser } from "@/api/admin"
 import { formatDate } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -23,6 +23,7 @@ import { PasswordInput } from "@/components/auth/password-input"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { checkPasswordRequirements, validatePasswordPolicy, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH } from "@/auth/password-policy"
 import { isValidPersonName, personNameMessage, sanitizeNameInput } from "@/auth/registration-validation"
+import { registerEmailErrorMessage } from "@/auth/errors"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { PHILIPPINE_PHONE_MESSAGE, formatPhoneForDisplay, isValidPhilippinePhone } from "@/lib/phone"
 import type { AdminUser } from "@/types/admin"
@@ -38,6 +39,8 @@ export function AdminTeamPage() {
   const [search, setSearch] = useState("")
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
   const [showAddModerator, setShowAddModerator] = useState(false)
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null)
+  const confirmUnrestrict = useConfirm()
 
   const users = useAdminResource((signal) => getUsers(signal), [])
   const allUsers = useMemo(() => users.data?.users ?? [], [users.data])
@@ -50,6 +53,26 @@ export function AdminTeamPage() {
       return matchesRole && matchesTerm
     })
   }, [allUsers, roleFilter, search])
+
+  async function handleUnrestrict(account: AdminUser) {
+    if (reactivatingId) return
+    if (!(await confirmUnrestrict({
+      title: "Unrestrict this account?",
+      description: "They will be able to sign in again with their existing password.",
+      details: [{ label: "Name", value: `${account.firstName} ${account.lastName}` }, { label: "Email", value: account.email }],
+      confirmLabel: "Unrestrict account",
+    }))) return
+    setReactivatingId(account.id)
+    try {
+      await reactivateUser(account.id)
+      toast.success(`${account.firstName} ${account.lastName} can sign in again.`)
+      users.reload()
+    } catch (error) {
+      toast.error("Account not unrestricted", { description: getAdminErrorMessage(error) })
+    } finally {
+      setReactivatingId(null)
+    }
+  }
 
   const moderatorCount = allUsers.filter((candidate) => candidate.role === "MODERATOR").length
   const activeModerators = allUsers.filter((candidate) => candidate.role === "MODERATOR" && candidate.isActive).length
@@ -99,9 +122,11 @@ export function AdminTeamPage() {
               { key: "phone", header: "Phone", secondary: true, cell: (row) => row.phone ? formatPhoneForDisplay(row.phone) : "—" },
               { key: "created", header: "Joined", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.createdAt)}</span> },
             ]}
-            rowAction={(row) => row.isActive && row.id !== user?.id
-              ? <Button variant="outline" size="sm" onClick={() => setDeactivating(row)}>Restrict</Button>
-              : <span className="text-xs text-muted-foreground">{row.id === user?.id ? "You" : "Restricted"}</span>}
+            rowAction={(row) => row.id === user?.id
+              ? <span className="text-xs text-muted-foreground">You</span>
+              : row.isActive
+                ? <Button variant="outline" size="sm" onClick={() => setDeactivating(row)}>Restrict</Button>
+                : <Button variant="outline" size="sm" onClick={() => void handleUnrestrict(row)} disabled={reactivatingId === row.id}>{reactivatingId === row.id && <Loader2 className="animate-spin" aria-hidden="true" />}Unrestrict</Button>}
           />
         </>
       )}
@@ -119,6 +144,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [phone, setPhone] = useState("")
+  const [errorEmail, setErrorEmail] = useState<string | undefined>()
   const [errorPassword, setErrorPassword] = useState<string | undefined>()
   const [errorConfirmPassword, setErrorConfirmPassword] = useState<string | undefined>()
   const [errorPhone, setErrorPhone] = useState<string | undefined>()
@@ -138,6 +164,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
     setPassword("")
     setConfirmPassword("")
     setPhone("")
+    setErrorEmail(undefined)
     setErrorPassword(undefined)
     setErrorConfirmPassword(undefined)
     setErrorPhone(undefined)
@@ -146,6 +173,7 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setErrorEmail(undefined)
     setErrorPassword(undefined)
     setErrorConfirmPassword(undefined)
     setErrorPhone(undefined)
@@ -211,7 +239,10 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
       reset()
       onDone()
     } catch (error) {
-      toast.error("Could not create moderator", { description: getAdminErrorMessage(error) })
+      // Temporary or non-existent addresses are shown under the Email field.
+      const emailError = registerEmailErrorMessage(error)
+      if (emailError) setErrorEmail(emailError)
+      toast.error("Could not create moderator", { description: emailError ?? getAdminErrorMessage(error) })
     } finally {
       savingRef.current = false
       setIsSaving(false)
@@ -230,17 +261,18 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="mod-first-name">First name *</Label>
-              <Input id="mod-first-name" required value={firstName} onChange={(e) => setFirstName(sanitizeNameInput("firstName", e.target.value))} />
+              <Input id="mod-first-name" required maxLength={35} value={firstName} onChange={(e) => setFirstName(sanitizeNameInput("firstName", e.target.value))} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="mod-last-name">Last name *</Label>
-              <Input id="mod-last-name" required value={lastName} onChange={(e) => setLastName(sanitizeNameInput("lastName", e.target.value))} />
+              <Input id="mod-last-name" required maxLength={35} value={lastName} onChange={(e) => setLastName(sanitizeNameInput("lastName", e.target.value))} />
             </div>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="mod-email">Email address *</Label>
-            <Input id="mod-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input id="mod-email" type="email" required value={email} onChange={(e) => { setEmail(e.target.value); setErrorEmail(undefined) }} aria-invalid={Boolean(errorEmail)} aria-describedby={errorEmail ? "mod-email-error" : undefined} />
+            {errorEmail && <p id="mod-email-error" className="text-xs text-destructive">{errorEmail}</p>}
           </div>
 
             <PasswordInput
@@ -322,7 +354,7 @@ function RestrictDialog({ account, onClose, onDone }: { account: AdminUser | nul
         <AlertDialogHeader>
           <AlertDialogTitle>Restrict this account?</AlertDialogTitle>
           <AlertDialogDescription>
-            {account?.firstName} {account?.lastName} ({account?.email}) will be deactivated and will no longer be able to sign in. Their orders, projects, and history are preserved. This build has no endpoint to reactivate an account, so reversing this needs a database change.
+            {account?.firstName} {account?.lastName} ({account?.email}) will be deactivated and will no longer be able to sign in. Their orders, projects, and history are preserved. You can unrestrict the account from this page at any time.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

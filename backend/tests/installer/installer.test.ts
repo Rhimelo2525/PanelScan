@@ -67,6 +67,41 @@ describe('Installer module', () => {
       expect(dbInstaller?.specialty).toBe('Wall Panels');
       expect(dbInstaller?.isActive).toBe(true);
       expect(dbInstaller?.createdAt).toBeInstanceOf(Date);
+      expect(dbInstaller?.middleInitial).toBeNull();
+    });
+
+    it('stores an optional middle initial as bare letters', async () => {
+      const { token } = await createModerator();
+
+      const response = await request(app).post('/api/installers').set('Authorization', `Bearer ${token}`).send({
+        firstName: 'Clarisse',
+        middleInitial: 'm.',
+        lastName: 'Labampa',
+        phone: '09181234567',
+      });
+
+      expect(response.status).toBe(201);
+      const dbInstaller = await prisma.installer.findUnique({ where: { id: response.body.data.installer.id } });
+      expect(dbInstaller?.middleInitial).toBe('M');
+    });
+
+    it.each([
+      ['a leading space in the first name', { firstName: ' Clarisse' }],
+      ['a double space in the last name', { lastName: 'Dela  Cruz' }],
+      ['a trailing space in the first name', { firstName: 'Clarisse ' }],
+      ['a space in the middle initial', { middleInitial: 'M .' }],
+      ['a middle initial with numbers', { middleInitial: 'M1' }],
+      ['a first name over 35 characters', { firstName: 'A'.repeat(36) }],
+    ])('refuses %s, same as Create Account', async (_case, override) => {
+      const { token } = await createModerator();
+
+      const response = await request(app)
+        .post('/api/installers')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ firstName: 'Clarisse', lastName: 'Labampa', phone: '09451234567', ...override });
+
+      expect(response.status).toBe(400);
+      expect(await prisma.installer.count({ where: { phone: '+639451234567' } })).toBe(0);
     });
 
     it('rejects a CUSTOMER attempting to create an installer with 403, no row created', async () => {

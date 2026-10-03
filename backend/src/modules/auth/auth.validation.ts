@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { passwordSchema } from '../../utils/passwordPolicy';
-import { personNameSchema } from '../../utils/nameSchema';
+import { middleInitialSchema, optionalMiddleInitialSchema, personNameSchema, tidyPersonNameSchema } from '../../utils/nameSchema';
 import { optionalPhilippinePhoneSchema, philippinePhoneSchema } from '../../utils/phoneSchema';
 
 const BIRTHDATE_MIN_YEAR = 1900;
@@ -30,16 +30,6 @@ const birthdateSchema = z
 
 const emailSchema = z.string().trim().toLowerCase().email('Please provide a valid email address.');
 
-/**
- * "M", "M.", "m" or "D. C." (compound middle name): 1-3 letters, with periods
- * and spaces only as separators. Stored as the bare letters ("M", "DC").
- */
-const middleInitialSchema = z
-  .string()
-  .trim()
-  .refine((value) => /^(\p{L}\.?\s?){1,3}$/u.test(value), 'Enter a middle initial using letters only (e.g. M or M.).')
-  .transform((value) => value.replace(/[.\s]/g, '').toUpperCase());
-
 const isBlank = (value: unknown) => typeof value === 'string' && value.trim() === '';
 
 const verificationCodeSchema = z
@@ -51,28 +41,21 @@ const verificationCodeSchema = z
  * Create Account is strict about spaces instead of quietly trimming them, so
  * the API refuses exactly what the form refuses. Credential-like fields take
  * no spaces at all; names may keep single spaces between words ("Dela Cruz")
- * but not leading, trailing or doubled ones.
+ * but not leading, trailing or doubled ones (utils/nameSchema.ts).
  */
 const hasNoSpaces = (value: string): boolean => !/\s/.test(value);
-const hasTidySpaces = (value: string): boolean => value === value.trim() && !/\s{2}/.test(value);
 
 const noSpaces = (label: string) =>
   z
     .string({ required_error: `${label} is required.` })
     .refine(hasNoSpaces, `${label} cannot contain spaces.`);
 
-const registerNameSchema = (label: 'First name' | 'Last name') =>
-  z
-    .string({ required_error: `${label} is required.` })
-    .refine(hasTidySpaces, `${label} cannot start or end with a space, or have double spaces.`)
-    .pipe(personNameSchema(label));
-
 export const registerSchema = z.object({
   body: z.object({
-    firstName: registerNameSchema('First name'),
-    lastName: registerNameSchema('Last name'),
+    firstName: tidyPersonNameSchema('First name'),
+    lastName: tidyPersonNameSchema('Last name'),
     // Optional: an empty value means none.
-    middleInitial: z.preprocess((value) => (value === '' ? undefined : value), noSpaces('Middle initial').pipe(middleInitialSchema).optional()),
+    middleInitial: optionalMiddleInitialSchema,
     email: noSpaces('Email address').pipe(z.string().toLowerCase().email('Please provide a valid email address.')),
     password: passwordSchema,
     // Required here as well as on the form, so the API can't be used to skip them.

@@ -38,6 +38,11 @@ export class UsersController {
     const user = await this.usersService.deactivateUser(req.params.id as string);
     sendSuccess(res, 200, 'User deactivated successfully.', { user });
   });
+
+  reactivate = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const user = await this.usersService.reactivateUser(req.params.id as string);
+    sendSuccess(res, 200, 'User reactivated successfully.', { user });
+  });
 }
 
 export const usersController = new UsersController(usersService);

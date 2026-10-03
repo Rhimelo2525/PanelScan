@@ -282,6 +282,7 @@ export interface AdminUser {
 export interface Installer {
   id: string
   firstName: string
+  middleInitial?: string | null
   lastName: string
   email: string | null
   phone: string
@@ -293,6 +294,7 @@ export interface Installer {
 
 export interface CreateInstallerInput {
   firstName: string
+  middleInitial?: string
   lastName: string
   phone: string
   email?: string

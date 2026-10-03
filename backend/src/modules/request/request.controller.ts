@@ -33,6 +33,7 @@ const parseRequestFilters = (query: Request['query']): RequestFilters => {
     limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
     status: typeof query.status === 'string' ? (query.status as RequestFilters['status']) : undefined,
     type: typeof query.type === 'string' ? (query.type as RequestFilters['type']) : undefined,
+    kind: typeof query.kind === 'string' ? (query.kind as RequestFilters['kind']) : undefined,
     requestedById: typeof query.requestedById === 'string' ? query.requestedById : undefined,
     reviewedById: typeof query.reviewedById === 'string' ? query.reviewedById : undefined,
     dateFrom: typeof query.dateFrom === 'string' ? new Date(`${query.dateFrom}T00:00:00.000Z`) : undefined,

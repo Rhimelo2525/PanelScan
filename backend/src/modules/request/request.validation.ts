@@ -1,8 +1,11 @@
 import { RequestStatus, RequestType } from '@prisma/client';
 import { z } from 'zod';
 
+import { REQUEST_KIND_TITLE_PREFIXES, type RequestKind } from './request.types';
+
 const NUMERIC_STRING = /^\d+$/;
 const DATE_STRING = /^\d{4}-\d{2}-\d{2}$/;
+const REQUEST_KINDS = Object.keys(REQUEST_KIND_TITLE_PREFIXES) as [RequestKind, ...RequestKind[]];
 
 export const createRequestSchema = z.object({
   body: z.object({
@@ -40,6 +43,7 @@ export const listRequestsSchema = z.object({
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     status: z.nativeEnum(RequestStatus, { errorMap: () => ({ message: 'Invalid request status.' }) }).optional(),
     type: z.nativeEnum(RequestType, { errorMap: () => ({ message: 'Invalid request type.' }) }).optional(),
+    kind: z.enum(REQUEST_KINDS, { errorMap: () => ({ message: 'Invalid request kind.' }) }).optional(),
     requestedById: z.string().uuid('Invalid requestedBy id.').optional(),
     reviewedById: z.string().uuid('Invalid reviewedBy id.').optional(),
     dateFrom: z.string().regex(DATE_STRING, 'dateFrom must be in YYYY-MM-DD format.').optional(),

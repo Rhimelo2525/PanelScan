@@ -22,7 +22,14 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 import { cn } from "@/lib/utils"
 import type { AdminRequest, RequestType } from "@/types/admin"
 
-const REQUEST_TYPES: RequestType[] = ["INVENTORY_RESTOCK", "REFUND", "DISCOUNT_APPROVAL", "PROJECT_BUDGET_CHANGE", "OTHER"]
+// What each moderator request does; the API matches these on the request title (request.types.ts).
+const REQUEST_KINDS = [
+  { value: "ADJUST_STOCK", label: "Adjust stock" },
+  { value: "ADD_PRODUCT", label: "Add product" },
+  { value: "ADD_STOCK", label: "Add stock" },
+  { value: "EDIT_PRODUCT", label: "Edit product" },
+  { value: "DELETE_PRODUCT", label: "Remove product" },
+]
 const REQUEST_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"]
 
 const CHANGE_PAYLOAD_DELIMITER = "\n\n__PANELSCAN_CHANGE_PAYLOAD__:\n"
@@ -107,7 +114,7 @@ export function AdminRequestsPage() {
   const [reviewing, setReviewing] = useState<{ request: AdminRequest; decision: "approve" | "reject" } | null>(null)
 
   const requests = useAdminResource(
-    (signal) => getRequests({ page, limit: 50, status: status || undefined, type: type || undefined }, signal),
+    (signal) => getRequests({ page, limit: 50, status: status || undefined, kind: type || undefined }, signal),
     [page, status, type],
     { pollIntervalMs: 20_000 }
   )
@@ -324,7 +331,7 @@ export function AdminRequestsPage() {
                 label="Type"
                 value={type}
                 allLabel="All types"
-                options={REQUEST_TYPES.map((val) => ({ value: val, label: formatEnumLabel(val) }))}
+                options={REQUEST_KINDS}
                 onChange={(val) => {
                   setType(val)
                   setPage(1)

@@ -494,6 +494,8 @@ model DeliveryPayment {
 model Installer {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   firstName String   @map("first_name")
+  // Optional; stored as letters only ("M"), like User.middleInitial.
+  middleInitial String? @map("middle_initial")
   lastName  String   @map("last_name")
   email     String?  @unique
   phone     String

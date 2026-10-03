@@ -38,7 +38,7 @@ export function validateProfile(values: ProfileValues, options: { hadPhone: bool
   const firstName = values.firstName.trim()
   if (!firstName) errors.firstName = "First name is required."
   else if (firstName.length < 2) errors.firstName = "First name must be at least 2 characters."
-  else if (firstName.length > 50) errors.firstName = "First name must not exceed 50 characters."
+  else if (firstName.length > 35) errors.firstName = "First name must not exceed 35 characters."
   else if (!isValidPersonName(firstName)) errors.firstName = personNameMessage("First name")
 
   if (values.middleInitial.trim() && !isValidMiddleInitial(values.middleInitial)) errors.middleInitial = MIDDLE_INITIAL_MESSAGE
@@ -46,7 +46,7 @@ export function validateProfile(values: ProfileValues, options: { hadPhone: bool
   const lastName = values.lastName.trim()
   if (!lastName) errors.lastName = "Last name is required."
   else if (lastName.length < 2) errors.lastName = "Last name must be at least 2 characters."
-  else if (lastName.length > 50) errors.lastName = "Last name must not exceed 50 characters."
+  else if (lastName.length > 35) errors.lastName = "Last name must not exceed 35 characters."
   else if (!isValidPersonName(lastName)) errors.lastName = personNameMessage("Last name")
 
   // calculateAge is null for an unparseable, impossible or future date.

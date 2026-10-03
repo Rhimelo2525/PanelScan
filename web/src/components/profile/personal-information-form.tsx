@@ -125,8 +125,8 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
     <form onSubmit={handleSubmit} noValidate className="space-y-5">
       {submissionError && <FormError message={submissionError} />}
       <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
-        <TextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={50} />
-        <TextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={50} />
+        <TextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={35} />
+        <TextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={35} />
         <TextField field="middleInitial" label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={6} />
       </div>
 

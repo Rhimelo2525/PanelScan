@@ -1,14 +1,16 @@
 import { z } from 'zod';
 
-import { personNameSchema } from '../../utils/nameSchema';
+import { middleInitialSchema, optionalMiddleInitialSchema, personNameSchema, tidyPersonNameSchema } from '../../utils/nameSchema';
 import { optionalPhilippinePhoneSchema, philippinePhoneSchema } from '../../utils/phoneSchema';
 
 const NUMERIC_STRING = /^\d+$/;
 
 export const createInstallerSchema = z.object({
   body: z.object({
-    firstName: personNameSchema('First name'),
-    lastName: personNameSchema('Last name'),
+    // Same space rules as Create Account (utils/nameSchema.ts).
+    firstName: tidyPersonNameSchema('First name'),
+    lastName: tidyPersonNameSchema('Last name'),
+    middleInitial: optionalMiddleInitialSchema,
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.').optional(),
     phone: philippinePhoneSchema,
     specialty: z.string().trim().max(100, 'Specialty is too long.').optional(),
@@ -21,6 +23,8 @@ export const updateInstallerSchema = z.object({
     .object({
       firstName: personNameSchema('First name').optional(),
       lastName: personNameSchema('Last name').optional(),
+      // A blank value clears it.
+      middleInitial: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? null : value), middleInitialSchema.nullable().optional()),
       phone: optionalPhilippinePhoneSchema,
       specialty: z.string().trim().max(100, 'Specialty is too long.').optional(),
       isActive: z.boolean().optional(),

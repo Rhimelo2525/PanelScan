@@ -2,6 +2,8 @@ import type { Installer } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '../../utils/disposableEmail';
+import { screenNewAccountEmail } from '../../utils/emailScreening';
 import type { InstallerFilters, PaginatedInstallers } from './installer.types';
 import type { CreateInstallerInput, UpdateInstallerInput } from './installer.validation';
 
@@ -11,15 +13,22 @@ const DEFAULT_LIMIT = 20;
 export class InstallerService {
   async createInstaller(input: CreateInstallerInput): Promise<Installer> {
     if (input.email) {
+      // Same email screening as customer sign-up and new moderators.
+      if (isDisposableEmail(input.email)) {
+        throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
+      }
       const existing = await prisma.installer.findUnique({ where: { email: input.email } });
       if (existing) {
         throw new AppError('An installer with this email already exists.', 409);
       }
+      // Unknown temp-mail domains and mailboxes that do not exist. Last, as it may call a paid API.
+      await screenNewAccountEmail(input.email, { checkMailbox: true });
     }
 
     return prisma.installer.create({
       data: {
         firstName: input.firstName,
+        middleInitial: input.middleInitial,
         lastName: input.lastName,
         email: input.email,
         phone: input.phone,

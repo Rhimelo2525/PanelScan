@@ -24,10 +24,10 @@ export function validateModeratorForm(values: ModeratorFormValues): ModeratorFor
   const errors: ModeratorFormErrors = {}
 
   if (!values.firstName.trim()) errors.firstName = "First name is required."
-  else if (values.firstName.trim().length > 50) errors.firstName = "Use 50 characters or fewer."
+  else if (values.firstName.trim().length > 35) errors.firstName = "Use 35 characters or fewer."
 
   if (!values.lastName.trim()) errors.lastName = "Last name is required."
-  else if (values.lastName.trim().length > 50) errors.lastName = "Use 50 characters or fewer."
+  else if (values.lastName.trim().length > 35) errors.lastName = "Use 35 characters or fewer."
 
   if (!values.email.trim()) errors.email = "Email address is required."
   else if (!emailPattern.test(values.email.trim())) errors.email = "Enter a valid email address."

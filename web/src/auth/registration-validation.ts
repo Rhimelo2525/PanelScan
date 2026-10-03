@@ -108,12 +108,12 @@ export function validateRegistration(values: RegisterValues, today = new Date())
   // Minimum lengths match the API, so a form that passes here isn't rejected there.
   if (!values.firstName.trim()) errors.firstName = "First name is required."
   else if (values.firstName.trim().length < 2) errors.firstName = "First name must be at least 2 characters."
-  else if (values.firstName.trim().length > 50) errors.firstName = "First name must not exceed 50 characters."
+  else if (values.firstName.trim().length > 35) errors.firstName = "First name must not exceed 35 characters."
   else if (!isValidPersonName(values.firstName)) errors.firstName = personNameMessage("First name")
   if (values.middleInitial.trim() && !isValidMiddleInitial(values.middleInitial)) errors.middleInitial = MIDDLE_INITIAL_MESSAGE
   if (!values.lastName.trim()) errors.lastName = "Last name is required."
   else if (values.lastName.trim().length < 2) errors.lastName = "Last name must be at least 2 characters."
-  else if (values.lastName.trim().length > 50) errors.lastName = "Last name must not exceed 50 characters."
+  else if (values.lastName.trim().length > 35) errors.lastName = "Last name must not exceed 35 characters."
   else if (!isValidPersonName(values.lastName)) errors.lastName = personNameMessage("Last name")
 
   const parsedBirthdate = parseBirthdate(values.birthdate)

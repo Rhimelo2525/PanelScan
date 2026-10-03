@@ -311,6 +311,37 @@ describe('Request Approval module', () => {
       expect(ids).toEqual([refund.id]);
     });
 
+    it('filters by what the request does (kind), matched on its title', async () => {
+      const owner = await createOwner();
+      const moderator = await createModerator();
+      const requestedById = moderator.user.id;
+      const addStock = await createTestRequest({ requestedById, type: RequestType.INVENTORY_RESTOCK, title: 'Add stock: Live oak' });
+      const adjustStock = await createTestRequest({ requestedById, type: RequestType.INVENTORY_RESTOCK, title: 'Adjust stock: Live oak' });
+      const removeProduct = await createTestRequest({ requestedById, type: RequestType.OTHER, title: 'Delete product: Test 2' });
+      await createTestRequest({ requestedById, type: RequestType.OTHER, title: 'Add product: Live oak' });
+
+      const idsFor = async (query: Record<string, string>) => {
+        const response = await request(app).get('/api/requests').set('Authorization', `Bearer ${owner.token}`).query(query);
+        expectApiSuccess(response, 200);
+        return (response.body.data.requests as Array<{ id: string }>).map((r) => r.id);
+      };
+
+      expect(await idsFor({ kind: 'ADD_STOCK' })).toEqual([addStock.id]);
+      expect(await idsFor({ kind: 'ADJUST_STOCK' })).toEqual([adjustStock.id]);
+      expect(await idsFor({ kind: 'DELETE_PRODUCT' })).toEqual([removeProduct.id]);
+      // Combines with a title search.
+      expect(await idsFor({ kind: 'ADD_STOCK', search: 'oak' })).toEqual([addStock.id]);
+      expect(await idsFor({ kind: 'DELETE_PRODUCT', search: 'oak' })).toEqual([]);
+    });
+
+    it('rejects an unknown kind with 400', async () => {
+      const owner = await createOwner();
+
+      const response = await request(app).get('/api/requests').set('Authorization', `Bearer ${owner.token}`).query({ kind: 'REFUND' });
+
+      expect(response.status).toBe(400);
+    });
+
     it('filters by requestedById (OWNER)', async () => {
       const owner = await createOwner();
       const moderatorA = await createModerator();

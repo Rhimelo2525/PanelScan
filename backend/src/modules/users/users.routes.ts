@@ -52,6 +52,9 @@ router.get('/', restrictTo(UserRole.OWNER), usersController.getAll);
 // GET /api/users/:id
 router.get('/:id', validate(idParamsSchema), usersController.getById);
 
+// PATCH /api/users/:id/reactivate - OWNER only (undoes a restriction)
+router.patch('/:id/reactivate', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.reactivate);
+
 // PATCH /api/users/:id
 router.patch('/:id', validate(updateUserSchema), usersController.update);
 

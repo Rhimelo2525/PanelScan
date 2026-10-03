@@ -9,7 +9,7 @@ import { AppError } from '../../utils/AppError';
 import { slugify } from '../../utils/slugify';
 import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
 import { DIMENSION_DIGIT_LIMITS, PRICE_MESSAGE, dimensionDigitMessage, hasAllowedDimensionDigits, hasAllowedPriceDigits, type DimensionField } from '../product/product.validation';
-import { parseDescription, requestInclude, serializeDescription } from './request.types';
+import { REQUEST_KIND_TITLE_PREFIXES, parseDescription, requestInclude, serializeDescription } from './request.types';
 import type { ChangeRequestPayload, PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
 import type { CreateRequestInput, UpdateRequestInput } from './request.validation';
 
@@ -102,7 +102,14 @@ export class RequestService {
       ...(filters.reviewedById ? { reviewedById: filters.reviewedById } : {}),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.type ? { type: filters.type } : {}),
-      ...(filters.search ? { title: { contains: filters.search, mode: 'insensitive' } } : {}),
+      ...(filters.kind || filters.search
+        ? {
+            AND: [
+              ...(filters.kind ? [{ title: { startsWith: REQUEST_KIND_TITLE_PREFIXES[filters.kind] } }] : []),
+              ...(filters.search ? [{ title: { contains: filters.search, mode: 'insensitive' as const } }] : []),
+            ],
+          }
+        : {}),
       ...(filters.dateFrom || filters.dateTo
         ? {
             createdAt: {

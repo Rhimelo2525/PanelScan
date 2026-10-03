@@ -237,7 +237,7 @@ export function approveOrder(orderId: string) {
 
 // ----------------------------------------------------------------- requests
 
-export function getRequests(query: AdminListQuery & { type?: string } = {}, signal?: AbortSignal) {
+export function getRequests(query: AdminListQuery & { type?: string; kind?: string } = {}, signal?: AbortSignal) {
   return apiRequest<{ requests: AdminRequest[]; pagination: Pagination }>(`/requests${toQuery({ ...query })}`, { authenticated: true, signal })
 }
 
@@ -280,6 +280,11 @@ export function getUsers(signal?: AbortSignal) {
 /** OWNER only. Sets isActive=false; there is no reactivate endpoint. */
 export function deactivateUser(id: string) {
   return apiRequest<{ user: AdminUser }>(`/users/${id}`, { method: "DELETE", authenticated: true })
+}
+
+/** OWNER only: lets a restricted account sign in again. */
+export function reactivateUser(id: string) {
+  return apiRequest<{ user: AdminUser }>(`/users/${id}/reactivate`, { method: "PATCH", authenticated: true })
 }
 
 // --------------------------------------------------------------- installers

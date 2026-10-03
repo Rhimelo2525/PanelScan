@@ -2,6 +2,8 @@ import { Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '../../utils/disposableEmail';
+import { screenNewAccountEmail } from '../../utils/emailScreening';
 import { hashPassword } from '../../utils/password';
 
 const userSelect = {
@@ -35,10 +37,19 @@ export interface UpdateUserInput {
 
 export class UsersService {
   async createUser(input: CreateUserInput): Promise<PublicUser> {
+    // Staff accounts get the same email screening as customer sign-up.
+    if (isDisposableEmail(input.email)) {
+      throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
+    }
+
     const existing = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
     if (existing) {
       throw new AppError('An account with this email address already exists.', 409);
     }
+
+    // Temp-mail domains the list above does not know yet, and mailboxes that
+    // do not exist (utils/emailScreening.ts). Last, as it may call a paid API.
+    await screenNewAccountEmail(input.email, { checkMailbox: true });
 
     const hashedPassword = await hashPassword(input.password);
 
@@ -82,6 +93,15 @@ export class UsersService {
 
   async deactivateUser(id: string): Promise<PublicUser> {
     return prisma.user.update({ where: { id }, data: { isActive: false }, select: userSelect });
+  }
+
+  /** Undoes a restriction: the account can sign in again with its existing password. */
+  async reactivateUser(id: string): Promise<PublicUser> {
+    const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) {
+      throw new AppError('User not found.', 404);
+    }
+    return prisma.user.update({ where: { id }, data: { isActive: true }, select: userSelect });
   }
 }
 

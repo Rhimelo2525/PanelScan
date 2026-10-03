@@ -6,7 +6,7 @@ import { env } from '../../src/config/env';
 import { authService } from '../../src/modules/auth/auth.service';
 import { DISPOSABLE_EMAIL_MESSAGE } from '../../src/utils/disposableEmail';
 import { UNDELIVERABLE_EMAIL_MESSAGE, screeningDeps } from '../../src/utils/emailScreening';
-import { createCustomer } from '../helpers/factories';
+import { authHeader, createCustomer, createModerator, createOwner } from '../helpers/factories';
 import { mailbox } from '../helpers/mailbox';
 import app from '../helpers/testApp';
 
@@ -250,6 +250,118 @@ describe('Sign-up email screening', () => {
 
       const result = await authService.loginWithGoogle(google(user.email));
       expect(result.user.id).toBe(user.id);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Owner adding a moderator', () => {
+    const addModerator = async (email: string) => {
+      const owner = await createOwner();
+      return request(app)
+        .post('/api/users')
+        .set(authHeader(owner.token))
+        .send({ firstName: 'Kevin', lastName: 'Santos', email, password: 'P@nelScan2026', role: 'MODERATOR' });
+    };
+
+    it('refuses a list-known temp-mail address before any network call', async () => {
+      const fetchMock = abstractAnswer(verdict('deliverable', 'valid_email'));
+
+      const response = await addModerator('staff@mailinator.com');
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(DISPOSABLE_EMAIL_MESSAGE);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses an address Abstract calls disposable', async () => {
+      abstractAnswer(verdict('deliverable', 'valid_email', true));
+      const email = `staff@${uniqueDomain()}`;
+
+      const response = await addModerator(email);
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(DISPOSABLE_EMAIL_MESSAGE);
+      expect(await accountExists(email)).toBe(false);
+    });
+
+    it('refuses a mailbox that does not exist', async () => {
+      abstractAnswer(verdict('undeliverable', 'invalid_mailbox'));
+      const email = `staff@${uniqueDomain()}`;
+
+      const response = await addModerator(email);
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(UNDELIVERABLE_EMAIL_MESSAGE);
+      expect(await accountExists(email)).toBe(false);
+    });
+
+    it('creates the moderator for a deliverable address', async () => {
+      const email = `staff@${uniqueDomain()}`;
+
+      const response = await addModerator(email);
+
+      expect(response.status).toBe(201);
+      expect(await accountExists(email)).toBe(true);
+    });
+  });
+
+  describe('Adding an installer', () => {
+    const addInstaller = async (email?: string) => {
+      const { token } = await createModerator();
+      return request(app)
+        .post('/api/installers')
+        .set(authHeader(token))
+        .send({ firstName: 'Mario', lastName: 'Reyes', phone: '+63 912 345 6789', ...(email ? { email } : {}) });
+    };
+    const installerExists = async (email: string) => (await prisma.installer.count({ where: { email } })) > 0;
+
+    it('refuses a list-known temp-mail address before any network call', async () => {
+      const fetchMock = abstractAnswer(verdict('deliverable', 'valid_email'));
+
+      const response = await addInstaller('installer@mailinator.com');
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(DISPOSABLE_EMAIL_MESSAGE);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses an address Abstract calls disposable', async () => {
+      abstractAnswer(verdict('deliverable', 'valid_email', true));
+      const email = `installer@${uniqueDomain()}`;
+
+      const response = await addInstaller(email);
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(DISPOSABLE_EMAIL_MESSAGE);
+      expect(await installerExists(email)).toBe(false);
+    });
+
+    it('refuses a mailbox that does not exist', async () => {
+      abstractAnswer(verdict('undeliverable', 'invalid_mailbox'));
+      const email = `installer@${uniqueDomain()}`;
+
+      const response = await addInstaller(email);
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(UNDELIVERABLE_EMAIL_MESSAGE);
+      expect(await installerExists(email)).toBe(false);
+    });
+
+    it('adds the installer for a deliverable address', async () => {
+      const email = `installer@${uniqueDomain()}`;
+
+      const response = await addInstaller(email);
+
+      expect(response.status).toBe(201);
+      expect(await installerExists(email)).toBe(true);
+    });
+
+    it('email stays optional: no email means no check', async () => {
+      const fetchMock = abstractAnswer(verdict('deliverable', 'valid_email'));
+
+      const response = await addInstaller();
+
+      expect(response.status).toBe(201);
       expect(fetchMock).not.toHaveBeenCalled();
     });
   });

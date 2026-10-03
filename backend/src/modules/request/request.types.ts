@@ -14,11 +14,27 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
+/**
+ * What a moderator's change request does. Every one is created with a fixed
+ * title prefix (product.controller.ts, inventory.controller.ts), which is
+ * what the Requests page's "Type" filter matches on.
+ */
+export const REQUEST_KIND_TITLE_PREFIXES = {
+  ADD_PRODUCT: 'Add product:',
+  EDIT_PRODUCT: 'Edit product:',
+  DELETE_PRODUCT: 'Delete product:',
+  ADD_STOCK: 'Add stock:',
+  ADJUST_STOCK: 'Adjust stock:',
+} as const;
+
+export type RequestKind = keyof typeof REQUEST_KIND_TITLE_PREFIXES;
+
 export interface RequestFilters {
   page?: number;
   limit?: number;
   status?: RequestStatus;
   type?: RequestType;
+  kind?: RequestKind;
   requestedById?: string;
   reviewedById?: string;
   dateFrom?: Date;
