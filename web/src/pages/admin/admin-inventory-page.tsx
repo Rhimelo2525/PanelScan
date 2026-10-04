@@ -132,7 +132,7 @@ export function AdminInventoryPage() {
               { key: "quantity", header: "On hand", numeric: true, cell: (row) => formatCount(row.quantity) },
               { key: "reserved", header: "Reserved", numeric: true, secondary: true, cell: (row) => formatCount(row.reservedQty) },
               { key: "available", header: "Available", numeric: true, cell: (row) => <span className="font-medium">{formatCount(availableStock(row))}</span> },
-              { key: "reorder", header: "Reorder at", numeric: true, secondary: true, cell: (row) => formatCount(row.reorderLevel) },
+              { key: "reorder", header: "Reorder Threshold", numeric: true, secondary: true, cell: (row) => formatCount(row.reorderLevel) },
               { key: "restocked", header: "Last restock", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.lastRestockedAt)}</span> },
             ]}
             rowAction={canManageStock ? (row) => <Button variant="outline" size="sm" onClick={() => setAdjusting(row)}>Adjust</Button> : undefined}

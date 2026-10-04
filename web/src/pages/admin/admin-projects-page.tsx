@@ -60,7 +60,7 @@ export function AdminProjectsPage() {
             hasActiveFilters={Boolean(searchInput || status)}
             onClear={() => { setSearchInput(""); setStatus(""); setPage(1) }}
           >
-            <FilterSelect label="Status" value={status} allLabel="All statuses" options={PROJECT_STATUSES.map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase().replace("_", " ") }))} onChange={(value) => { setStatus(value); setPage(1) }} />
+            <FilterSelect label="Status" value={status} allLabel="All status" options={PROJECT_STATUSES.map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase().replace("_", " ") }))} onChange={(value) => { setStatus(value); setPage(1) }} />
           </FilterBar>
 
           <div key={`${status}|${search}|${page}`} className="motion-swap">

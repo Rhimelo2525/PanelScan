@@ -328,7 +328,7 @@ export function AdminRequestsPage() {
             <FilterSelect
               label="Status"
               value={status}
-              allLabel="All statuses"
+              allLabel="All status"
               options={REQUEST_STATUSES.map((val) => ({ value: val, label: formatEnumLabel(val) }))}
               onChange={(val) => {
                 setStatus(val)

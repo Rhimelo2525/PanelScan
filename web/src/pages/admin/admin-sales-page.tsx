@@ -149,7 +149,7 @@ export function AdminSalesPage() {
           </section>
 
           <FilterBar searchValue={searchInput} searchPlaceholder="Search order number or customer" onSearchChange={(value) => { setSearchInput(value); setPage(1) }} hasActiveFilters={Boolean(status || searchInput)} onClear={() => { setStatus(""); setSearchInput(""); setPage(1) }}>
-            <FilterSelect label="Status" value={status} allLabel="All statuses" options={ORDER_STATUSES.map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase() }))} onChange={(value) => { setStatus(value); setPage(1) }} />
+            <FilterSelect label="Status" value={status} allLabel="All status" options={ORDER_STATUSES.map((value) => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase() }))} onChange={(value) => { setStatus(value); setPage(1) }} />
           </FilterBar>
 
           <div key={`${status}|${page}`} className="motion-swap admin-table-roomy">
@@ -176,7 +176,7 @@ export function AdminSalesPage() {
                 ),
               },
               { key: "customer", header: "Customer", cell: (row) => row.customerName },
-              { key: "date", header: "Placed", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDateTime(row.createdAt)}</span> },
+              { key: "date", header: "Order Date", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDateTime(row.createdAt)}</span> },
               { key: "items", header: "Items", cell: (row) => <OrderItemsCell items={row.items} /> },
               { key: "amount", header: "Amount", numeric: true, cell: (row) => formatMoney(row.totalAmount) },
               {

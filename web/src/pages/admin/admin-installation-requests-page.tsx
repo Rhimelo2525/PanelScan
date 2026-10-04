@@ -117,7 +117,7 @@ export function AdminInstallationRequestsPage() {
         <FilterSelect
           label="Status"
           value={status}
-          allLabel="All statuses"
+          allLabel="All status"
           options={STATUS_FILTERS}
           onChange={(value) => { setStatus(value); setPage(1) }}
         />

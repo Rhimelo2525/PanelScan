@@ -29,6 +29,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          // An open dialog or sheet turns off pointer events on <body>, which
+          // the toaster sits in - without this, a toast raised while a form is
+          // open (usually an error) could not be closed or clicked.
+          pointerEvents: "auto",
         } as React.CSSProperties
       }
       toastOptions={{
