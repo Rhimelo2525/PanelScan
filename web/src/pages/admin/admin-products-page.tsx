@@ -225,7 +225,7 @@ export function AdminProductsPage() {
 
           <FilterBar
             searchValue={search}
-            searchPlaceholder="Search product name or SKU…"
+            searchPlaceholder="Search product name or product code…"
             onSearchChange={setSearch}
             hasActiveFilters={Boolean(search || categoryFilter || stockFilter || statusFilter)}
             onClear={() => {
@@ -383,7 +383,7 @@ function ProductDetailsSheet({ product, onClose }: { product: Product | null; on
           <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border text-sm">
             <Detail label="Category" value={product.category?.name ?? "—"} />
             <Detail label="Price" value={formatProductPrice(product.price)} />
-            <Detail label="SKU" value={product.sku} />
+            <Detail label="Product Code" value={product.sku} />
             <Detail label="Finish / material" value={product.material ?? "—"} />
             <Detail
               label="Dimensions"
@@ -478,7 +478,7 @@ function EditProductSheet({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!name.trim() || !categoryId || !sku.trim() || !price) {
-      setError("Please fill in all required fields (Name, Category, SKU, Price).")
+      setError("Please fill in all required fields (Name, Category, Product Code, Price).")
       return
     }
 
@@ -633,7 +633,7 @@ function EditProductSheet({
             </div>
 
             <div>
-              <Label htmlFor="edit-sku">SKU *</Label>
+              <Label htmlFor="edit-sku">Product Code *</Label>
               <Input
                 id="edit-sku"
                 value={sku}
@@ -808,7 +808,7 @@ function AddProductSheet({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!name.trim() || !categoryId || !sku.trim() || !price) {
-      setError("Please fill in all required fields (Name, Category, SKU, Price).")
+      setError("Please fill in all required fields (Name, Category, Product Code, Price).")
       return
     }
 
@@ -831,7 +831,7 @@ function AddProductSheet({
     if (!(await confirm({
       title: `Add ${name.trim()} to the catalogue?`,
       description: `A new product will be created.${isModerator ? " It is sent to the owner for approval first." : ""}`,
-      details: [{ label: "SKU", value: sku.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }],
+      details: [{ label: "Product Code", value: sku.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }],
       confirmLabel: "Add Product",
     }))) return
 
@@ -976,7 +976,7 @@ function AddProductSheet({
             </div>
 
             <div>
-              <Label htmlFor="add-sku">SKU *</Label>
+              <Label htmlFor="add-sku">Product Code *</Label>
               <Input
                 id="add-sku"
                 value={sku}

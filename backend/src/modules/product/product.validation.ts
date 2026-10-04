@@ -60,7 +60,7 @@ export const createProductSchema = z.object({
       .regex(SLUG_REGEX, 'Slug may only contain lowercase letters, numbers, and hyphens.')
       .optional(),
     description: z.string().trim().max(2000, 'Description is too long.').optional(),
-    sku: z.string().trim().min(2, 'SKU must be at least 2 characters.').max(50, 'SKU is too long.'),
+    sku: z.string().trim().min(2, 'Product code must be at least 2 characters.').max(50, 'Product code is too long.'),
     price: priceSchema,
     width: dimensionSchema('width').optional(),
     height: dimensionSchema('height').optional(),
@@ -88,7 +88,7 @@ export const updateProductSchema = z.object({
         .regex(SLUG_REGEX, 'Slug may only contain lowercase letters, numbers, and hyphens.')
         .optional(),
       description: z.string().trim().max(2000, 'Description is too long.').optional(),
-      sku: z.string().trim().min(2, 'SKU must be at least 2 characters.').max(50, 'SKU is too long.').optional(),
+      sku: z.string().trim().min(2, 'Product code must be at least 2 characters.').max(50, 'Product code is too long.').optional(),
       price: priceSchema.optional(),
       width: dimensionSchema('width').optional(),
       height: dimensionSchema('height').optional(),

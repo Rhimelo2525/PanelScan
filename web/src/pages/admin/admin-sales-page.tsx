@@ -232,9 +232,6 @@ export function AdminSalesPage() {
                         <SelectContent>{ORDER_STATUSES.filter((value) => value !== row.status).map((value) => <SelectItem key={value} value={value}>{value.charAt(0) + value.slice(1).toLowerCase()}</SelectItem>)}</SelectContent>
                       </Select>
                     )}
-                    {(!isModerator || !TRANSITIONABLE.includes(row.status)) && (row.status === "CANCELLED" || row.status === "DELIVERED") && (
-                      <span className="text-[11px] text-muted-foreground">Final</span>
-                    )}
                   </div>
                 ),
               },

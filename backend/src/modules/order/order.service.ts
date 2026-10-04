@@ -1,4 +1,4 @@
-import { BookingStatus, DeliveryApprovalStatus, NotificationType, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { BookingStatus, DeliveryApprovalStatus, NotificationType, OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
@@ -20,6 +20,43 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 
 const TERMINAL_STATUSES: ReadonlySet<OrderStatus> = new Set([OrderStatus.DELIVERED, OrderStatus.CANCELLED]);
+
+/** Method recorded on a payment that was settled at delivery rather than online. */
+export const PAID_ON_DELIVERY_METHOD = 'Paid on delivery';
+
+/**
+ * A delivered order has been paid for: a pending or failed payment becomes
+ * PAID, and an order that never had one gets a PAID payment for its total.
+ * A payment that is already PAID (or was REFUNDED) is left as it is.
+ */
+async function markPaidOnDelivery(tx: Prisma.TransactionClient, order: { id: string; totalAmount: Prisma.Decimal }): Promise<void> {
+  const payment = await tx.payment.findUnique({ where: { orderId: order.id }, select: { id: true, status: true } });
+  if (payment?.status === PaymentStatus.PAID || payment?.status === PaymentStatus.REFUNDED) return;
+
+  const paid = { status: PaymentStatus.PAID, paidAt: new Date() };
+  if (payment) {
+    await tx.payment.update({ where: { id: payment.id }, data: paid });
+  } else {
+    await tx.payment.create({ data: { orderId: order.id, method: PAID_ON_DELIVERY_METHOD, amount: order.totalAmount, ...paid } });
+  }
+}
+
+/**
+ * A delivered order's delivery is done too: one that never reached Lalamove
+ * (still "awaiting payment", "ready to book"...) shows Delivered, and a
+ * pending shipping-fee payment becomes PAID. A Lalamove-booked delivery
+ * keeps the status Lalamove reports.
+ */
+async function completeUnbookedDelivery(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+  await tx.delivery.updateMany({
+    where: { orderId, lalamoveOrderId: null, OR: [{ deliveryStatus: null }, { deliveryStatus: { in: PRE_BOOKING_DELIVERY_STATUSES } }] },
+    data: { deliveryStatus: 'COMPLETED' },
+  });
+  await tx.deliveryPayment.updateMany({
+    where: { delivery: { orderId }, status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] } },
+    data: { status: PaymentStatus.PAID, paidAt: new Date() },
+  });
+}
 
 const generateOrderNumber = (): string => {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -526,6 +563,10 @@ export class OrderService {
 
       await tx.order.update({ where: { id: orderId }, data: { status } });
       if (status === OrderStatus.CANCELLED) await cancelUnbookedDelivery(tx, orderId);
+      if (status === OrderStatus.DELIVERED) {
+        await markPaidOnDelivery(tx, order);
+        await completeUnbookedDelivery(tx, orderId);
+      }
 
       // Staff cancelling an order they never approved is, from the
       // customer's side, the order being declined - say so plainly.

@@ -26,7 +26,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useDocumentTitle } from "@/hooks/use-document-title"
@@ -128,6 +127,7 @@ export function AdminInventoryPage() {
             columns={[
               { key: "product", header: "Product", primary: true, cell: (row) => <span><span className="block font-medium">{row.product.name}</span><span className="block text-xs text-muted-foreground">{row.product.sku}</span></span> },
               { key: "type", header: "Type", cell: (row) => <span className="text-muted-foreground">{panelLineForSku(row.product.sku)}</span> },
+              { key: "location", header: "Location", cell: (row) => <span className="text-muted-foreground">{row.warehouseLocation ?? "—"}</span> },
               { key: "status", header: "Status", cell: (row) => { const status = getStockStatus(row); return <StatusBadge status={status} label={STOCK_STATUS_LABELS[status]} /> } },
               { key: "quantity", header: "On hand", numeric: true, cell: (row) => formatCount(row.quantity) },
               { key: "reserved", header: "Reserved", numeric: true, secondary: true, cell: (row) => formatCount(row.reservedQty) },
@@ -153,13 +153,16 @@ export function AdminInventoryPage() {
   )
 }
 
+/** Where recorded stock is kept; the first is the default. */
+const WAREHOUSE_LOCATIONS = ["Physical Store", "Main Warehouse"] as const
+
 function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [isLoadingProducts, setIsLoadingProducts] = useState(false)
   const [productId, setProductId] = useState("")
   const [quantity, setQuantity] = useState("50")
   const [reorderLevel, setReorderLevel] = useState("10")
-  const [warehouseLocation, setWarehouseLocation] = useState("Main Warehouse")
+  const [warehouseLocation, setWarehouseLocation] = useState<string>(WAREHOUSE_LOCATIONS[0])
   const [isSaving, setIsSaving] = useState(false)
   const confirm = useConfirm()
 
@@ -183,7 +186,7 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
   const reset = () => {
     setQuantity("50")
     setReorderLevel("10")
-    setWarehouseLocation("Main Warehouse")
+    setWarehouseLocation(WAREHOUSE_LOCATIONS[0])
     setProductId("")
   }
 
@@ -232,7 +235,7 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
         productId,
         quantity: parsedQty,
         reorderLevel: parsedReorder,
-        warehouseLocation: warehouseLocation.trim() || "Main Warehouse",
+        warehouseLocation,
       })
 
       toast.success("Stock recording request submitted for owner approval", {
@@ -303,12 +306,16 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
 
           <div className="space-y-1.5">
             <Label htmlFor="stock-location">Warehouse Location</Label>
-            <Input
+            <select
               id="stock-location"
               value={warehouseLocation}
               onChange={(e) => setWarehouseLocation(e.target.value)}
-              placeholder="Main Warehouse"
-            />
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {WAREHOUSE_LOCATIONS.map((location) => (
+                <option key={location} value={location} className="bg-background text-foreground">{location}</option>
+              ))}
+            </select>
           </div>
 
           <div className="flex gap-2 pt-4">

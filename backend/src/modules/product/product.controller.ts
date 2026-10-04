@@ -46,7 +46,7 @@ export class ProductController {
         where: { sku: { equals: req.body.sku.trim(), mode: 'insensitive' }, deletedAt: null },
       });
       if (skuConflict) {
-        throw new AppError('A product with this slug or SKU already exists.', 409);
+        throw new AppError('A product with this name or product code already exists.', 409);
       }
 
       const category = await prisma.category.findUnique({ where: { id: req.body.categoryId } });
@@ -67,7 +67,7 @@ export class ProductController {
         proposedValues: {
           Product: req.body.name.trim(),
           Category: category.name,
-          SKU: req.body.sku.trim().toUpperCase(),
+          'Product Code': req.body.sku.trim().toUpperCase(),
           Price: priceFormatted,
         },
         productData: req.body,
@@ -119,9 +119,9 @@ export class ProductController {
         }
       }
       if (req.body.sku && req.body.sku.trim().toUpperCase() !== product.sku) {
-        currentValues.SKU = product.sku;
-        proposedValues.SKU = req.body.sku.trim().toUpperCase();
-        diffList.push(`SKU: ${product.sku} → ${proposedValues.SKU}`);
+        currentValues['Product Code'] = product.sku;
+        proposedValues['Product Code'] = req.body.sku.trim().toUpperCase();
+        diffList.push(`Product code: ${product.sku} → ${proposedValues['Product Code']}`);
       }
       if (req.body.material !== undefined && req.body.material !== product.material) {
         currentValues.Material = product.material || 'None';

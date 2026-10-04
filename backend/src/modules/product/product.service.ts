@@ -154,7 +154,7 @@ export class ProductService {
       },
     });
     if (skuConflict) {
-      throw new AppError('A product with this slug or SKU already exists.', 409);
+      throw new AppError('A product with this name or product code already exists.', 409);
     }
 
     // Resolve and verify slug
@@ -168,7 +168,7 @@ export class ProductService {
         },
       });
       if (slugConflict) {
-        throw new AppError('A product with this slug or SKU already exists.', 409);
+        throw new AppError('A product with this name or product code already exists.', 409);
       }
       slug = trimmedSlug;
     } else {
@@ -249,7 +249,7 @@ export class ProductService {
         },
       });
       if (conflict) {
-        throw new AppError('A product with this slug or SKU already exists.', 409);
+        throw new AppError('A product with this name or product code already exists.', 409);
       }
     }
 

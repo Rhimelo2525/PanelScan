@@ -80,7 +80,7 @@ export class InventoryController {
         currentValues: { Stock: 'No physical stock recorded' },
         proposedValues: {
           Product: product.name,
-          SKU: product.sku,
+          'Product Code': product.sku,
           'Physical Stock': quantity,
           'Warehouse Location': warehouseLocation || 'Main Warehouse',
           'Reorder Level': reorderLevel ?? 10,

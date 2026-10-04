@@ -333,7 +333,7 @@ export class RequestService {
         },
       });
       if (skuConflict) {
-        throw new AppError('A product with this SKU already exists.', 409);
+        throw new AppError('A product with this product code already exists.', 409);
       }
 
       const baseSlug = slugify(data.name);
@@ -401,7 +401,7 @@ export class RequestService {
           },
         });
         if (conflict) {
-          throw new AppError('A product with this SKU already exists.', 409);
+          throw new AppError('A product with this product code already exists.', 409);
         }
       }
 
