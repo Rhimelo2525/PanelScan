@@ -830,3 +830,31 @@ model EmailVerificationCode {
   @@index([userId])
   @@map("email_verification_codes")
 }
+
+// One closed 30-day dashboard cycle: a frozen copy of the owner dashboard's
+// "Revenue over time", "Product demand" and "Orders by status" for that
+// window. Read-only once written - orders, payments and products are never
+// changed by archiving; the live dashboard just starts counting from the
+// next cycle's start (modules/archive/archive.service.ts).
+model DashboardArchive {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleNumber         Int      @unique @map("cycle_number")
+  cycleTitle          String   @map("cycle_title")
+  // ["REVENUE_OVER_TIME", "PRODUCT_DEMAND", "ORDERS_BY_STATUS"]
+  metricTypesIncluded Json     @map("metric_types_included")
+  // Cycle start (Philippine midnight) and its last second; the next cycle
+  // starts exactly 30 days after startTimestamp.
+  startTimestamp      DateTime @unique @map("start_timestamp") @db.Timestamptz(3)
+  endTimestamp        DateTime @map("end_timestamp") @db.Timestamptz(3)
+  archivedAt          DateTime @default(now()) @map("archived_at") @db.Timestamptz(3)
+  totalGrossRevenue   Decimal  @map("total_gross_revenue") @db.Decimal(14, 2)
+  totalOrdersCount    Int      @map("total_orders_count")
+  // [{ date, grossRevenue, ordersCount, completedOrdersCount }] - one per day
+  revenueOverTimeData Json     @map("revenue_over_time_data")
+  // [{ productName, sku, unitsSold, totalRevenue }]
+  productDemandData   Json     @map("product_demand_data")
+  // [{ status, count, percentage }] for every order status
+  ordersByStatusData  Json     @map("orders_by_status_data")
+
+  @@map("dashboard_archives")
+}

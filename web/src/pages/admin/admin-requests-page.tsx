@@ -329,7 +329,8 @@ export function AdminRequestsPage() {
               label="Status"
               value={status}
               allLabel="All status"
-              options={REQUEST_STATUSES.map((val) => ({ value: val, label: formatEnumLabel(val) }))}
+              // Only a moderator cancels requests (their own), so the owner has no use for that filter.
+              options={REQUEST_STATUSES.filter((val) => !isOwner || val !== "CANCELLED").map((val) => ({ value: val, label: formatEnumLabel(val) }))}
               onChange={(val) => {
                 setStatus(val)
                 setPage(1)

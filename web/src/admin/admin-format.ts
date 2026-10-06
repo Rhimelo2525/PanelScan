@@ -34,6 +34,28 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? "—" : dateTimeFormatter.format(date)
 }
 
+// Dashboard cycles and archives are defined in Philippine time, so they are
+// always shown in it, whatever the viewer's own time zone.
+const manilaDateFormatter = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "2-digit", year: "numeric" })
+const manilaTimeFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false })
+const manilaDayKeyFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" })
+
+/** "Sep 19, 2026" in Philippine time. */
+export function formatManilaDate(value: string): string {
+  return manilaDateFormatter.format(new Date(value))
+}
+
+/** "Sep 19, 2026 00:00" in Philippine time (24-hour). */
+export function formatManilaDateTime(value: string): string {
+  const date = new Date(value)
+  return `${manilaDateFormatter.format(date)} ${manilaTimeFormatter.format(date)}`
+}
+
+/** "2026-09-19" - the Philippine calendar date. */
+export function manilaDayKey(value: string): string {
+  return manilaDayKeyFormatter.format(new Date(value))
+}
+
 /** ENUM_VALUE -> "Enum value", used for every backend enum rendered in the Admin. */
 export function formatEnumLabel(value: string): string {
   return value

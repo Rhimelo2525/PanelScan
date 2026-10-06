@@ -94,7 +94,9 @@ export function AdminProductsPage() {
         (product.description?.toLowerCase().includes(term) ?? false)
 
       const matchesCategory = categoryFilter === "" || product.categoryId === categoryFilter
-      const matchesStock = stockFilter === "" || getStockStatus(product.inventory) === stockFilter
+      const stockStatus = getStockStatus(product.inventory)
+      // "Low stock" covers critical items too: they are low stock, just more urgent.
+      const matchesStock = stockFilter === "" || stockStatus === stockFilter || (stockFilter === "LOW_STOCK" && stockStatus === "CRITICAL")
       const matchesStatus =
         statusFilter === "" || (statusFilter === "ACTIVE" ? product.isActive : !product.isActive)
 
@@ -106,8 +108,9 @@ export function AdminProductsPage() {
   const totalCount = products.length
   const countWithStatus = (status: StockStatus) => products.filter((p) => getStockStatus(p.inventory) === status).length
   const inStockCount = countWithStatus("IN_STOCK")
-  const lowStockCount = countWithStatus("LOW_STOCK")
   const criticalCount = countWithStatus("CRITICAL")
+  // Critical items are low stock too, so they count here as well.
+  const lowStockCount = countWithStatus("LOW_STOCK") + criticalCount
   const outOfStockCount = countWithStatus("OUT_OF_STOCK")
 
   const columns: Column<Product>[] = [
@@ -212,7 +215,7 @@ export function AdminProductsPage() {
             <MetricCard
               label="Low Stock"
               value={String(lowStockCount)}
-              hint={`Critical: ${criticalCount} (at or below half the reorder level)`}
+              hint={`Includes ${criticalCount} critical (at or below half the reorder level)`}
               isLoading={productResource.isLoading}
             />
             <MetricCard

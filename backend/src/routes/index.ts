@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import addressRoutes from '../modules/address/address.routes';
 import analyticsRoutes from '../modules/analytics/analytics.routes';
+import archiveRoutes from '../modules/archive/archive.routes';
 import arRoutes from '../modules/ar/ar.routes';
 import authRoutes from '../modules/auth/auth.routes';
 import bookingRoutes from '../modules/booking/booking.routes';
@@ -31,6 +32,7 @@ router.use(profilePictureRoutes);
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
 router.use('/admin/moderators', usersRoutes);
+router.use('/admin/archives', archiveRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/products', productRoutes);

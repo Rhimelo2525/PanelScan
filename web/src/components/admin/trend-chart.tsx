@@ -12,6 +12,10 @@ interface TrendChartProps {
   title: string
   formatValue: (value: number) => string
   description?: string
+  /** Line and area colour (any CSS colour); ink when omitted. */
+  color?: string
+  /** Start, middle and end labels under the chart; the first, middle and last point labels when omitted. */
+  axisLabels?: [string, string, string]
 }
 
 const VIEW_WIDTH = 640
@@ -24,7 +28,8 @@ const PADDING = { top: 12, right: 8, bottom: 24, left: 8 }
  * and a single series needs no colour identity of its own. Every value is also
  * available as text in the table below, so the chart is never the only source.
  */
-export function TrendChart({ points, title, formatValue, description }: TrendChartProps) {
+export function TrendChart({ points, title, formatValue, description, color, axisLabels }: TrendChartProps) {
+  const ink = color ?? "currentColor"
   const gradientId = useId()
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
@@ -56,8 +61,8 @@ export function TrendChart({ points, title, formatValue, description }: TrendCha
         <svg viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} className="h-44 w-full" role="img" aria-label={`${title}. ${points.map((point) => `${point.label}: ${formatValue(point.value)}`).join(". ")}`}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="currentColor" stopOpacity="0.14" />
-              <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+              <stop offset="0%" stopColor={ink} stopOpacity="0.14" />
+              <stop offset="100%" stopColor={ink} stopOpacity="0" />
             </linearGradient>
           </defs>
 
@@ -67,10 +72,10 @@ export function TrendChart({ points, title, formatValue, description }: TrendCha
 
           <g className="text-foreground">
             <path d={areaPath} fill={`url(#${gradientId})`} />
-            <path d={linePath} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+            <path d={linePath} fill="none" stroke={ink} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
             {active && <>
               <line x1={active.coordinate.x} x2={active.coordinate.x} y1={PADDING.top} y2={PADDING.top + innerHeight} stroke="var(--muted-foreground)" strokeWidth="1" strokeDasharray="3 3" />
-              <circle cx={active.coordinate.x} cy={active.coordinate.y} r="4.5" fill="currentColor" stroke="var(--card)" strokeWidth="2" />
+              <circle cx={active.coordinate.x} cy={active.coordinate.y} r="4.5" fill={ink} stroke="var(--card)" strokeWidth="2" />
             </>}
           </g>
 
@@ -97,9 +102,9 @@ export function TrendChart({ points, title, formatValue, description }: TrendCha
       </div>
 
       <div className="mt-1 flex justify-between text-[0.68rem] text-muted-foreground">
-        <span>{points[0].label}</span>
-        {points.length > 2 && <span className="hidden sm:inline">{points[Math.floor(points.length / 2)].label}</span>}
-        <span>{points[points.length - 1].label}</span>
+        <span>{axisLabels?.[0] ?? points[0].label}</span>
+        {points.length > 2 && <span className="hidden sm:inline">{axisLabels?.[1] ?? points[Math.floor(points.length / 2)].label}</span>}
+        <span>{axisLabels?.[2] ?? points[points.length - 1].label}</span>
       </div>
 
       <details className="mt-3 text-xs">

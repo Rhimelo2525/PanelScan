@@ -2,6 +2,9 @@ import { apiRequest } from "@/api/client"
 import type { Product } from "@/types/product"
 import type {
   AdminBooking,
+  DashboardArchiveDetail,
+  DashboardArchiveSummary,
+  DashboardCycle,
   AdminFeedback,
   AdminListQuery,
   AdminProject,
@@ -349,4 +352,26 @@ export function assignBookingInstaller(id: string, installerId: string) {
     authenticated: true,
     body: { installerId },
   })
+}
+
+// ---------------------------------------------------- monthly cycles / archives
+
+/** OWNER/MODERATOR: the dashboard's current monthly cycle (revenue omitted for a moderator). */
+export function getDashboardCycle(signal?: AbortSignal) {
+  return apiRequest<{ cycle: DashboardCycle }>("/admin/archives/current-cycle", { authenticated: true, signal })
+}
+
+/** OWNER only: every archived monthly cycle, newest first. */
+export function getDashboardArchives(signal?: AbortSignal) {
+  return apiRequest<{ archives: DashboardArchiveSummary[] }>("/admin/archives", { authenticated: true, signal })
+}
+
+/** OWNER only: one archived cycle with its frozen figures, to view it on the dashboard. */
+export function getDashboardArchive(archiveId: string, signal?: AbortSignal) {
+  return apiRequest<{ archive: DashboardArchiveDetail }>(`/admin/archives/${archiveId}`, { authenticated: true, signal })
+}
+
+/** OWNER only: one archived cycle as a single Excel workbook (.xlsx) - an overview sheet plus one sheet per dashboard widget. */
+export function downloadDashboardArchive(archiveId: string) {
+  return apiRequest<Blob>(`/admin/archives/${archiveId}/download`, { authenticated: true, responseType: "blob" })
 }

@@ -25,6 +25,8 @@ export const cleanDatabase = async (): Promise<void> => {
     prisma.refreshToken.deleteMany(),
     // Keyed by an email hash, not a user, so deleting users does not clear it.
     prisma.loginThrottle.deleteMany(),
+    // Standalone (no relations): archived dashboard cycles.
+    prisma.dashboardArchive.deleteMany(),
     prisma.chatParticipant.deleteMany(),
     prisma.message.deleteMany(),
     prisma.chatRoom.deleteMany(),

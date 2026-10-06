@@ -48,6 +48,7 @@ const AdminInstallationRequestsPage = lazy(() => import("@/pages/admin/admin-ins
 const AdminDeliveriesPage = lazy(() => import("@/pages/admin/admin-deliveries-page").then((module) => ({ default: module.AdminDeliveriesPage })))
 const AdminRequestsPage = lazy(() => import("@/pages/admin/admin-requests-page").then((module) => ({ default: module.AdminRequestsPage })))
 const AdminTeamPage = lazy(() => import("@/pages/admin/admin-team-page").then((module) => ({ default: module.AdminTeamPage })))
+const AdminArchivesPage = lazy(() => import("@/pages/admin/admin-archives-page").then((module) => ({ default: module.AdminArchivesPage })))
 const AdminInstallersPage = lazy(() => import("@/pages/admin/admin-installers-page").then((module) => ({ default: module.AdminInstallersPage })))
 const AdminFeedbackPage = lazy(() => import("@/pages/admin/admin-feedback-page").then((module) => ({ default: module.AdminFeedbackPage })))
 const AdminChatPage = lazy(() => import("@/pages/admin/admin-chat-page").then((module) => ({ default: module.AdminChatPage })))
@@ -82,6 +83,7 @@ function App() {
                   <Route path="feedback" element={<Suspense fallback={<AdminPageFallback />}><AdminFeedbackPage /></Suspense>} />
                   <Route path="requests" element={<Suspense fallback={<AdminPageFallback />}><AdminRequestsPage /></Suspense>} />
                   <Route path="team" element={<Suspense fallback={<AdminPageFallback />}><AdminTeamPage /></Suspense>} />
+                  <Route path="archives" element={<Suspense fallback={<AdminPageFallback />}><AdminArchivesPage /></Suspense>} />
                   <Route path="notifications" element={<Suspense fallback={<AdminPageFallback />}><NotificationsPage variant="admin" /></Suspense>} />
                   <Route path="*" element={<Navigate to="/admin" replace />} />
                 </Route>

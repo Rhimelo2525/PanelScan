@@ -48,6 +48,7 @@ export const SYNC_ORDER = [
   'request',
   'refreshToken',
   'activityLog',
+  'dashboardArchive',
 ] as const;
 
 // Main-database models deliberately NOT mirrored to the backup: short-lived

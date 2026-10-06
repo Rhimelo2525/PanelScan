@@ -412,3 +412,56 @@ export interface AdminBooking {
   order?: AdminBookingOrder | null
 }
 
+
+// ----------------------------------------------- monthly dashboard cycles / archives
+
+export type ArchivedMetricType = "REVENUE_OVER_TIME" | "PRODUCT_DEMAND" | "ORDERS_BY_STATUS"
+
+/** One Philippine calendar day of a cycle. `grossRevenue` is OWNER-only. */
+export interface CycleRevenueDay {
+  date: string
+  grossRevenue?: number
+  ordersCount: number
+  completedOrdersCount: number
+}
+
+export interface CycleProductDemand {
+  productId: string
+  productName: string
+  sku: string
+  unitsSold: number
+  /** OWNER-only. */
+  totalRevenue?: number
+}
+
+/** The dashboard's live monthly cycle (GET /admin/archives/current-cycle). */
+export interface DashboardCycle {
+  cycleNumber: number
+  startTimestamp: string
+  endTimestamp: string
+  revenueOverTime: CycleRevenueDay[]
+  productDemand: CycleProductDemand[]
+  ordersByStatus: Array<{ status: string; count: number; percentage: number }>
+  /** OWNER-only. */
+  totalGrossRevenue?: number
+  totalOrdersCount: number
+}
+
+export interface DashboardArchiveSummary {
+  id: string
+  cycleNumber: number
+  cycleTitle: string
+  metricTypesIncluded: ArchivedMetricType[]
+  startTimestamp: string
+  endTimestamp: string
+  archivedAt: string
+  totalGrossRevenue: number
+  totalOrdersCount: number
+}
+
+/** One archived cycle with its frozen widget data (GET /admin/archives/:id), shown on the dashboard. */
+export interface DashboardArchiveDetail extends DashboardArchiveSummary {
+  revenueOverTime: CycleRevenueDay[]
+  productDemand: CycleProductDemand[]
+  ordersByStatus: Array<{ status: string; count: number; percentage: number }>
+}

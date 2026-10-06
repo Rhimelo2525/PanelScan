@@ -679,3 +679,20 @@ model ActivityLog {
   @@index([action])
   @@map("activity_logs")
 }
+
+model DashboardArchive {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleNumber         Int      @unique @map("cycle_number")
+  cycleTitle          String   @map("cycle_title")
+  metricTypesIncluded Json     @map("metric_types_included")
+  startTimestamp      DateTime @unique @map("start_timestamp") @db.Timestamptz(3)
+  endTimestamp        DateTime @map("end_timestamp") @db.Timestamptz(3)
+  archivedAt          DateTime @default(now()) @map("archived_at") @db.Timestamptz(3)
+  totalGrossRevenue   Decimal  @map("total_gross_revenue") @db.Decimal(14, 2)
+  totalOrdersCount    Int      @map("total_orders_count")
+  revenueOverTimeData Json     @map("revenue_over_time_data")
+  productDemandData   Json     @map("product_demand_data")
+  ordersByStatusData  Json     @map("orders_by_status_data")
+
+  @@map("dashboard_archives")
+}
