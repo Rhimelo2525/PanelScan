@@ -265,12 +265,11 @@ export interface CreateModeratorInput {
   firstName: string
   lastName: string
   email: string
-  password: string
   phone?: string
   role?: "MODERATOR" | "OWNER"
 }
 
-/** OWNER only. Provisions a staff / moderator account. */
+/** OWNER only. Invites a staff member: the account stays pending until they verify the emailed code and set a password. */
 export function createModerator(body: CreateModeratorInput) {
   return apiRequest<{ user: AdminUser }>("/users", { method: "POST", authenticated: true, body })
 }
@@ -285,9 +284,24 @@ export function deactivateUser(id: string) {
   return apiRequest<{ user: AdminUser }>(`/users/${id}`, { method: "DELETE", authenticated: true })
 }
 
+/** OWNER: edits an account's name or phone (`phone: null` clears it). */
+export function updateUser(id: string, body: { firstName?: string; lastName?: string; phone?: string | null }) {
+  return apiRequest<{ user: AdminUser }>(`/users/${id}`, { method: "PATCH", authenticated: true, body })
+}
+
 /** OWNER only: lets a restricted account sign in again. */
 export function reactivateUser(id: string) {
   return apiRequest<{ user: AdminUser }>(`/users/${id}/reactivate`, { method: "PATCH", authenticated: true })
+}
+
+/** OWNER only: emails a new invitation code to a staff member who has not activated their account. */
+export function resendStaffInvitation(id: string) {
+  return apiRequest<{ user: AdminUser }>(`/users/${id}/resend-invitation`, { method: "POST", authenticated: true })
+}
+
+/** OWNER only: permanently removes a restricted account, or cancels a pending invitation. */
+export function removeUser(id: string) {
+  return apiRequest<void>(`/users/${id}/permanent`, { method: "DELETE", authenticated: true })
 }
 
 // --------------------------------------------------------------- installers

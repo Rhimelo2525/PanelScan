@@ -64,6 +64,11 @@ export function resetPassword(input: ResetPasswordInput, signal?: AbortSignal) {
   return apiRequest<void>("/auth/reset-password", { method: "POST", body: input, signal })
 }
 
+/** Public: an invited staff member redeems the emailed code and sets a password, activating the account. */
+export function acceptStaffInvitation(input: { email: string; code: string; password: string; confirmPassword: string }, signal?: AbortSignal) {
+  return apiRequest<void>("/auth/accept-staff-invitation", { method: "POST", body: input, signal })
+}
+
 /** `accessToken` defaults to the stored session's; pass it to revoke a session that was never stored. */
 export function logoutCustomer(refreshToken: string, signal?: AbortSignal, accessToken?: string) {
   return apiRequest<void>("/auth/logout", { method: "POST", body: { refreshToken }, authenticated: true, retryAfterRefresh: false, accessToken, signal })

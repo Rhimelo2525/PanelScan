@@ -1,6 +1,6 @@
 import { promises as dnsPromises } from 'node:dns';
 
-import { DISPOSABLE_MAIL_SERVER_IPS } from '../config/disposableEmailDomains';
+import { DISPOSABLE_MAIL_SERVER_IPS, STAFF_EMAIL_PROVIDERS } from '../config/disposableEmailDomains';
 import { env } from '../config/env';
 import { AppError } from './AppError';
 import { DISPOSABLE_EMAIL_MESSAGE, emailDomain, isAllowedEmailDomain, isDisposableEmail } from './disposableEmail';
@@ -23,6 +23,9 @@ import { DISPOSABLE_EMAIL_MESSAGE, emailDomain, isAllowedEmailDomain, isDisposab
  */
 
 export const UNDELIVERABLE_EMAIL_MESSAGE = "We couldn't find a mailbox at this email address. Please check it and try again.";
+
+export const STAFF_EMAIL_PROVIDER_MESSAGE =
+  'Staff accounts must use a Gmail, Outlook/Hotmail, Yahoo, iCloud or Proton address, or the business email domain.';
 
 const ABSTRACT_URL = 'https://emailreputation.abstractapi.com/v1/';
 const ABSTRACT_TIMEOUT_MS = 5000;
@@ -146,6 +149,51 @@ export const screenNewAccountEmail = async (email: string, { checkMailbox }: { c
     throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
   }
   if (checkMailbox && verdict?.undeliverable) {
+    throw new AppError(UNDELIVERABLE_EMAIL_MESSAGE, 400);
+  }
+};
+
+/** True when `domain` (or a parent domain) is a staff-approved provider or one of STAFF_EMAIL_DOMAINS. */
+export const isStaffEmailDomain = (domain: string): boolean => {
+  const approved = new Set([
+    ...STAFF_EMAIL_PROVIDERS,
+    ...(env.STAFF_EMAIL_DOMAINS ?? '').split(',').map((entry) => entry.trim().toLowerCase().replace(/^@/, '')).filter(Boolean),
+  ]);
+  const labels = domain.split('.');
+  return labels.some((_, index) => index < labels.length - 1 && approved.has(labels.slice(index).join('.')));
+};
+
+/**
+ * Stricter screening for a STAFF invitation (an account with admin access):
+ *
+ *   1. The domain must be a big provider or the business's own domain
+ *      (isStaffEmailDomain) - a temp-mail domain no list knows yet can't
+ *      pass, however new it is.
+ *   2. Abstract checks the mailbox even on Gmail/Outlook (skipped for
+ *      customers to save credits), so a made-up address is refused before
+ *      an invitation goes out.
+ *
+ * If Abstract is unreachable the invitation still goes out: the emailed
+ * code is what activates the account, so an address nobody can read can
+ * never become a working staff login.
+ */
+export const screenStaffEmail = async (email: string): Promise<void> => {
+  const domain = emailDomain(email);
+  if (!domain) {
+    throw new AppError('Please provide a valid email address.', 400);
+  }
+  // Reserved names (*.test, example.com) can never receive mail; only the
+  // automated tests and local development use them.
+  if (isReservedDomain(domain) && env.NODE_ENV !== 'production') return;
+  if (!isStaffEmailDomain(domain)) {
+    throw new AppError(STAFF_EMAIL_PROVIDER_MESSAGE, 400);
+  }
+
+  const verdict = await askAbstract(email.trim().toLowerCase());
+  if (verdict?.disposable) {
+    throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
+  }
+  if (verdict?.undeliverable) {
     throw new AppError(UNDELIVERABLE_EMAIL_MESSAGE, 400);
   }
 };

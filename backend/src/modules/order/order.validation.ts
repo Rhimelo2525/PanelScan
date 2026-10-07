@@ -79,6 +79,7 @@ export const listOrdersSchema = z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     status: z.nativeEnum(OrderStatus).optional(),
+    search: z.string().trim().max(100, 'search must be at most 100 characters.').optional(),
   }),
 });
 

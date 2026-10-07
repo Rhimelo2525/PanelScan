@@ -98,6 +98,10 @@ const envSchema = z.object({
   // the service is down or out of credits, registration carries on with the
   // other two checks.
   ABSTRACT_EMAIL_API_KEY: z.string().optional(),
+  // Comma-separated email domains (e.g. "disenyo.ph") that staff invitations
+  // accept in addition to the big providers in STAFF_EMAIL_PROVIDERS
+  // (config/disposableEmailDomains.ts). Optional.
+  STAFF_EMAIL_DOMAINS: z.string().optional(),
 
   // Transactional email (backend/src/utils/mailer.ts) - the one-time codes
   // sent for email verification and password recovery. Entirely optional at

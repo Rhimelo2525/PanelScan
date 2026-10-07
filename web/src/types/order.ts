@@ -20,6 +20,8 @@ export interface OrderItem {
   quantity: number
   lineTotal: string
   createdAt: string
+  /** The product's primary picture and category, for thumbnails (absent on older responses). */
+  product?: { images: { url: string; altText: string | null }[]; category: { slug: string } | null } | null
 }
 
 export interface Order {
@@ -82,4 +84,6 @@ export interface OrderQuery {
   page?: number
   limit?: number
   status?: OrderStatus
+  /** Order number or product name. */
+  search?: string
 }

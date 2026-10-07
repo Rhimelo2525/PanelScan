@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 
+import { getRequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
@@ -8,9 +9,29 @@ import { UsersService, usersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  /** OWNER: invites a staff member, who activates the account from the emailed code. */
   create = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const user = await this.usersService.createUser(req.body);
-    sendSuccess(res, 201, 'User created successfully.', { user });
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    const user = await this.usersService.createUser(req.body, req.user.id, getRequestAuditContext(req));
+    sendSuccess(res, 201, `Invitation sent to ${user.email}.`, { user });
+  });
+
+  resendInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    const user = await this.usersService.resendInvitation(req.params.id as string, req.user.id, getRequestAuditContext(req));
+    sendSuccess(res, 200, `Invitation sent again to ${user.email}.`, { user });
+  });
+
+  remove = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    await this.usersService.removeUser(req.params.id as string, req.user.id, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Account removed.');
   });
 
   getAll = catchAsync(async (_req: Request, res: Response): Promise<void> => {

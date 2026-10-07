@@ -66,10 +66,13 @@ export function isDisposableEmailError(error: unknown): boolean {
 /** Must match UNDELIVERABLE_EMAIL_MESSAGE in the API (utils/emailScreening.ts). */
 export const UNDELIVERABLE_EMAIL_MESSAGE = "We couldn't find a mailbox at this email address. Please check it and try again."
 
+/** A staff invitation must use a big provider or the business domain (backend utils/emailScreening.ts). */
+export const STAFF_EMAIL_PROVIDER_MESSAGE = "Staff accounts must use a Gmail, Outlook/Hotmail, Yahoo, iCloud or Proton address, or the business email domain."
+
 /** The sign-up email problems shown under the Email field rather than as a form error. */
 export function registerEmailErrorMessage(error: unknown): string | null {
   if (!(error instanceof ApiRequestError) || error.status !== 400) return null
-  return error.message === DISPOSABLE_EMAIL_MESSAGE || error.message === UNDELIVERABLE_EMAIL_MESSAGE ? error.message : null
+  return [DISPOSABLE_EMAIL_MESSAGE, UNDELIVERABLE_EMAIL_MESSAGE, STAFF_EMAIL_PROVIDER_MESSAGE].includes(error.message) ? error.message : null
 }
 
 export function getRegisterErrorMessage(error: unknown): string {

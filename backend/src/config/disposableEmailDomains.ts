@@ -18,6 +18,7 @@ export const EXTRA_DISPOSABLE_EMAIL_DOMAINS: readonly string[] = [
   'tempmailaddress.com',
   'temp-mail.pro',
   'mailtemp.uk',
+  '18lover.com',
 ];
 
 /**
@@ -81,4 +82,33 @@ export const ALLOWED_EMAIL_DOMAINS: readonly string[] = [
 export const DISPOSABLE_MAIL_SERVER_IPS: readonly string[] = [
   // mail.caps7.com, mail.hudzer.com (October 2026)
   '134.199.179.131',
+  // mail.18lover.com - a temp-mail inbox used to get a staff invitation through (October 2026)
+  '129.212.136.137',
+];
+
+/**
+ * The only email providers a STAFF account (moderator invitation) may use,
+ * besides the business's own domains (STAFF_EMAIL_DOMAINS in the env).
+ * Staff accounts carry admin access, and temp-mail services register new
+ * domains faster than any blocklist or reputation API learns them, so staff
+ * get an allow-list instead: large providers that require a real sign-up.
+ * Privacy relays and forwarding aliases are left out on purpose - staff
+ * should be reachable at an address that identifies them.
+ */
+export const STAFF_EMAIL_PROVIDERS: readonly string[] = [
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'outlook.ph',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'yahoo.com',
+  'yahoo.com.ph',
+  'ymail.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'proton.me',
+  'protonmail.com',
 ];

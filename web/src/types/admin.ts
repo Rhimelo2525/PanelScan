@@ -273,6 +273,8 @@ export interface AdminUser {
   phone: string | null
   role: UserRole
   isActive: boolean
+  /** True for an invited staff member who has not verified their email and set a password yet (team list only). */
+  invitationPending?: boolean
   createdAt: string
   updatedAt: string
 }

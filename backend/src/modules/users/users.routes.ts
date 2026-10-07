@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { authenticate } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
-import { passwordSchema } from '../../utils/passwordPolicy';
 import { personNameSchema } from '../../utils/nameSchema';
 import { optionalPhilippinePhoneSchema } from '../../utils/phoneSchema';
 import { usersController } from './users.controller';
@@ -20,7 +19,8 @@ const updateUserSchema = z.object({
     .object({
       firstName: personNameSchema('First name').optional(),
       lastName: personNameSchema('Last name').optional(),
-      phone: optionalPhilippinePhoneSchema,
+      // null clears the number; blank or missing leaves it unchanged.
+      phone: z.union([z.null(), optionalPhilippinePhoneSchema]),
     })
     .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' }),
 });
@@ -30,7 +30,7 @@ const createModeratorSchema = z.object({
     firstName: personNameSchema('First name'),
     lastName: personNameSchema('Last name'),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
-    password: passwordSchema,
+    // No password: the invited person chooses their own when activating.
     phone: optionalPhilippinePhoneSchema,
     role: z.nativeEnum(UserRole).optional().default(UserRole.MODERATOR),
   }),
@@ -54,6 +54,12 @@ router.get('/:id', validate(idParamsSchema), usersController.getById);
 
 // PATCH /api/users/:id/reactivate - OWNER only (undoes a restriction)
 router.patch('/:id/reactivate', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.reactivate);
+
+// POST /api/users/:id/resend-invitation - OWNER only (a staff account not activated yet)
+router.post('/:id/resend-invitation', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.resendInvitation);
+
+// DELETE /api/users/:id/permanent - OWNER only. Removes a restricted account for good, or cancels a pending invitation.
+router.delete('/:id/permanent', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.remove);
 
 // PATCH /api/users/:id
 router.patch('/:id', validate(updateUserSchema), usersController.update);

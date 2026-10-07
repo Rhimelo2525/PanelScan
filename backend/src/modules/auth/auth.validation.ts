@@ -181,6 +181,21 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>['body'];
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>['body'];
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>['body'];
 export type VerifyResetCodeInput = z.infer<typeof verifyResetCodeSchema>['body'];
+// The invited staff member's own password, set while activating the account.
+export const acceptStaffInvitationSchema = z.object({
+  body: z
+    .object({
+      email: emailSchema,
+      code: verificationCodeSchema,
+      password: passwordSchema,
+      confirmPassword: z.string().min(1, 'Please confirm your password.'),
+    })
+    .refine((data) => data.password === data.confirmPassword, {
+      message: 'Passwords do not match.',
+      path: ['confirmPassword'],
+    }),
+});
+
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>['body'];
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>['body'];
 export type LoginInput = z.infer<typeof loginSchema>['body'];

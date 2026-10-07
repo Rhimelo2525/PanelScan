@@ -10,6 +10,7 @@ export async function getOrders(query: OrderQuery = {}, signal?: AbortSignal): P
   if (query.page) search.set("page", String(query.page))
   if (query.limit) search.set("limit", String(query.limit))
   if (query.status) search.set("status", query.status)
+  if (query.search?.trim()) search.set("search", query.search.trim())
   const suffix = search.size ? `?${search.toString()}` : ""
   return apiRequest<PaginatedOrders>(`/orders${suffix}`, { authenticated: true, signal })
 }

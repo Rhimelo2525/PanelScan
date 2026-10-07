@@ -482,6 +482,14 @@ export class OrderService {
     const where: Prisma.OrderWhereInput = {
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              { orderNumber: { contains: filters.search, mode: 'insensitive' } },
+              { items: { some: { productName: { contains: filters.search, mode: 'insensitive' } } } },
+            ],
+          }
+        : {}),
     };
 
     const [orders, total] = await Promise.all([

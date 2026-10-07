@@ -5,7 +5,7 @@ import { prisma } from '../../src/config/database';
 import { env } from '../../src/config/env';
 import { authService } from '../../src/modules/auth/auth.service';
 import { DISPOSABLE_EMAIL_MESSAGE } from '../../src/utils/disposableEmail';
-import { UNDELIVERABLE_EMAIL_MESSAGE, screeningDeps } from '../../src/utils/emailScreening';
+import { STAFF_EMAIL_PROVIDER_MESSAGE, UNDELIVERABLE_EMAIL_MESSAGE, screeningDeps } from '../../src/utils/emailScreening';
 import { authHeader, createCustomer, createModerator, createOwner } from '../helpers/factories';
 import { mailbox } from '../helpers/mailbox';
 import app from '../helpers/testApp';
@@ -260,7 +260,7 @@ describe('Sign-up email screening', () => {
       return request(app)
         .post('/api/users')
         .set(authHeader(owner.token))
-        .send({ firstName: 'Kevin', lastName: 'Santos', email, password: 'P@nelScan2026', role: 'MODERATOR' });
+        .send({ firstName: 'Kevin', lastName: 'Santos', email, role: 'MODERATOR' });
     };
 
     it('refuses a list-known temp-mail address before any network call', async () => {
@@ -273,9 +273,57 @@ describe('Sign-up email screening', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    const gmailAddress = () => `kevin.santos.${Date.now()}.${(counter += 1)}@gmail.com`;
+
+    it('refuses the 18lover.com temp-mail service (listed domain and mail server)', async () => {
+      const fetchMock = abstractAnswer(verdict('deliverable', 'valid_email'));
+
+      const response = await addModerator('staff@18lover.com');
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(DISPOSABLE_EMAIL_MESSAGE);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses any domain that is not a big provider or the business domain, without calling Abstract', async () => {
+      const fetchMock = abstractAnswer(verdict('deliverable', 'valid_email'));
+      const email = `staff@${uniqueDomain()}`;
+
+      const response = await addModerator(email);
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(STAFF_EMAIL_PROVIDER_MESSAGE);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await accountExists(email)).toBe(false);
+    });
+
+    it('accepts the business domains set in STAFF_EMAIL_DOMAINS', async () => {
+      const domain = uniqueDomain();
+      const originalDomains = env.STAFF_EMAIL_DOMAINS;
+      env.STAFF_EMAIL_DOMAINS = ` other.ph , @${domain}`;
+      try {
+        const response = await addModerator(`staff@${domain}`);
+        expect(response.status).toBe(201);
+      } finally {
+        env.STAFF_EMAIL_DOMAINS = originalDomains;
+      }
+    });
+
+    it('refuses a made-up Gmail address: staff mailboxes are checked even on big providers', async () => {
+      const fetchMock = abstractAnswer(verdict('undeliverable', 'invalid_mailbox'));
+      const email = gmailAddress();
+
+      const response = await addModerator(email);
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(UNDELIVERABLE_EMAIL_MESSAGE);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(await accountExists(email)).toBe(false);
+    });
+
     it('refuses an address Abstract calls disposable', async () => {
       abstractAnswer(verdict('deliverable', 'valid_email', true));
-      const email = `staff@${uniqueDomain()}`;
+      const email = gmailAddress();
 
       const response = await addModerator(email);
 
@@ -284,24 +332,23 @@ describe('Sign-up email screening', () => {
       expect(await accountExists(email)).toBe(false);
     });
 
-    it('refuses a mailbox that does not exist', async () => {
-      abstractAnswer(verdict('undeliverable', 'invalid_mailbox'));
-      const email = `staff@${uniqueDomain()}`;
-
-      const response = await addModerator(email);
-
-      expect(response.status).toBe(400);
-      expect(response.body.message).toBe(UNDELIVERABLE_EMAIL_MESSAGE);
-      expect(await accountExists(email)).toBe(false);
-    });
-
-    it('creates the moderator for a deliverable address', async () => {
-      const email = `staff@${uniqueDomain()}`;
+    it('invites a deliverable Gmail address', async () => {
+      const email = gmailAddress();
 
       const response = await addModerator(email);
 
       expect(response.status).toBe(201);
       expect(await accountExists(email)).toBe(true);
+    });
+
+    it('still invites when Abstract is down: only the emailed code can activate the account', async () => {
+      abstractAnswer({ error: 'quota' }, 429);
+      const email = gmailAddress();
+
+      const response = await addModerator(email);
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.user.invitationPending).toBe(true);
     });
   });
 

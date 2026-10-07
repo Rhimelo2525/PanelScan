@@ -23,6 +23,7 @@ const parseOrderFilters = (query: Request['query']): OrderFilters => ({
   page: typeof query.page === 'string' ? Number(query.page) : undefined,
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   status: typeof query.status === 'string' ? (query.status as OrderFilters['status']) : undefined,
+  search: typeof query.search === 'string' && query.search.trim() ? query.search.trim() : undefined,
 });
 
 export class OrderController {

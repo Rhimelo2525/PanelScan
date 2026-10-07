@@ -18,6 +18,7 @@ const ProductsPage = lazy(() => import("@/pages/products-page").then((module) =>
 const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })))
 const RegisterPage = lazy(() => import("@/pages/register-page").then((module) => ({ default: module.RegisterPage })))
 const ForgotPasswordPage = lazy(() => import("@/pages/forgot-password-page").then((module) => ({ default: module.ForgotPasswordPage })))
+const StaffAcceptInvitePage = lazy(() => import("@/pages/staff-accept-invite-page").then((module) => ({ default: module.StaffAcceptInvitePage })))
 const ProfilePage = lazy(() => import("@/pages/profile-page").then((module) => ({ default: module.ProfilePage })))
 const AboutPage = lazy(() => import("@/pages/about-page").then((module) => ({ default: module.AboutPage })))
 const PlaceholderPage = lazy(() => import("@/pages/placeholder-page").then((module) => ({ default: module.PlaceholderPage })))
@@ -99,6 +100,8 @@ function App() {
                 <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
                 <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
                 <Route path="forgot-password" element={<Suspense fallback={<RoutePageFallback />}><ForgotPasswordPage /></Suspense>} />
+                {/* Where a staff invitation email leads (the backend builds this path from FRONTEND_URL). */}
+                <Route path="staff/accept-invite" element={<Suspense fallback={<RoutePageFallback />}><StaffAcceptInvitePage /></Suspense>} />
                 <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
                 <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
                 <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />

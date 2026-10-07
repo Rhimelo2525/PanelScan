@@ -143,6 +143,10 @@ model User {
   // recovery is only ever offered to verified emails.
   emailVerified Boolean @default(false) @map("email_verified")
   termsAcceptedAt DateTime? @map("terms_accepted_at")
+  // Set when the owner permanently removes a (restricted) account. The row is
+  // kept so orders, requests and history still point at it, but it is gone
+  // from every account list, has no credentials and can never sign in again.
+  deletedAt DateTime? @map("deleted_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -831,7 +835,7 @@ model EmailVerificationCode {
   @@map("email_verification_codes")
 }
 
-// One closed 30-day dashboard cycle: a frozen copy of the owner dashboard's
+// One closed monthly dashboard cycle: a frozen copy of the owner dashboard's
 // "Revenue over time", "Product demand" and "Orders by status" for that
 // window. Read-only once written - orders, payments and products are never
 // changed by archiving; the live dashboard just starts counting from the

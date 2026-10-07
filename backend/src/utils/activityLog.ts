@@ -39,6 +39,14 @@ export const ActivityAction = {
   // failure; the main database write it followed already succeeded and is
   // never rolled back for this.
   BACKUP_SYNC_FAILED: 'BACKUP_SYNC_FAILED',
+
+  // Team management (src/modules/users). Logged against the OWNER who acted,
+  // except STAFF_INVITATION_ACCEPTED, which the invited person performs.
+  STAFF_INVITED: 'STAFF_INVITED',
+  STAFF_INVITATION_RESENT: 'STAFF_INVITATION_RESENT',
+  STAFF_INVITATION_ACCEPTED: 'STAFF_INVITATION_ACCEPTED',
+  STAFF_INVITATION_CANCELLED: 'STAFF_INVITATION_CANCELLED',
+  ACCOUNT_REMOVED: 'ACCOUNT_REMOVED',
 } as const;
 
 export type ActivityActionCode = (typeof ActivityAction)[keyof typeof ActivityAction];

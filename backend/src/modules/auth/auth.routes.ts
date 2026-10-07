@@ -7,6 +7,7 @@ import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { authController } from './auth.controller';
 import {
+  acceptStaffInvitationSchema,
   changePasswordSchema,
   forgotPasswordSchema,
   googleAuthSchema,
@@ -83,6 +84,9 @@ router.post('/verify-reset-code', accountSecurityRateLimiter, validate(verifyRes
 
 // POST /api/auth/reset-password - redeems the code (single use) and sets the new password
 router.post('/reset-password', accountSecurityRateLimiter, validate(resetPasswordSchema), authController.resetPassword);
+
+// POST /api/auth/accept-staff-invitation - an invited moderator redeems the emailed code (single use) and sets a password
+router.post('/accept-staff-invitation', accountSecurityRateLimiter, validate(acceptStaffInvitationSchema), authController.acceptStaffInvitation);
 
 // POST /api/auth/refresh - no access token required (that's the point of a refresh token), so
 // it's public but shares the same brute-force protection as login/register.

@@ -4,7 +4,9 @@ import { env } from '../../config/env';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/AppError';
+import { getRequestAuditContext } from '../../utils/activityLog';
 import { DISPOSABLE_EMAIL_MESSAGE } from '../../utils/disposableEmail';
+import { staffInvitationService } from '../users/staffInvitation.service';
 import { AuthService, authService } from './auth.service';
 import { GoogleAuthService, googleAuthService, type VerifiedGoogleProfile } from './googleAuth.service';
 import { VerificationService, verificationService } from './verification.service';
@@ -89,6 +91,12 @@ export class AuthController {
   resetPassword = catchAsync(async (req: Request, res: Response): Promise<void> => {
     await this.verification.resetPassword(req.body.email, req.body.code, req.body.newPassword);
     sendSuccess(res, 200, 'Your password has been reset. You can now log in with your new password.');
+  });
+
+  /** Public: an invited staff member verifies the emailed code and sets a password, activating the account. */
+  acceptStaffInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await staffInvitationService.accept(req.body.email, req.body.code, req.body.password, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Your account is active. You can now log in with your new password.');
   });
 
   refresh = catchAsync(async (req: Request, res: Response): Promise<void> => {

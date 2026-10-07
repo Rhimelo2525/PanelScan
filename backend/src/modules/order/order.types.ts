@@ -7,7 +7,18 @@ import type { OrderStatus, Prisma } from '@prisma/client';
  * request, and a CUSTOMER viewing their own order gets the same shape.
  */
 export const orderInclude = {
-  items: { orderBy: { createdAt: 'asc' } },
+  // Each line's product thumbnail (primary image first) and category, for order lists.
+  items: {
+    orderBy: { createdAt: 'asc' },
+    include: {
+      product: {
+        select: {
+          images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1, select: { url: true, altText: true } },
+          category: { select: { slug: true } },
+        },
+      },
+    },
+  },
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
   // The order's delivery record (created with the order): workflow stage, quote, vehicle, booking and tracking. deliveryPayment is a legacy separate shipping-fee charge.
   delivery: { include: { deliveryPayment: true } },
@@ -25,6 +36,8 @@ export interface OrderFilters {
   page?: number;
   limit?: number;
   status?: OrderStatus;
+  /** Matches the order number or any line's product name (case-insensitive). */
+  search?: string;
 }
 
 export interface PaginationMeta {

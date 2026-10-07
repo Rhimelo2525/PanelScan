@@ -12,7 +12,10 @@ import { generateRefreshToken, hashRefreshToken } from '../../utils/refreshToken
 import type { ChangePasswordInput, LoginInput, RegisterInput, UpdateProfileInput } from './auth.validation';
 import type { VerifiedGoogleProfile } from './googleAuth.service';
 import { assertLoginAllowed, clearLoginFailures, failLogin, loginIdentifier } from './loginLockout';
+import { isInvitationPending } from '../users/staffInvitation.service';
 import { verificationService } from './verification.service';
+
+const INVITATION_PENDING_MESSAGE = 'This account has not been activated yet. Use the invitation emailed to you to verify your email and set your password.';
 
 // `birthdate` goes out as a plain "YYYY-MM-DD" string (it is a calendar date,
 // not a moment in time, so a full ISO timestamp would invite timezone
@@ -21,7 +24,7 @@ import { verificationService } from './verification.service';
 // ever exposing the hash itself. `profilePictureUrl` replaces the internal
 // storage path (which never leaves the server): it is relative to the API
 // base URL and carries the upload time as `?v=` so a new picture is a new URL.
-type SanitizedUser = Omit<User, 'password' | 'birthdate' | 'profilePicturePath'> & {
+type SanitizedUser = Omit<User, 'password' | 'birthdate' | 'profilePicturePath' | 'deletedAt'> & {
   birthdate: string | null;
   hasPassword: boolean;
   profilePictureUrl: string | null;
@@ -130,9 +133,13 @@ export class AuthService {
     const invalidCredentials = new AppError('Invalid email or password.', 401);
 
     const user = await prisma.user.findUnique({ where: { email: input.email } });
-    if (!user) {
+    // A removed account answers exactly like one that never existed.
+    if (!user || user.deletedAt) {
       await spendPasswordCheck(input.password);
       return failLogin(identifier, invalidCredentials);
+    }
+    if (isInvitationPending(user)) {
+      throw new AppError(INVITATION_PENDING_MESSAGE, 403);
     }
     if (!user.isActive) {
       throw new AppError('This account has been deactivated. Please contact support.', 403);
@@ -176,6 +183,11 @@ export class AuthService {
     // CASE C: Existing account with same verified email (Secure Account Linking)
     const existingByEmail = await prisma.user.findUnique({ where: { email } });
     if (existingByEmail) {
+      // An invited staff member activates with the emailed code and their own
+      // password; Google must not become a way around that.
+      if (isInvitationPending(existingByEmail)) {
+        throw new AppError(INVITATION_PENDING_MESSAGE, 403);
+      }
       if (!existingByEmail.isActive) {
         throw new AppError('This account has been deactivated. Please contact support.', 403);
       }

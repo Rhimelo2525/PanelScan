@@ -50,7 +50,7 @@ export class AnalyticsService {
       pendingRequests,
       feedbackAverage,
     ] = await Promise.all([
-      prisma.user.count({ where: { role: UserRole.CUSTOMER } }),
+      prisma.user.count({ where: { role: UserRole.CUSTOMER, deletedAt: null } }),
       prisma.product.count({ where: { isActive: true, deletedAt: null } }),
       this.countLowStock(),
       prisma.order.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -202,9 +202,9 @@ export class AnalyticsService {
    */
   async getCustomerAnalytics(role: UserRole, filters: DateRangeFilters & PaginatedListFilters): Promise<CustomerStats> {
     const [totalCustomers, activeCustomers, newCustomers, ordersByCustomer] = await Promise.all([
-      prisma.user.count({ where: { role: UserRole.CUSTOMER } }),
+      prisma.user.count({ where: { role: UserRole.CUSTOMER, deletedAt: null } }),
       prisma.user.count({ where: { role: UserRole.CUSTOMER, isActive: true } }),
-      prisma.user.count({ where: { role: UserRole.CUSTOMER, ...buildCreatedAtWhere(filters) } }),
+      prisma.user.count({ where: { role: UserRole.CUSTOMER, deletedAt: null, ...buildCreatedAtWhere(filters) } }),
       prisma.order.groupBy({ by: ['customerId'], _count: { _all: true } }),
     ]);
 
