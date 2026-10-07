@@ -5,7 +5,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
 import { exchangeGoogleTicket } from "@/api/auth"
 import { apiBaseUrl } from "@/api/client"
-import { DISPOSABLE_EMAIL_MESSAGE, formatLockoutWait, getLoginErrorMessage, loginLockoutSeconds } from "@/auth/errors"
+import { CUSTOMER_LOGIN_ONLY_MESSAGE, DISPOSABLE_EMAIL_MESSAGE, STAFF_LOGIN_ONLY_MESSAGE, formatLockoutWait, getLoginErrorMessage, loginLockoutSeconds } from "@/auth/errors"
 import { getSafeRedirect, resolveLoginDestination } from "@/auth/redirect"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -47,15 +47,26 @@ function GoogleIcon({ className }: { className?: string }) {
   )
 }
 
-export function LoginPage() {
-  useDocumentTitle("Log in | PanelScan")
+/**
+ * Two sign-in pages share this component: `/login` for customers (with Google
+ * and registration) and `/login/admin` (variant "staff") for owners and
+ * moderators, password only. The API refuses an account on the wrong page,
+ * and the error links to the right one with the email carried over.
+ */
+export function LoginPage({ variant = "customer" }: { variant?: "customer" | "staff" }) {
+  const isStaff = variant === "staff"
+  useDocumentTitle(isStaff ? "Staff login | PanelScan" : "Log in | PanelScan")
   const { user, isAuthenticated, isLoading: isRestoring, login, applySession } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   // An explicit "from" (a guarded page the visitor was sent away from) is preserved
   // for staff roles; customers are always routed to their dashboard.
   const requestedPath = getSafeRedirect(location.state, "")
-  const [email, setEmail] = useState("")
+  // Carried over from the other sign-in page's "wrong page" link.
+  const carriedEmail = (location.state as { email?: unknown } | null)?.email
+  const [email, setEmail] = useState(typeof carriedEmail === "string" ? carriedEmail : "")
+  // Set when the account belongs on the other sign-in page.
+  const [wrongPage, setWrongPage] = useState<"staff" | "customer" | null>(null)
   const [password, setPassword] = useState("")
   const [errors, setErrors] = useState<LoginErrors>({})
   const [submissionError, setSubmissionError] = useState("")
@@ -90,6 +101,8 @@ export function LoginPage() {
         setSubmissionError("Google sign-in session expired or was invalid. Please try again.")
       } else if (errorParam === "deactivated") {
         setSubmissionError("This account has been deactivated. Please contact support.")
+      } else if (errorParam === "staff_account") {
+        setWrongPage("staff")
       } else if (errorParam === "disposable_email") {
         setSubmissionError(DISPOSABLE_EMAIL_MESSAGE)
       } else if (errorParam === "unverified_email") {
@@ -152,11 +165,12 @@ export function LoginPage() {
     if (!password) nextErrors.password = "Password is required."
     setErrors(nextErrors)
     setSubmissionError("")
+    setWrongPage(null)
     if (Object.keys(nextErrors).length > 0 || isLocked) return
 
     setIsSubmitting(true)
     try {
-      const signedInUser = await login({ email: email.trim().toLowerCase(), password })
+      const signedInUser = await login({ email: email.trim().toLowerCase(), password, portal: isStaff ? "staff" : "customer" })
       navigate(resolveLoginDestination(signedInUser.role, requestedPath), { replace: true })
     } catch (error) {
       const lockSeconds = loginLockoutSeconds(error)
@@ -165,12 +179,26 @@ export function LoginPage() {
         setNow(current)
         setLockout({ email: email.trim().toLowerCase(), until: current + lockSeconds * 1000, seconds: lockSeconds })
       } else {
-        setSubmissionError(getLoginErrorMessage(error))
+        const message = getLoginErrorMessage(error)
+        if (message === STAFF_LOGIN_ONLY_MESSAGE) setWrongPage("staff")
+        else if (message === CUSTOMER_LOGIN_ONLY_MESSAGE) setWrongPage("customer")
+        else setSubmissionError(message)
       }
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  const wrongPageError = wrongPage && (
+    <FormError
+      message={<>
+        {wrongPage === "staff" ? STAFF_LOGIN_ONLY_MESSAGE : CUSTOMER_LOGIN_ONLY_MESSAGE}{" "}
+        <Link to={wrongPage === "staff" ? "/login/admin" : "/login"} state={{ email: email.trim().toLowerCase() }} className="font-semibold underline underline-offset-4">
+          {wrongPage === "staff" ? "Go to staff login" : "Go to customer login"}
+        </Link>
+      </>}
+    />
+  )
 
   function handleGoogleLogin() {
     setIsGoogleSubmitting(true)
@@ -181,11 +209,15 @@ export function LoginPage() {
 
   return (
     <AuthShell
-      eyebrow="Account access"
-      title="Welcome back"
-      description="Log in to reveal product pricing and continue to your PanelScan account."
-      asideTitle="Return to the materials that shaped your plan."
-      asideDescription="Authenticated customers can review current pricing, manage their cart, and follow orders from one account."
+      eyebrow={isStaff ? "PanelScan staff" : "Account access"}
+      title={isStaff ? "Staff sign in" : "Welcome back"}
+      description={isStaff
+        ? "Owners and moderators sign in here to open the PanelScan admin."
+        : "Log in to reveal product pricing and continue to your PanelScan account."}
+      asideTitle={isStaff ? "Run PanelScan from one place." : "Return to the materials that shaped your plan."}
+      asideDescription={isStaff
+        ? "Orders, deliveries, inventory, installation requests and the team, for owner and moderator accounts only."
+        : "Authenticated customers can review current pricing, manage their cart, and follow orders from one account."}
     >
       <form onSubmit={handleSubmit} noValidate className="space-y-5">
         {isLocked && lockout
@@ -198,7 +230,7 @@ export function LoginPage() {
               </>}
             />
           )
-          : submissionError && <FormError message={submissionError} />}
+          : wrongPageError || (submissionError && <FormError message={submissionError} />)}
         <div>
           <Label htmlFor="login-email">Email address</Label>
           <Input
@@ -229,11 +261,15 @@ export function LoginPage() {
           autoComplete="current-password"
           error={errors.password}
         >
-          <div className="mt-2 text-right">
-            <Link to="/forgot-password" state={{ email: email.trim() }} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
-              Forgot password?
-            </Link>
-          </div>
+          {isStaff ? (
+            <p className="mt-2 text-right text-xs text-muted-foreground">Forgot your password? Ask the PanelScan owner to send you a password reset email.</p>
+          ) : (
+            <div className="mt-2 text-right">
+              <Link to="/forgot-password" state={{ email: email.trim() }} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+                Forgot password?
+              </Link>
+            </div>
+          )}
         </PasswordInput>
         <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting || isGoogleSubmitting || isLocked}>
           {isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}
@@ -241,38 +277,49 @@ export function LoginPage() {
         </Button>
       </form>
 
-      <div className="relative my-6 text-center text-xs">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-border" />
-        </div>
-        <span className="relative bg-card px-2 text-muted-foreground uppercase font-medium">
-          Or
-        </span>
-      </div>
+      {isStaff ? (
+        <p className="mt-7 text-center text-sm text-muted-foreground">
+          Shopping with PanelScan?{" "}
+          <Link to="/login" className="font-semibold text-primary underline-offset-4 hover:underline">
+            Customer log in
+          </Link>
+        </p>
+      ) : (
+        <>
+          <div className="relative my-6 text-center text-xs">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <span className="relative bg-card px-2 text-muted-foreground uppercase font-medium">
+              Or
+            </span>
+          </div>
 
-      <Button
-        type="button"
-        variant="outline"
-        size="lg"
-        className="h-11 w-full gap-2.5 font-medium"
-        onClick={handleGoogleLogin}
-        disabled={isSubmitting || isGoogleSubmitting}
-        aria-label="Continue with Google"
-      >
-        {isGoogleSubmitting ? (
-          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-        ) : (
-          <GoogleIcon className="size-4 shrink-0" />
-        )}
-        <span>{isGoogleSubmitting ? "Connecting to Google…" : "Continue with Google"}</span>
-      </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="h-11 w-full gap-2.5 font-medium"
+            onClick={handleGoogleLogin}
+            disabled={isSubmitting || isGoogleSubmitting}
+            aria-label="Continue with Google"
+          >
+            {isGoogleSubmitting ? (
+              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <GoogleIcon className="size-4 shrink-0" />
+            )}
+            <span>{isGoogleSubmitting ? "Connecting to Google…" : "Continue with Google"}</span>
+          </Button>
 
-      <p className="mt-7 text-center text-sm text-muted-foreground">
-        New to PanelScan?{" "}
-        <Link to="/register" state={{ from: requestedPath }} className="font-semibold text-primary underline-offset-4 hover:underline">
-          Create an account
-        </Link>
-      </p>
+          <p className="mt-7 text-center text-sm text-muted-foreground">
+            New to PanelScan?{" "}
+            <Link to="/register" state={{ from: requestedPath }} className="font-semibold text-primary underline-offset-4 hover:underline">
+              Create an account
+            </Link>
+          </p>
+        </>
+      )}
     </AuthShell>
   )
 }

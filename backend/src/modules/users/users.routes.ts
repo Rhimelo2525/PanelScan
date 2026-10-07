@@ -36,6 +36,12 @@ const createModeratorSchema = z.object({
   }),
 });
 
+const checkEmailSchema = z.object({
+  body: z.object({
+    email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
+  }),
+});
+
 const router = Router();
 
 router.use(authenticate);
@@ -55,8 +61,14 @@ router.get('/:id', validate(idParamsSchema), usersController.getById);
 // PATCH /api/users/:id/reactivate - OWNER only (undoes a restriction)
 router.patch('/:id/reactivate', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.reactivate);
 
+// POST /api/users/check-email - OWNER only. Runs every staff-email rule without inviting anyone.
+router.post('/check-email', restrictTo(UserRole.OWNER), validate(checkEmailSchema), usersController.checkEmail);
+
 // POST /api/users/:id/resend-invitation - OWNER only (a staff account not activated yet)
 router.post('/:id/resend-invitation', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.resendInvitation);
+
+// POST /api/users/:id/send-password-reset - OWNER only. Emails an active moderator a code to set a new password.
+router.post('/:id/send-password-reset', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.sendPasswordReset);
 
 // DELETE /api/users/:id/permanent - OWNER only. Removes a restricted account for good, or cancels a pending invitation.
 router.delete('/:id/permanent', restrictTo(UserRole.OWNER), validate(idParamsSchema), usersController.remove);

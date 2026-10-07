@@ -4,6 +4,7 @@ import { getRequestAuditContext } from '../../utils/activityLog';
 import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
+import { staffPasswordResetService } from './staffPasswordReset.service';
 import { UsersService, usersService } from './users.service';
 
 export class UsersController {
@@ -18,12 +19,27 @@ export class UsersController {
     sendSuccess(res, 201, `Invitation sent to ${user.email}.`, { user });
   });
 
+  /** OWNER: checks a staff invitation's email before the form asks for confirmation. */
+  checkEmail = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await this.usersService.checkStaffEmail(req.body.email);
+    sendSuccess(res, 200, 'This email address can be invited.');
+  });
+
   resendInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
     if (!req.user) {
       throw new AppError('Authentication required.', 401);
     }
     const user = await this.usersService.resendInvitation(req.params.id as string, req.user.id, getRequestAuditContext(req));
     sendSuccess(res, 200, `Invitation sent again to ${user.email}.`, { user });
+  });
+
+  /** OWNER: emails a moderator a code to choose a new password (the owner never sees it). */
+  sendPasswordReset = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    const { email } = await staffPasswordResetService.send(req.params.id as string, req.user.id, getRequestAuditContext(req));
+    sendSuccess(res, 200, `Password reset sent to ${email}.`);
   });
 
   remove = catchAsync(async (req: Request, res: Response): Promise<void> => {

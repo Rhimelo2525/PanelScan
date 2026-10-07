@@ -27,6 +27,8 @@ export interface AuthUser {
 export interface LoginInput {
   email: string
   password: string
+  /** Which sign-in page is asking; each refuses the other's accounts (see backend auth.service). */
+  portal?: "customer" | "staff"
 }
 
 export interface RegisterInput {

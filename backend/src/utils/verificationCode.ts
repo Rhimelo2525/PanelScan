@@ -9,7 +9,7 @@ import { env } from '../config/env';
  * are allowed per code, and a new one can only be requested after a
  * cooldown (see modules/auth/verification.service.ts).
  */
-export type VerificationPurpose = 'password-reset' | 'email-verification' | 'staff-invitation';
+export type VerificationPurpose = 'password-reset' | 'email-verification' | 'staff-invitation' | 'staff-password-reset';
 
 export const VERIFICATION_CODE_LENGTH = 6;
 export const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
@@ -20,6 +20,10 @@ export const VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
 // lives longer than a sign-in code; the guess limit and cooldown still apply.
 export const STAFF_INVITATION_TTL_HOURS = 48;
 export const STAFF_INVITATION_TTL_MS = STAFF_INVITATION_TTL_HOURS * 60 * 60 * 1000;
+// An owner-sent staff password reset: the moderator may not be at their
+// inbox right away either, but a reset should not linger as long.
+export const STAFF_PASSWORD_RESET_TTL_HOURS = 24;
+export const STAFF_PASSWORD_RESET_TTL_MS = STAFF_PASSWORD_RESET_TTL_HOURS * 60 * 60 * 1000;
 
 /** Uniformly random, zero-padded (so "004821" is as likely as "739205"). Uses the CSPRNG, never Math.random(). */
 export const generateVerificationCode = (): string =>

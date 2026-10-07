@@ -15,6 +15,11 @@ import { assertLoginAllowed, clearLoginFailures, failLogin, loginIdentifier } fr
 import { isInvitationPending } from '../users/staffInvitation.service';
 import { verificationService } from './verification.service';
 
+/** Shown when an OWNER/MODERATOR uses the customer sign-in (password or Google). */
+export const STAFF_LOGIN_ONLY_MESSAGE = 'Owner and moderator accounts sign in on the staff login page.';
+/** Shown when a CUSTOMER uses the staff sign-in page. */
+export const CUSTOMER_LOGIN_ONLY_MESSAGE = 'This sign-in page is for PanelScan staff. Customers log in on the regular login page.';
+
 const INVITATION_PENDING_MESSAGE = 'This account has not been activated yet. Use the invitation emailed to you to verify your email and set your password.';
 
 // `birthdate` goes out as a plain "YYYY-MM-DD" string (it is a calendar date,
@@ -156,6 +161,12 @@ export class AuthService {
     }
 
     await clearLoginFailures(identifier);
+    // Only now, with the right password, is the wrong page pointed out - so
+    // this can't be used to find out which addresses belong to staff.
+    const accountPortal = user.role === UserRole.CUSTOMER ? 'customer' : 'staff';
+    if (input.portal && input.portal !== accountPortal) {
+      throw new AppError(input.portal === 'customer' ? STAFF_LOGIN_ONLY_MESSAGE : CUSTOMER_LOGIN_ONLY_MESSAGE, 403);
+    }
     const token = signToken({ userId: user.id, role: user.role });
     const refreshToken = await this.issueRefreshToken(user.id);
     return { user: sanitizeUser(user), token, refreshToken };
@@ -172,6 +183,10 @@ export class AuthService {
     let user = await prisma.user.findUnique({ where: { googleId: profile.sub } });
 
     if (user) {
+      // Google sign-in is on the customer page only; staff use /login/admin.
+      if (user.role !== UserRole.CUSTOMER) {
+        throw new AppError(STAFF_LOGIN_ONLY_MESSAGE, 403);
+      }
       if (!user.isActive) {
         throw new AppError('This account has been deactivated. Please contact support.', 403);
       }
@@ -183,8 +198,12 @@ export class AuthService {
     // CASE C: Existing account with same verified email (Secure Account Linking)
     const existingByEmail = await prisma.user.findUnique({ where: { email } });
     if (existingByEmail) {
-      // An invited staff member activates with the emailed code and their own
-      // password; Google must not become a way around that.
+      // Staff sign in with email and password on /login/admin, so Google is
+      // never linked to a staff account - including an invited one, which
+      // activates with the emailed code and its own password.
+      if (existingByEmail.role !== UserRole.CUSTOMER) {
+        throw new AppError(STAFF_LOGIN_ONLY_MESSAGE, 403);
+      }
       if (isInvitationPending(existingByEmail)) {
         throw new AppError(INVITATION_PENDING_MESSAGE, 403);
       }

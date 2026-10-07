@@ -47,7 +47,7 @@ export function AdminLayout() {
   async function handleSignOut() {
     if (!(await confirm({ title: "Are you sure you want to sign out?", confirmLabel: "Sign Out" }))) return
     await logout()
-    navigate("/login", { replace: true })
+    navigate("/login/admin", { replace: true })
   }
 
   return (

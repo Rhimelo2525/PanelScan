@@ -1,8 +1,8 @@
-import { Eye, Loader2, Mail, Pencil, Send, Trash2, UserPlus, Users } from "lucide-react"
+import { Eye, KeyRound, Loader2, Mail, Pencil, Send, Trash2, UserPlus, Users } from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { createModerator, deactivateUser, getUsers, reactivateUser, removeUser, resendStaffInvitation, updateUser } from "@/api/admin"
+import { checkStaffEmail, createModerator, deactivateUser, getUsers, reactivateUser, removeUser, resendStaffInvitation, sendStaffPasswordReset, updateUser } from "@/api/admin"
 import { formatDate, formatDateTime } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label"
 import { PhoneInput } from "@/components/ui/phone-input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { isValidPersonName, personNameMessage, sanitizeNameInput } from "@/auth/registration-validation"
+import { ApiRequestError } from "@/api/client"
 import { registerEmailErrorMessage } from "@/auth/errors"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { PHILIPPINE_PHONE_MESSAGE, formatPhoneForDisplay, isValidPhilippinePhone, phoneLocalDigits, toPhoneFieldValue } from "@/lib/phone"
@@ -207,6 +208,30 @@ function AccountSheet({ account, canEdit, onClose, onSaved }: { account: AdminUs
   const [phone, setPhone] = useState("")
   const [errors, setErrors] = useState<{ firstName?: string; lastName?: string; phone?: string }>({})
   const [isSaving, setIsSaving] = useState(false)
+  const [isSendingReset, setIsSendingReset] = useState(false)
+  const confirm = useConfirm()
+  // Only a moderator who can sign in today can be sent a reset (pending
+  // invitations use Resend; restricted accounts can't sign in anyway).
+  const canSendReset = canEdit && Boolean(account?.isActive) && !account?.invitationPending
+
+  async function sendReset() {
+    if (!account || isSendingReset) return
+    if (!(await confirm({
+      title: "Send a password reset?",
+      description: "They'll get an email with a 6-digit code and a link to choose a new password. You never see the password. Their current password keeps working until they set the new one, which signs them out on every device.",
+      details: [{ label: "Name", value: `${account.firstName} ${account.lastName}` }, { label: "Email", value: account.email }],
+      confirmLabel: "Send reset email",
+    }))) return
+    setIsSendingReset(true)
+    try {
+      await sendStaffPasswordReset(account.id)
+      toast.success("Password reset sent", { description: `A code and link were emailed to ${account.email}. It expires in 24 hours.` })
+    } catch (error) {
+      toast.error("Password reset not sent", { description: getAdminErrorMessage(error) })
+    } finally {
+      setIsSendingReset(false)
+    }
+  }
 
   function startEditing() {
     if (!account) return
@@ -326,10 +351,21 @@ function AccountSheet({ account, canEdit, onClose, onSaved }: { account: AdminUs
                   </div>
                 </dl>
                 {canEdit ? (
-                  <Button className="w-full" onClick={startEditing}>
-                    <Pencil data-icon="inline-start" aria-hidden="true" />
-                    Edit name and phone
-                  </Button>
+                  <div className="space-y-2">
+                    <Button className="w-full" onClick={startEditing}>
+                      <Pencil data-icon="inline-start" aria-hidden="true" />
+                      Edit name and phone
+                    </Button>
+                    {canSendReset && (
+                      <>
+                        <Button variant="outline" className="w-full" onClick={() => void sendReset()} disabled={isSendingReset}>
+                          {isSendingReset ? <Loader2 className="animate-spin" aria-hidden="true" /> : <KeyRound data-icon="inline-start" aria-hidden="true" />}
+                          Send password reset
+                        </Button>
+                        <p className="text-xs text-muted-foreground">Passwords are never shown, even to the owner. A reset emails them a code to choose a new one.</p>
+                      </>
+                    )}
+                  </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">Only moderator accounts can be edited here.</p>
                 )}
@@ -355,8 +391,13 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
   const [errorEmail, setErrorEmail] = useState<string | undefined>()
   const [errorPhone, setErrorPhone] = useState<string | undefined>()
   const [isSaving, setIsSaving] = useState(false)
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false)
   const savingRef = useRef(false)
   const confirm = useConfirm()
+
+  /** An email problem from the API (wrong provider, temp mail, no mailbox, already used), or null for anything else. */
+  const emailProblem = (error: unknown): string | null =>
+    registerEmailErrorMessage(error) ?? (error instanceof ApiRequestError && error.status === 409 ? error.message : null)
 
   const reset = () => {
     setFirstName("")
@@ -391,6 +432,21 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
       return
     }
 
+    // The email is checked before asking for confirmation, so a wrong address
+    // turns red right away instead of after the owner has confirmed.
+    if (savingRef.current) return
+    setIsCheckingEmail(true)
+    try {
+      await checkStaffEmail(email.trim())
+    } catch (error) {
+      const problem = emailProblem(error)
+      if (problem) setErrorEmail(problem)
+      toast.error("Invitation not sent", { description: problem ?? getAdminErrorMessage(error) })
+      return
+    } finally {
+      setIsCheckingEmail(false)
+    }
+
     if (!(await confirm({
       title: "Send a moderator invitation?",
       description: "We'll email them a 6-digit code and an activation link. The account stays Pending verification until they verify their email and set their own password.",
@@ -414,10 +470,10 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
       reset()
       onDone()
     } catch (error) {
-      // Temporary or non-existent addresses are shown under the Email field.
-      const emailError = registerEmailErrorMessage(error)
-      if (emailError) setErrorEmail(emailError)
-      toast.error("Invitation not sent", { description: emailError ?? getAdminErrorMessage(error) })
+      // Email problems (rarely left by now) are shown under the Email field.
+      const problem = emailProblem(error)
+      if (problem) setErrorEmail(problem)
+      toast.error("Invitation not sent", { description: problem ?? getAdminErrorMessage(error) })
     } finally {
       savingRef.current = false
       setIsSaving(false)
@@ -459,10 +515,10 @@ function AddModeratorSheet({ open, onClose, onDone }: { open: boolean; onClose: 
           </div>
 
           <div className="flex gap-2 pt-4">
-            <Button type="button" variant="outline" className="flex-1" onClick={() => { reset(); onClose() }} disabled={isSaving}>Cancel</Button>
-            <Button type="submit" className="flex-1" disabled={isSaving}>
-              {isSaving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Mail data-icon="inline-start" aria-hidden="true" />}
-              Send invitation
+            <Button type="button" variant="outline" className="flex-1" onClick={() => { reset(); onClose() }} disabled={isSaving || isCheckingEmail}>Cancel</Button>
+            <Button type="submit" className="flex-1" disabled={isSaving || isCheckingEmail}>
+              {isSaving || isCheckingEmail ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Mail data-icon="inline-start" aria-hidden="true" />}
+              {isCheckingEmail ? "Checking email…" : "Send invitation"}
             </Button>
           </div>
         </form>

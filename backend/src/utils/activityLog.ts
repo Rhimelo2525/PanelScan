@@ -47,6 +47,9 @@ export const ActivityAction = {
   STAFF_INVITATION_ACCEPTED: 'STAFF_INVITATION_ACCEPTED',
   STAFF_INVITATION_CANCELLED: 'STAFF_INVITATION_CANCELLED',
   ACCOUNT_REMOVED: 'ACCOUNT_REMOVED',
+  // Owner-sent staff password reset; _COMPLETED is logged against the staff member.
+  STAFF_PASSWORD_RESET_SENT: 'STAFF_PASSWORD_RESET_SENT',
+  STAFF_PASSWORD_RESET_COMPLETED: 'STAFF_PASSWORD_RESET_COMPLETED',
 } as const;
 
 export type ActivityActionCode = (typeof ActivityAction)[keyof typeof ActivityAction];

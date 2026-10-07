@@ -20,7 +20,7 @@ export function AdminRoute() {
 
   if (!isAuthenticated) {
     const intendedPath = `${location.pathname}${location.search}${location.hash}`
-    return <Navigate to="/login" replace state={{ from: intendedPath }} />
+    return <Navigate to="/login/admin" replace state={{ from: intendedPath }} />
   }
 
   // Customers are sent to their own dashboard rather than shown an admin-shaped

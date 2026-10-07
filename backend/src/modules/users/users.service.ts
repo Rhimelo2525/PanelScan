@@ -63,13 +63,19 @@ export class UsersService {
    * choose their own password (StaffInvitationService.accept), which is
    * what activates it. If the email can't be sent, nothing is kept.
    */
-  async createUser(input: CreateUserInput, actorId: string, context: RequestAuditContext): Promise<TeamUser> {
+  /**
+   * Every rule a staff invitation's email must pass, without creating
+   * anything: not temp mail, not already used, a big provider or the business
+   * domain, and a mailbox that exists. The Add Moderator form runs it before
+   * asking for confirmation; createUser runs it again.
+   */
+  async checkStaffEmail(email: string): Promise<void> {
     // Staff accounts get the same email screening as customer sign-up.
-    if (isDisposableEmail(input.email)) {
+    if (isDisposableEmail(email)) {
       throw new AppError(DISPOSABLE_EMAIL_MESSAGE, 400);
     }
 
-    const existing = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
+    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (existing) {
       throw new AppError(
         existing.deletedAt ? 'This email address belonged to a removed account and cannot be used again.' : 'An account with this email address already exists.',
@@ -80,7 +86,11 @@ export class UsersService {
     // Staff addresses must be on a big provider or the business domain, and
     // the mailbox must exist (utils/emailScreening.ts). Last, as it may call
     // a paid API.
-    await screenStaffEmail(input.email);
+    await screenStaffEmail(email);
+  }
+
+  async createUser(input: CreateUserInput, actorId: string, context: RequestAuditContext): Promise<TeamUser> {
+    await this.checkStaffEmail(input.email);
 
     const user = await prisma.user.create({
       data: {

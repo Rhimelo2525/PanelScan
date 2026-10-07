@@ -7,7 +7,8 @@ import { AppError } from '../../utils/AppError';
 import { getRequestAuditContext } from '../../utils/activityLog';
 import { DISPOSABLE_EMAIL_MESSAGE } from '../../utils/disposableEmail';
 import { staffInvitationService } from '../users/staffInvitation.service';
-import { AuthService, authService } from './auth.service';
+import { staffPasswordResetService } from '../users/staffPasswordReset.service';
+import { AuthService, STAFF_LOGIN_ONLY_MESSAGE, authService } from './auth.service';
 import { GoogleAuthService, googleAuthService, type VerifiedGoogleProfile } from './googleAuth.service';
 import { VerificationService, verificationService } from './verification.service';
 
@@ -97,6 +98,12 @@ export class AuthController {
   acceptStaffInvitation = catchAsync(async (req: Request, res: Response): Promise<void> => {
     await staffInvitationService.accept(req.body.email, req.body.code, req.body.password, getRequestAuditContext(req));
     sendSuccess(res, 200, 'Your account is active. You can now log in with your new password.');
+  });
+
+  /** Public: a moderator redeems the owner-sent reset code and sets a new password (signs out every device). */
+  staffResetPassword = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await staffPasswordResetService.reset(req.body.email, req.body.code, req.body.password, getRequestAuditContext(req));
+    sendSuccess(res, 200, 'Your password has been changed. You can now log in with your new password.');
   });
 
   refresh = catchAsync(async (req: Request, res: Response): Promise<void> => {
@@ -197,7 +204,9 @@ export class AuthController {
       res.redirect(target);
     } catch (err: any) {
       const status = err?.statusCode || 500;
-      if (status === 403) {
+      if (err?.message === STAFF_LOGIN_ONLY_MESSAGE) {
+        res.redirect(`${frontendUrl}/login?error=staff_account`);
+      } else if (status === 403) {
         res.redirect(`${frontendUrl}/login?error=deactivated`);
       } else if (err?.message === DISPOSABLE_EMAIL_MESSAGE) {
         res.redirect(`${frontendUrl}/login?error=disposable_email`);

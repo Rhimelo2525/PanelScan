@@ -19,11 +19,17 @@ export function formatLockoutWait(totalSeconds: number): string {
   return parts.filter(Boolean).join(" ")
 }
 
+/** The backend's answer when a staff account uses the customer sign-in (password or Google). */
+export const STAFF_LOGIN_ONLY_MESSAGE = "Owner and moderator accounts sign in on the staff login page."
+/** The backend's answer when a customer uses the staff sign-in page. */
+export const CUSTOMER_LOGIN_ONLY_MESSAGE = "This sign-in page is for PanelScan staff. Customers log in on the regular login page."
+
 export function getLoginErrorMessage(error: unknown): string {
   if (error instanceof ActiveAccountConflictError) return error.message
   if (!(error instanceof ApiRequestError)) return "We couldn't sign you in. Please try again."
   if (error.status === 401) return "The email or password you entered is incorrect."
-  if (error.status === 403) return "This account is currently unavailable. Please contact support."
+  // 403s explain themselves (deactivated, not activated yet, wrong sign-in page).
+  if (error.status === 403) return error.message || "This account is currently unavailable. Please contact support."
   if (error.status === 0) return error.message
   if (error.status === 503) return "PanelScan authentication is not configured in this environment."
   if (error.status === 429) return "Too many attempts were made. Please wait a moment and try again."

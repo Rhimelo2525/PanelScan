@@ -269,6 +269,11 @@ export interface CreateModeratorInput {
   role?: "MODERATOR" | "OWNER"
 }
 
+/** OWNER only: runs every staff-email rule (provider, temp mail, mailbox, already used) without inviting anyone. */
+export function checkStaffEmail(email: string) {
+  return apiRequest<void>("/users/check-email", { method: "POST", authenticated: true, body: { email } })
+}
+
 /** OWNER only. Invites a staff member: the account stays pending until they verify the emailed code and set a password. */
 export function createModerator(body: CreateModeratorInput) {
   return apiRequest<{ user: AdminUser }>("/users", { method: "POST", authenticated: true, body })
@@ -297,6 +302,11 @@ export function reactivateUser(id: string) {
 /** OWNER only: emails a new invitation code to a staff member who has not activated their account. */
 export function resendStaffInvitation(id: string) {
   return apiRequest<{ user: AdminUser }>(`/users/${id}/resend-invitation`, { method: "POST", authenticated: true })
+}
+
+/** OWNER only: emails an active moderator a code to choose a new password (the owner never sees it). */
+export function sendStaffPasswordReset(id: string) {
+  return apiRequest<void>(`/users/${id}/send-password-reset`, { method: "POST", authenticated: true })
 }
 
 /** OWNER only: permanently removes a restricted account, or cancels a pending invitation. */

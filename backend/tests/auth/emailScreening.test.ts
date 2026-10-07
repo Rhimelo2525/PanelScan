@@ -275,6 +275,24 @@ describe('Sign-up email screening', () => {
 
     const gmailAddress = () => `kevin.santos.${Date.now()}.${(counter += 1)}@gmail.com`;
 
+    it('the form can check an address before asking for confirmation, without inviting anyone', async () => {
+      const owner = await createOwner();
+      const check = (email: string) => request(app).post('/api/users/check-email').set(authHeader(owner.token)).send({ email });
+      const typo = `kevin.${Date.now()}@gmail.co`;
+
+      const refused = await check(typo);
+      expect(refused.status).toBe(400);
+      expect(refused.body.message).toBe(STAFF_EMAIL_PROVIDER_MESSAGE);
+
+      const fine = await check(gmailAddress());
+      expect(fine.status).toBe(200);
+      expect((await check(owner.user.email)).status).toBe(409);
+      expect(mailbox.messages).toHaveLength(0);
+
+      const moderator = await createModerator();
+      expect((await request(app).post('/api/users/check-email').set(authHeader(moderator.token)).send({ email: gmailAddress() })).status).toBe(403);
+    });
+
     it('refuses the 18lover.com temp-mail service (listed domain and mail server)', async () => {
       const fetchMock = abstractAnswer(verdict('deliverable', 'valid_email'));
 

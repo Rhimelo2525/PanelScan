@@ -1,5 +1,5 @@
 import type { MailMessage } from '../../utils/mailer';
-import { STAFF_INVITATION_TTL_HOURS, VERIFICATION_CODE_TTL_MINUTES } from '../../utils/verificationCode';
+import { STAFF_INVITATION_TTL_HOURS, STAFF_PASSWORD_RESET_TTL_HOURS, VERIFICATION_CODE_TTL_MINUTES } from '../../utils/verificationCode';
 
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -82,6 +82,20 @@ export const buildStaffInvitationMail = (to: string, firstName: string, code: st
     ignoreNote: "If you weren't expecting this invitation, you can safely ignore this email - no account is activated without this code.",
     expiry: `This code expires in ${STAFF_INVITATION_TTL_HOURS} hours and can only be used once.`,
     action: { label: 'Activate my account', url: acceptUrl },
+  });
+
+/** The owner started a password reset for a staff member; the link opens the page that takes the code and the new password. */
+export const buildStaffPasswordResetMail = (to: string, firstName: string, code: string, resetUrl: string): MailMessage =>
+  buildCodeMail({
+    to,
+    firstName,
+    code,
+    subject: 'Reset your PanelScan staff password',
+    heading: 'Choose a new password',
+    intro: 'The PanelScan owner sent you a password reset for your staff account. Open the link below (or go to the reset page and enter this code) to choose a new password:',
+    ignoreNote: "If you didn't ask the owner for this, you can ignore this email - your current password keeps working until the code is used.",
+    expiry: `This code expires in ${STAFF_PASSWORD_RESET_TTL_HOURS} hours and can only be used once. Setting a new password signs you out on every device.`,
+    action: { label: 'Reset my password', url: resetUrl },
   });
 
 export const buildPasswordResetMail = (to: string, firstName: string, code: string): MailMessage =>

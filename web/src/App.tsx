@@ -97,11 +97,14 @@ function App() {
                 {/* Preserve retired route compatibility without adding browser-based AR or 3D. */}
                 <Route path="designer" element={<Navigate to="/products" replace />} />
                 <Route path="visualizer" element={<Navigate to="/products" replace />} />
-                <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage /></Suspense>} />
+                <Route path="login" element={<Suspense fallback={<RoutePageFallback />}><LoginPage key="customer" /></Suspense>} />
+                {/* Owners and moderators sign in here; /login is for customers only. */}
+                <Route path="login/admin" element={<Suspense fallback={<RoutePageFallback />}><LoginPage key="staff" variant="staff" /></Suspense>} />
                 <Route path="register" element={<Suspense fallback={<RoutePageFallback />}><RegisterPage /></Suspense>} />
                 <Route path="forgot-password" element={<Suspense fallback={<RoutePageFallback />}><ForgotPasswordPage /></Suspense>} />
                 {/* Where a staff invitation email leads (the backend builds this path from FRONTEND_URL). */}
-                <Route path="staff/accept-invite" element={<Suspense fallback={<RoutePageFallback />}><StaffAcceptInvitePage /></Suspense>} />
+                <Route path="staff/accept-invite" element={<Suspense fallback={<RoutePageFallback />}><StaffAcceptInvitePage key="invite" /></Suspense>} />
+                <Route path="staff/reset-password" element={<Suspense fallback={<RoutePageFallback />}><StaffAcceptInvitePage key="reset" mode="reset" /></Suspense>} />
                 <Route path="about" element={<Suspense fallback={<RoutePageFallback />}><AboutPage /></Suspense>} />
                 <Route path="installation" element={<Suspense fallback={<RoutePageFallback />}><InstallationPage /></Suspense>} />
                 <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />

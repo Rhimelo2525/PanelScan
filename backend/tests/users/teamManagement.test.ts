@@ -141,6 +141,75 @@ describe('Inviting a moderator (OWNER)', () => {
   });
 });
 
+describe('Owner-sent password reset for a moderator', () => {
+  const sendReset = (token: string, id: string) => request(app).post(`/api/users/${id}/send-password-reset`).set(authHeader(token));
+  const resetWith = (email: string, code: string, password = 'N3w!Passw0rd') =>
+    request(app).post('/api/auth/staff-reset-password').send({ email, code, password, confirmPassword: password });
+
+  it('emails a code and link; the moderator sets a new password, once, and every old session is signed out', async () => {
+    const owner = await createOwner();
+    const moderator = await createModerator();
+    const session = await login(moderator.user.email, moderator.password);
+    expect(session.status).toBe(200);
+
+    const response = await sendReset(owner.token, moderator.user.id);
+    expect(response.status).toBe(200);
+    const [mail] = mailbox.to(moderator.user.email);
+    const code = mailbox.lastCodeFor(moderator.user.email);
+    expect(mail?.subject).toBe('Reset your PanelScan staff password');
+    expect(mail?.text).toContain(`/staff/reset-password?email=${encodeURIComponent(moderator.user.email)}&code=${code}`);
+    expect(await prisma.activityLog.count({ where: { action: 'STAFF_PASSWORD_RESET_SENT', userId: owner.user.id } })).toBe(1);
+
+    // Until the code is used, the old password still works.
+    expect((await login(moderator.user.email, moderator.password)).status).toBe(200);
+    // The customer reset flow can't redeem a staff code.
+    expect((await request(app).post('/api/auth/reset-password').send({ email: moderator.user.email, code, newPassword: 'N3w!Passw0rd', confirmPassword: 'N3w!Passw0rd' })).status).toBe(400);
+    expect((await resetWith(moderator.user.email, wrongCodeFor(code))).status).toBe(400);
+
+    expect((await resetWith(moderator.user.email, code)).status).toBe(200);
+    expect((await login(moderator.user.email, moderator.password)).status).toBe(401);
+    expect((await login(moderator.user.email, 'N3w!Passw0rd')).status).toBe(200);
+    expect((await request(app).post('/api/auth/refresh').send({ refreshToken: session.body.data.refreshToken })).status).toBe(401);
+    expect((await resetWith(moderator.user.email, code, 'An0ther!Pass99')).status).toBe(400); // single use
+  });
+
+  it('refuses an expired code', async () => {
+    const owner = await createOwner();
+    const moderator = await createModerator();
+    await sendReset(owner.token, moderator.user.id);
+    const code = mailbox.lastCodeFor(moderator.user.email);
+    await prisma.passwordResetCode.updateMany({ where: { userId: moderator.user.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    expect((await resetWith(moderator.user.email, code)).status).toBe(400);
+    expect((await login(moderator.user.email, moderator.password)).status).toBe(200);
+  });
+
+  it('only for active moderators, only by the OWNER, with a resend cooldown', async () => {
+    const owner = await createOwner();
+    const moderator = await createModerator();
+    const restricted = await createModerator({ isActive: false });
+    const customer = await createCustomer();
+    const pending = await invite(owner.token, 'reset-pending@panelscan.test');
+
+    expect((await sendReset(owner.token, restricted.user.id)).status).toBe(409);
+    expect((await sendReset(owner.token, customer.user.id)).status).toBe(409);
+    expect((await sendReset(owner.token, pending.body.data.user.id)).status).toBe(409);
+    expect((await sendReset(moderator.token, moderator.user.id)).status).toBe(403);
+
+    expect((await sendReset(owner.token, moderator.user.id)).status).toBe(200);
+    expect((await sendReset(owner.token, moderator.user.id)).status).toBe(429);
+  });
+
+  it('keeps nothing when the email cannot be sent', async () => {
+    const owner = await createOwner();
+    const moderator = await createModerator();
+    mailbox.failing = true;
+
+    expect((await sendReset(owner.token, moderator.user.id)).status).toBe(503);
+    expect(await prisma.passwordResetCode.count({ where: { userId: moderator.user.id } })).toBe(0);
+  });
+});
+
 describe('Editing an account (OWNER)', () => {
   const edit = (token: string, id: string, body: Record<string, unknown>) => request(app).patch(`/api/users/${id}`).set(authHeader(token)).send(body);
 

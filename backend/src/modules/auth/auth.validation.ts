@@ -71,6 +71,10 @@ export const loginSchema = z.object({
   body: z.object({
     email: z.string().trim().toLowerCase().email('Please provide a valid email address.'),
     password: z.string().min(1, 'Password is required.'),
+    // Which sign-in page is asking: the customer one (/login) or the staff
+    // one (/login/admin). Each refuses the other's accounts. Omitted means
+    // either, for older clients.
+    portal: z.enum(['customer', 'staff']).optional(),
   }),
 });
 
@@ -195,6 +199,9 @@ export const acceptStaffInvitationSchema = z.object({
       path: ['confirmPassword'],
     }),
 });
+
+// A moderator redeeming an owner-sent reset code (same shape as accepting an invitation).
+export const staffResetPasswordSchema = acceptStaffInvitationSchema;
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>['body'];
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>['body'];
