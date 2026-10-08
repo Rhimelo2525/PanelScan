@@ -26,7 +26,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MarkEmailRead
@@ -51,7 +50,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
-import com.example.panelscan.core.ui.BadgeTone
 import com.example.panelscan.core.ui.PanelCard
 import com.example.panelscan.core.ui.PanelScanPasswordField
 import com.example.panelscan.core.ui.PanelScanTextField
@@ -59,7 +57,6 @@ import com.example.panelscan.core.ui.PanelScanTopBar
 import com.example.panelscan.core.ui.PrimaryButton
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.SecondaryButton
-import com.example.panelscan.core.ui.StatusBadge
 import com.example.panelscan.data.repository.AuthRepository
 import com.example.panelscan.core.validation.AccountRules
 import com.example.panelscan.data.repository.ActionResult
@@ -129,47 +126,6 @@ fun ForgotPasswordScreen(
                     .padding(horizontal = Spacing.gutter, vertical = Spacing.md),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md)
             ) {
-                // Pending Integration Disclaimer Banner
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(PanelScan.shapes.card)
-                        .background(colors.accentSoft)
-                        .border(1.dp, colors.accent.copy(alpha = 0.35f), PanelScan.shapes.card)
-                        .padding(Spacing.sm)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Info,
-                            contentDescription = null,
-                            tint = colors.accent,
-                            modifier = Modifier.size(18.dp).padding(top = 2.dp)
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                            ) {
-                                StatusBadge(text = "Integration Pending", tone = BadgeTone.Warning)
-                                Text(
-                                    text = "Demo Mode",
-                                    style = PanelScan.type.label,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.accent
-                                )
-                            }
-                            Text(
-                                text = "External SMTP and SMS gateways are in sandbox demo mode. Verification codes are validated locally without external network transmission.",
-                                style = PanelScan.type.supporting,
-                                color = colors.textPrimary
-                            )
-                        }
-                    }
-                }
-
                 generalError?.let { err ->
                     Row(
                         modifier = Modifier

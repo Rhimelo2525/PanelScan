@@ -132,7 +132,7 @@ fun AboutScreen(
 
                         Text(
                             text = "PanelScan supports the customer journey with:\n\n" +
-                                "• E-commerce for browsing panel products and placing local demo orders.\n" +
+                                "• Browsing panel products and ordering online, paid with GCash.\n" +
                                 "• Installation service requests.\n" +
                                 "• AR scanning and measuring for walls and ceilings.\n" +
                                 "• Material quantity and cost estimation.\n" +

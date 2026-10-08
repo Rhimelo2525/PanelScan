@@ -118,8 +118,7 @@ fun PanelScanNavHost(
     val density = LocalDensity.current
     val reducedMotion = LocalReducedMotion.current
 
-    // The customer session and the PanelScan backend client; repositories not yet
-    // connected to the backend still keep their state on the device.
+    // The customer session and the PanelScan backend client every repository talks to.
     val sessionManager = remember(context) { SessionManager(context) }
     val apiClient = remember(sessionManager) { ApiClient(IntegrationConfig.apiBaseUrl, sessionManager) }
     val authRepository = remember(sessionManager, apiClient) { AuthRepository(sessionManager, apiClient) }
