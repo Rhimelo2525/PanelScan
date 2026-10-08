@@ -9,10 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class ProjectsViewModel(
-    private val repository: ProjectRepository,
-    private val onProjectSaved: ((SavedProject) -> Unit)? = null
-) : ViewModel() {
+class ProjectsViewModel(private val repository: ProjectRepository) : ViewModel() {
     val projects: StateFlow<List<SavedProject>> = repository.allProjects
         .stateIn(
             scope = viewModelScope,
@@ -20,14 +17,13 @@ class ProjectsViewModel(
             initialValue = emptyList()
         )
 
+    /** Saved on the device at once; an upload that fails is retried at the next sign-in. */
     fun saveProject(project: SavedProject) {
-        viewModelScope.launch {
-            repository.saveProject(project)
-            onProjectSaved?.invoke(project)
-        }
+        viewModelScope.launch { repository.saveProject(project) }
     }
 
-    fun deleteProject(project: SavedProject) {
-        viewModelScope.launch { repository.deleteProject(project) }
+    /** [onResult] gets null when deleted, else why it could not be (e.g. the team is already on it). */
+    fun deleteProject(project: SavedProject, onResult: (String?) -> Unit = {}) {
+        viewModelScope.launch { onResult(repository.deleteProject(project)) }
     }
 }

@@ -91,6 +91,27 @@ export const listProjectsSchema = z.object({
   }),
 });
 
+/**
+ * A project saved in the mobile app (AR measurement + panel estimate). The
+ * app's own project id is the key, so saving the same project again updates it.
+ */
+export const mobileProjectSchema = z.object({
+  body: z.object({
+    externalProjectId: z.string().trim().min(1, 'Project id is required.').max(100, 'Project id is too long.'),
+    name: z.string().trim().min(3, 'Name must be at least 3 characters.').max(150, 'Name is too long.'),
+    description: z.string().trim().max(2000, 'Description is too long.').optional(),
+    budget: z.number().positive('Budget must be greater than 0.').optional(),
+    arMetadata: z.record(z.unknown()).optional(),
+  }),
+});
+
+export const mobileProjectParamsSchema = z.object({
+  params: z.object({
+    externalProjectId: z.string().trim().min(1, 'Project id is required.').max(100, 'Project id is too long.'),
+  }),
+});
+
 export type CreateProjectInput = z.infer<typeof createProjectSchema>['body'];
+export type MobileProjectInput = z.infer<typeof mobileProjectSchema>['body'];
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>['body'];
 export type AssignProjectInput = z.infer<typeof assignProjectSchema>['body'];

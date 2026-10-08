@@ -10,6 +10,8 @@ import {
   createProjectSchema,
   idParamsSchema,
   listProjectsSchema,
+  mobileProjectParamsSchema,
+  mobileProjectSchema,
   updateProjectSchema,
   updateProjectStatusSchema,
 } from './project.validation';
@@ -20,6 +22,19 @@ router.use(authenticate);
 
 // POST /api/projects - OWNER only.
 router.post('/', restrictTo(UserRole.OWNER), validate(createProjectSchema), projectController.create);
+
+// POST /api/projects/mobile - CUSTOMER saves a project from the mobile app (MOBILE_AR_3D),
+// keyed by the app's project id so saving it again updates the same project.
+router.post('/mobile', restrictTo(UserRole.CUSTOMER), validate(mobileProjectSchema), projectController.syncMobile);
+
+// DELETE /api/projects/mobile/:externalProjectId - CUSTOMER deletes their own mobile
+// project while it is still pending. Two path segments, so it never collides with /:id.
+router.delete(
+  '/mobile/:externalProjectId',
+  restrictTo(UserRole.CUSTOMER),
+  validate(mobileProjectParamsSchema),
+  projectController.removeMobile,
+);
 
 // GET /api/projects - OWNER: every project. MODERATOR: assigned only. CUSTOMER: own only.
 router.get('/', validate(listProjectsSchema), projectController.getAll);

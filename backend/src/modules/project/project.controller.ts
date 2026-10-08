@@ -57,6 +57,20 @@ export class ProjectController {
     sendSuccess(res, 201, 'Project created successfully.', { project });
   });
 
+  /** CUSTOMER: saves (or updates) a project from the mobile app. */
+  syncMobile = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    const project = await this.projectService.syncMobileProject(requester.id, req.body);
+    sendSuccess(res, 200, 'Project saved successfully.', { project });
+  });
+
+  /** CUSTOMER: deletes their own mobile project while it is still pending. */
+  removeMobile = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    await this.projectService.deleteMobileProject(requester.id, req.params.externalProjectId as string);
+    sendSuccess(res, 200, 'Project deleted successfully.');
+  });
+
   /** OWNER: every project. MODERATOR: assigned projects only. CUSTOMER: own projects only. */
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);

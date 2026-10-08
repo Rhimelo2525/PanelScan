@@ -5,7 +5,7 @@ import { createNotification } from '../notifications/notification.service';
 import { AppError } from '../../utils/AppError';
 import { projectInclude } from './project.types';
 import type { PaginatedProjects, ProjectFilters, ProjectWithRelations } from './project.types';
-import type { AssignProjectInput, CreateProjectInput, UpdateProjectInput } from './project.validation';
+import type { AssignProjectInput, CreateProjectInput, MobileProjectInput, UpdateProjectInput } from './project.validation';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -212,28 +212,54 @@ export class ProjectService {
     });
   }
 
-  /** Prepared for future mobile AR + 3D integration workflow. */
-  async syncMobileProject(customerId: string, input: CreateProjectInput): Promise<ProjectWithRelations> {
+  /**
+   * CUSTOMER: saves a project from the mobile app (AR measurement + panel
+   * estimate) as a MOBILE_AR_3D project. Keyed by the app's project id, so
+   * saving the same project again updates it instead of adding another.
+   */
+  async syncMobileProject(customerId: string, input: MobileProjectInput): Promise<ProjectWithRelations> {
     await this.assertCustomer(customerId);
+    const data = {
+      name: input.name,
+      description: input.description,
+      budget: input.budget,
+      arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
+    };
+
+    const existing = await prisma.project.findFirst({
+      where: { customerId, source: ProjectSource.MOBILE_AR_3D, externalProjectId: input.externalProjectId },
+    });
+    if (existing) {
+      return prisma.project.update({ where: { id: existing.id }, data, include: projectInclude });
+    }
+
     return prisma.project.create({
       data: {
+        ...data,
         customerId,
-        name: input.name,
-        description: input.description,
-        notes: input.notes,
-        budget: input.budget,
-        startDate: input.startDate,
-        endDate: input.endDate,
         status: ProjectStatus.PENDING,
         source: ProjectSource.MOBILE_AR_3D,
         externalProjectId: input.externalProjectId,
-        arDataUrl: input.arDataUrl,
-        arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
-        threeDModelUrl: input.threeDModelUrl,
-        threeDMetadata: input.threeDMetadata ? (input.threeDMetadata as Prisma.InputJsonValue) : undefined,
       },
       include: projectInclude,
     });
+  }
+
+  /**
+   * CUSTOMER: deletes their own mobile project, only while nobody from the
+   * team has taken it on (still PENDING, no moderator assigned).
+   */
+  async deleteMobileProject(customerId: string, externalProjectId: string): Promise<void> {
+    const existing = await prisma.project.findFirst({
+      where: { customerId, source: ProjectSource.MOBILE_AR_3D, externalProjectId },
+    });
+    if (!existing) {
+      throw new AppError('Project not found.', 404);
+    }
+    if (existing.status !== ProjectStatus.PENDING || existing.moderatorId) {
+      throw new AppError('This project is already being handled by the PanelScan team and can no longer be deleted.', 400);
+    }
+    await prisma.project.delete({ where: { id: existing.id } });
   }
 
   async updateProjectStatus(

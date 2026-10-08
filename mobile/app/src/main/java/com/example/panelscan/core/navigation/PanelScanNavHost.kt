@@ -184,14 +184,19 @@ fun PanelScanNavHost(
         cartRepository.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
     }
 
-    val repository = remember(context) {
+    val repository = remember(context, apiClient) {
         ProjectRepository(
             ProjectDatabase.getDatabase(context).projectDao(),
-            ProductCatalog.panels
-        )
+            ProductCatalog.panels,
+            apiClient
+        ) { sessionManager.sessionState.value is CustomerSessionState.LoggedIn }
+    }
+    // Projects follow the account like the cart: merged in at sign-in, removed at sign-out.
+    LaunchedEffect(isSignedIn) {
+        if (isSignedIn) repository.onSignedIn() else repository.onSignedOut()
     }
     val projectsViewModel: ProjectsViewModel = viewModel(
-        factory = projectsViewModelFactory(repository) { }
+        factory = projectsViewModelFactory(repository)
     )
     val measurementViewModel: MeasurementViewModel = viewModel()
 
@@ -441,8 +446,10 @@ fun PanelScanNavHost(
                             navController.navigate(Screen.Preview3D.createRoute(project.id))
                         },
                         onDelete = {
-                            projectsViewModel.deleteProject(project)
-                            navController.popBackStack()
+                            projectsViewModel.deleteProject(project) { error ->
+                                if (error == null) navController.popBackStack()
+                                else Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                            }
                         }
                     )
                 }
@@ -894,14 +901,11 @@ private fun NavHostController.navigateToTab(screen: Screen) {
     }
 }
 
-private fun projectsViewModelFactory(
-    repository: ProjectRepository,
-    onProjectSaved: (SavedProject) -> Unit
-) =
+private fun projectsViewModelFactory(repository: ProjectRepository) =
     object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            ProjectsViewModel(repository, onProjectSaved) as T
+            ProjectsViewModel(repository) as T
     }
 
 private fun authViewModelFactory(repository: AuthRepository) =

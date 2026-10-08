@@ -1,4 +1,4 @@
-import { NotificationType, ProjectStatus } from '@prisma/client';
+import { NotificationType, ProjectSource, ProjectStatus } from '@prisma/client';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
@@ -1028,6 +1028,128 @@ describe('Project module', () => {
         .set('Authorization', `Bearer ${owner.token}`);
 
       expectApiError(response, 404);
+    });
+  });
+
+  // ================================================================
+  // Mobile app projects (POST/DELETE /api/projects/mobile)
+  // ================================================================
+  describe('Mobile app projects', () => {
+    const appProject = {
+      externalProjectId: 'app-project-1',
+      name: 'Wall · 3.20 × 2.60 m',
+      description: 'Wall · Oak Wall Panel',
+      budget: 12950,
+      arMetadata: { surfaceType: 'WALL', widthMeters: 3.2, heightMeters: 2.6, finalQuantity: 7 },
+    };
+
+    it('lets a CUSTOMER save an app project as their own MOBILE_AR_3D project, verified in the database', async () => {
+      const customer = await createCustomer();
+
+      const response = await request(app)
+        .post('/api/projects/mobile')
+        .set('Authorization', `Bearer ${customer.token}`)
+        .send(appProject);
+
+      expectApiSuccess(response, 200, 'Project saved successfully.');
+      const dbProject = await prisma.project.findUnique({ where: { id: response.body.data.project.id } });
+      expect(dbProject?.customerId).toBe(customer.user.id);
+      expect(dbProject?.source).toBe(ProjectSource.MOBILE_AR_3D);
+      expect(dbProject?.externalProjectId).toBe('app-project-1');
+      expect(dbProject?.status).toBe(ProjectStatus.PENDING);
+      expect(dbProject?.ownerId).toBeNull();
+      expect(Number(dbProject?.budget)).toBe(12950);
+      expect(dbProject?.arMetadata).toEqual(appProject.arMetadata);
+
+      const listed = await request(app)
+        .get('/api/projects?source=MOBILE_AR_3D')
+        .set('Authorization', `Bearer ${customer.token}`);
+      expect(listed.body.data.projects.map((p: { id: string }) => p.id)).toEqual([dbProject?.id]);
+    });
+
+    it('updates the same project when the app saves it again, instead of adding another', async () => {
+      const customer = await createCustomer();
+      const first = await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${customer.token}`).send(appProject);
+
+      const second = await request(app)
+        .post('/api/projects/mobile')
+        .set('Authorization', `Bearer ${customer.token}`)
+        .send({ ...appProject, name: 'Living room wall', arMetadata: { ...appProject.arMetadata, finalQuantity: 8 } });
+
+      expectApiSuccess(second, 200);
+      expect(second.body.data.project.id).toBe(first.body.data.project.id);
+      const rows = await prisma.project.findMany({ where: { customerId: customer.user.id } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.name).toBe('Living room wall');
+      expect((rows[0]?.arMetadata as { finalQuantity: number }).finalQuantity).toBe(8);
+    });
+
+    it("keeps customers' app projects apart even with the same app project id", async () => {
+      const first = await createCustomer();
+      const second = await createCustomer();
+
+      await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${first.token}`).send(appProject);
+      await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${second.token}`).send(appProject);
+
+      expect(await prisma.project.count({ where: { customerId: first.user.id } })).toBe(1);
+      expect(await prisma.project.count({ where: { customerId: second.user.id } })).toBe(1);
+    });
+
+    it('rejects staff saving an app project with 403, and an invalid body with 400', async () => {
+      const owner = await createOwner();
+      const customer = await createCustomer();
+
+      const staff = await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${owner.token}`).send(appProject);
+      expectApiError(staff, 403);
+
+      const invalid = await request(app)
+        .post('/api/projects/mobile')
+        .set('Authorization', `Bearer ${customer.token}`)
+        .send({ ...appProject, name: 'ab' });
+      expectApiError(invalid, 400);
+      expect(await prisma.project.count({ where: { customerId: customer.user.id } })).toBe(0);
+    });
+
+    it('lets a CUSTOMER delete their pending app project', async () => {
+      const customer = await createCustomer();
+      await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${customer.token}`).send(appProject);
+
+      const response = await request(app)
+        .delete('/api/projects/mobile/app-project-1')
+        .set('Authorization', `Bearer ${customer.token}`);
+
+      expectApiSuccess(response, 200, 'Project deleted successfully.');
+      expect(await prisma.project.count({ where: { customerId: customer.user.id } })).toBe(0);
+    });
+
+    it('refuses to delete an app project the team has taken on, database unchanged', async () => {
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const saved = await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${customer.token}`).send(appProject);
+      await prisma.project.update({ where: { id: saved.body.data.project.id }, data: { moderatorId: moderator.user.id } });
+
+      const response = await request(app)
+        .delete('/api/projects/mobile/app-project-1')
+        .set('Authorization', `Bearer ${customer.token}`);
+
+      expectApiError(response, 400, /already being handled/);
+      expect(await prisma.project.count({ where: { id: saved.body.data.project.id } })).toBe(1);
+    });
+
+    it("returns 404 for another customer's app project and for staff-created projects", async () => {
+      const owner = await createOwner();
+      const customer = await createCustomer();
+      const other = await createCustomer();
+      await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${other.token}`).send(appProject);
+      await createTestProject({ customerId: customer.user.id, ownerId: owner.user.id, name: 'Manual project' });
+
+      const response = await request(app)
+        .delete('/api/projects/mobile/app-project-1')
+        .set('Authorization', `Bearer ${customer.token}`);
+
+      expectApiError(response, 404);
+      expect(await prisma.project.count({ where: { customerId: other.user.id } })).toBe(1);
+      expect(await prisma.project.count({ where: { customerId: customer.user.id } })).toBe(1);
     });
   });
 });
