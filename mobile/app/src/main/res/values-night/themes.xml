@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors PanelScanDarkColors.pageBackground. -->
+    <style name="Theme.PanelScan" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF0E0F11</item>
+    </style>
+</resources>
