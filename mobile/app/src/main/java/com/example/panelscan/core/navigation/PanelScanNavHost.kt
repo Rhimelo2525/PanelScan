@@ -1,5 +1,7 @@
 package com.example.panelscan.core.navigation
 
+import androidx.compose.runtime.rememberCoroutineScope
+import android.widget.Toast
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -119,7 +121,9 @@ fun PanelScanNavHost(
     val authRepository = remember(sessionManager, apiClient) { AuthRepository(sessionManager, apiClient) }
     val productRepository = remember(apiClient) { ProductRepository(apiClient) }
     val chatRepository = remember(sessionManager, apiClient) { ChatRepository(sessionManager, apiClient) }
-    val cartRepository = remember { CartRepository() }
+    // Lives as long as the app's navigation, so a cart change still reaches the backend after leaving a screen.
+    val appScope = rememberCoroutineScope()
+    val cartRepository = remember(apiClient) { CartRepository(apiClient, sessionManager, appScope) }
     val checkoutDraftStore = remember(context) { SharedPreferencesCheckoutDraftStore(context) }
     val notificationRepository = remember(context) {
         NotificationRepository(SharedPreferencesNotificationStore(context)).apply {
@@ -183,7 +187,15 @@ fun PanelScanNavHost(
     // The catalogue comes from the backend; prices are included only when signed in,
     // so it is (re)loaded at start and whenever the customer logs in or out.
     val isSignedIn = sessionState is CustomerSessionState.LoggedIn
-    LaunchedEffect(isSignedIn) { productRepository.refresh() }
+    LaunchedEffect(isSignedIn) {
+        productRepository.refresh()
+        // Signed in: the account's cart (anything added while signed out moves into it).
+        if (isSignedIn) cartRepository.onSignedIn() else cartRepository.onSignedOut()
+    }
+    // e.g. "Only 3 items are available." when the backend refuses a cart change.
+    LaunchedEffect(cartRepository) {
+        cartRepository.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+    }
 
     val repository = remember(context) {
         ProjectRepository(
