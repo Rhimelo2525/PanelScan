@@ -159,8 +159,8 @@ fun PanelScanNavHost(
             }
         )
     }
-    val installationRepository = remember(notificationRepository) {
-        InstallationRepository { booking ->
+    val installationRepository = remember(notificationRepository, apiClient) {
+        InstallationRepository(apiClient) { booking ->
             notificationRepository.publish(
                 "Installation request update", "Your installation request is ${booking.status.label.lowercase()}.",
                 NotificationDestination.INSTALLATION, booking.orderId
@@ -177,7 +177,7 @@ fun PanelScanNavHost(
     )
     val addressFormViewModel: AddressFormViewModel = viewModel(factory = addressFormViewModelFactory(addressRepository, sessionManager))
     val installationViewModel: InstallationViewModel = viewModel(
-        factory = installationViewModelFactory(installationRepository, orderRepository, sessionManager)
+        factory = installationViewModelFactory(installationRepository, orderRepository)
     )
     val feedbackViewModel: FeedbackViewModel = viewModel(
         factory = feedbackViewModelFactory(feedbackRepository, orderRepository)
@@ -200,10 +200,12 @@ fun PanelScanNavHost(
             cartRepository.onSignedIn()
             orderRepository.refresh()
             feedbackRepository.refresh()
+            installationRepository.refresh()
         } else {
             cartRepository.onSignedOut()
             orderRepository.onSignedOut()
             feedbackRepository.onSignedOut()
+            installationRepository.onSignedOut()
             addressRepository.onSignedOut()
         }
     }
@@ -800,13 +802,10 @@ fun PanelScanNavHost(
                     }
                 )
             ) { entry ->
-                val orderId = entry.arguments?.getString("orderId")
-                LaunchedEffect(orderId) {
-                    installationViewModel.setInitialOrder(orderId)
-                }
                 InstallationScreen(
                     viewModel = installationViewModel,
                     onBack = { navController.popBackStack() },
+                    initialOrderId = entry.arguments?.getString("orderId"),
                     bottomPadding = contentBottomPadding
                 )
             }
@@ -981,13 +980,12 @@ private fun addressFormViewModelFactory(addressRepository: AddressRepository, se
 
 private fun installationViewModelFactory(
     installationRepository: InstallationRepository,
-    orderRepository: OrderRepository,
-    sessionManager: SessionManager
+    orderRepository: OrderRepository
 ) =
     object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            InstallationViewModel(installationRepository, orderRepository, sessionManager) as T
+            InstallationViewModel(installationRepository, orderRepository) as T
     }
 
 private fun feedbackViewModelFactory(

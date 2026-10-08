@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.panelscan.core.model.CartItem
 import com.example.panelscan.core.model.Order
 import com.example.panelscan.core.model.PVCPanel
+import com.example.panelscan.core.util.ManilaTime
 import com.example.panelscan.data.repository.AddressRepository
 import com.example.panelscan.data.repository.CartRepository
 import com.example.panelscan.data.repository.OrderRepository
@@ -18,10 +19,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
-import java.util.TimeZone
 
 data class CheckoutUiState(
     val selectedAddressId: String? = null,
@@ -114,7 +112,7 @@ class CheckoutViewModel(
             checkoutItemsFlow.value.isEmpty() -> "Select at least one item to check out."
             address == null -> "Choose a saved delivery address, or add one."
             state.wantsInstallation && state.installationDate.isBlank() -> "Choose a preferred installation date."
-            state.wantsInstallation && !isFutureDay(state.installationDate) -> "Preferred installation date must be in the future."
+            state.wantsInstallation && !ManilaTime.isFutureDay(state.installationDate) -> "Preferred installation date must be in the future."
             state.wantsInstallation && !state.installationSameAsShipping && state.installationAddress.trim().length < 10 ->
                 "Installation address must be at least 10 characters."
             else -> null
@@ -139,7 +137,7 @@ class CheckoutViewModel(
                     addressId = address.id,
                     shippingAddress = address.formattedAddress,
                     notes = state.notes,
-                    installationDate = if (state.wantsInstallation) installationInstant(state.installationDate) else null,
+                    installationDate = if (state.wantsInstallation) ManilaTime.toUtcIso(state.installationDate) else null,
                     installationAddress = if (state.installationSameAsShipping) address.formattedAddress else state.installationAddress.trim(),
                     installationNotes = state.installationNotes,
                     selectedProductIds = if (direct == null) items.map { it.panel.id } else null,
@@ -160,20 +158,5 @@ class CheckoutViewModel(
 
     private companion object {
         const val NOTES_MAX = 1000
-
-        val MANILA: TimeZone = TimeZone.getTimeZone("Asia/Manila")
-
-        fun dayFormat() = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = MANILA }
-
-        fun isFutureDay(day: String): Boolean {
-            val today = dayFormat().format(Calendar.getInstance(MANILA).time)
-            return day > today
-        }
-
-        /** 9:00 AM Philippine time on the chosen day, as the UTC instant the backend expects (same as the website). */
-        fun installationInstant(day: String): String {
-            val local = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply { timeZone = MANILA }.parse("$day 09:00")!!
-            return SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(local)
-        }
     }
 }

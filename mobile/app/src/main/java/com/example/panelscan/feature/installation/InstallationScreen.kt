@@ -28,7 +28,11 @@ import androidx.compose.material.icons.rounded.Engineering
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import com.example.panelscan.core.model.OrderStatus
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -62,6 +66,8 @@ import java.util.Calendar
 fun InstallationScreen(
     viewModel: InstallationViewModel,
     onBack: () -> Unit,
+    /** Opened from an order's page: prefills that order's address. */
+    initialOrderId: String? = null,
     modifier: Modifier = Modifier,
     bottomPadding: Dp = 0.dp
 ) {
@@ -70,6 +76,40 @@ fun InstallationScreen(
     val orders by viewModel.orders.collectAsState()
     val colors = PanelScan.colors
     val context = LocalContext.current
+
+    LaunchedEffect(initialOrderId) { viewModel.onOpened(initialOrderId) }
+
+    if (state.isConfirming) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissConfirm,
+            title = { Text("Submit this installation request?", style = PanelScan.type.sectionTitle) },
+            text = {
+                Text(
+                    "The PanelScan team will review it and confirm your schedule.\n\n" +
+                        "Preferred date: ${state.scheduledDate}\n${state.preferredTime}\nAddress: ${state.address.trim()}",
+                    style = PanelScan.type.body
+                )
+            },
+            confirmButton = { TextButton(onClick = { viewModel.submitRequest() }) { Text("Submit request") } },
+            dismissButton = { TextButton(onClick = viewModel::dismissConfirm) { Text("Cancel") } },
+            containerColor = colors.surfaceElevated
+        )
+    }
+
+    if (state.cancellingBookingId != null) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissCancel,
+            title = { Text("Cancel this installation request?", style = PanelScan.type.sectionTitle) },
+            text = { Text("This can't be undone. You can send a new request afterwards.", style = PanelScan.type.body) },
+            confirmButton = {
+                TextButton(onClick = viewModel::cancelBooking) { Text("Cancel request", color = colors.destructive) }
+            },
+            dismissButton = { TextButton(onClick = viewModel::dismissCancel) { Text("Keep request") } },
+            containerColor = colors.surfaceElevated
+        )
+    }
+
+    val hasQualifyingOrder = orders.any { it.status != OrderStatus.CANCELLED }
 
     val openDatePicker = {
         val cal = Calendar.getInstance()
@@ -192,6 +232,19 @@ fun InstallationScreen(
                     }
                 }
 
+                if (!state.isLoading && !hasQualifyingOrder) {
+                    PanelCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(Spacing.md)
+                    ) {
+                        Text(
+                            text = "You need to complete an order before requesting installation.",
+                            style = PanelScan.type.supporting,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+
                 // Request form
                 PanelCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -289,8 +342,8 @@ fun InstallationScreen(
                         PrimaryButton(
                             text = if (state.isSubmitting) "Submitting Request…" else "Submit Installation Request",
                             icon = Icons.Rounded.Build,
-                            onClick = { viewModel.submitRequest {} },
-                            enabled = !state.isSubmitting,
+                            onClick = viewModel::requestSubmit,
+                            enabled = !state.isSubmitting && !state.isLoading,
                             fillMaxWidth = true,
                             modifier = Modifier.padding(top = Spacing.xxs)
                         )
@@ -311,7 +364,7 @@ fun InstallationScreen(
                         bookings.forEach { booking ->
                             BookingCard(
                                 booking = booking,
-                                onCancel = { viewModel.cancelBooking(booking.id) }
+                                onCancel = { viewModel.askCancel(booking.id) }
                             )
                         }
                     }
@@ -329,7 +382,7 @@ private fun BookingCard(
     val colors = PanelScan.colors
     val tone = when (booking.status) {
         InstallationStatus.COMPLETED -> BadgeTone.Success
-        InstallationStatus.ASSIGNED, InstallationStatus.CONFIRMED -> BadgeTone.Accent
+        InstallationStatus.APPROVED, InstallationStatus.SCHEDULED -> BadgeTone.Accent
         InstallationStatus.PENDING -> BadgeTone.Warning
         InstallationStatus.CANCELLED -> BadgeTone.Neutral
     }

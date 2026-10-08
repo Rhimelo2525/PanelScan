@@ -179,10 +179,11 @@ data class Order(
 }
 
 @Serializable
+/** The backend's booking statuses. */
 enum class InstallationStatus(val label: String) {
     PENDING("Pending"),
-    CONFIRMED("Confirmed"),
-    ASSIGNED("Installer Assigned"),
+    APPROVED("Approved"),
+    SCHEDULED("Scheduled"),
     COMPLETED("Completed"),
     CANCELLED("Cancelled")
 }
@@ -192,6 +193,7 @@ data class InstallationBooking(
     val id: String,
     val orderId: String? = null,
     val orderNumber: String? = null,
+    /** Display date in Philippine time, e.g. "Oct 20, 2026". */
     val scheduledDate: String,
     val preferredTime: String = "Morning (9:00 AM - 12:00 PM)",
     val address: String,
