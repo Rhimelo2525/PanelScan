@@ -34,7 +34,17 @@ import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
 import com.example.panelscan.core.model.Order
 import com.example.panelscan.core.model.OrderItem
+import com.example.panelscan.core.model.OrderStage
 import com.example.panelscan.core.model.OrderStatus
+import com.example.panelscan.core.model.PaymentStatus
+import com.example.panelscan.data.repository.isReviewEligible
+import coil.compose.SubcomposeAsyncImage
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.example.panelscan.core.ui.BadgeTone
 import com.example.panelscan.core.ui.PanelCard
 import com.example.panelscan.core.ui.PanelScanTopBar
@@ -59,14 +69,32 @@ fun OrderDetailScreen(
     hasReviewed: Boolean = false,
     review: CustomerReview? = null,
     modifier: Modifier = Modifier,
-    bottomPadding: Dp = 0.dp
+    bottomPadding: Dp = 0.dp,
+    /** Opens PayMongo's GCash checkout for this order. */
+    onPay: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    /** A payment is being opened or the order cancelled. */
+    isBusy: Boolean = false,
+    actionError: String? = null
 ) {
     val colors = PanelScan.colors
-    val tone = when (order.status) {
-        OrderStatus.COMPLETED -> BadgeTone.Success
-        OrderStatus.CONFIRMED, OrderStatus.FOR_INSTALLATION -> BadgeTone.Accent
-        OrderStatus.PREPARING, OrderStatus.PENDING -> BadgeTone.Warning
-        OrderStatus.CANCELLED -> BadgeTone.Neutral
+    val tone = order.status.badgeTone()
+    var confirmCancel by remember { mutableStateOf(false) }
+
+    if (confirmCancel) {
+        AlertDialog(
+            onDismissRequest = { confirmCancel = false },
+            title = { Text("Cancel this order?", style = PanelScan.type.sectionTitle) },
+            text = { Text("The panels go back on sale. This can't be undone.", style = PanelScan.type.body) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCancel = false
+                    onCancel()
+                }) { Text("Cancel order", color = colors.destructive) }
+            },
+            dismissButton = { TextButton(onClick = { confirmCancel = false }) { Text("Keep order") } },
+            containerColor = colors.surfaceElevated
+        )
     }
 
     ScreenScaffold(modifier = modifier) {
@@ -115,6 +143,8 @@ fun OrderDetailScreen(
                     }
                 }
 
+                actionError?.let { Text(it, style = PanelScan.type.supporting, color = colors.destructive) }
+
                 // Ordered Items
                 PanelCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -133,47 +163,58 @@ fun OrderDetailScreen(
                     }
                 }
 
-                // Cost Breakdown
+                // Payment: products + shipping in one GCash payment, once approved and quoted (as on the website)
                 PanelCard(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(Spacing.md)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                        Text(
-                            text = "Payment Breakdown",
-                            style = PanelScan.type.sectionTitle,
-                            color = colors.textPrimary
-                        )
-                        SpecRow(label = "Materials Subtotal", value = formatCurrency(order.subtotal))
-                        SpecRow(
-                            label = "Delivery Fee",
-                            value = if (order.delivery.feeQuoted || order.shippingFee > 0.0) {
-                                formatCurrency(order.shippingFee)
-                            } else order.delivery.quoteStatus
-                        )
-                        if (order.hasInstallation) {
-                            SpecRow(
-                                label = "Installation Fee",
-                                value = "To be confirmed"
-                            )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "Payment", style = PanelScan.type.sectionTitle, color = colors.textPrimary)
+                            StatusBadge(text = order.stage.label, tone = order.stage.badgeTone())
                         }
-                        HorizontalDivider(
-                            color = colors.border,
-                            modifier = Modifier.padding(vertical = Spacing.xxs)
-                        )
+                        SpecRow(label = "Products", value = formatCurrency(order.subtotal))
                         SpecRow(
-                            label = "Materials subtotal (fees pending)",
+                            label = "Shipping fee",
+                            value = if (order.shippingQuoted) formatCurrency(order.shippingFee) else "Quoted after approval"
+                        )
+                        HorizontalDivider(color = colors.border, modifier = Modifier.padding(vertical = Spacing.xxs))
+                        SpecRow(
+                            label = if (order.shippingQuoted) "Total" else "Products total (shipping pending)",
                             value = formatCurrency(order.totalAmount),
                             emphasised = true
                         )
-                        SpecRow(
-                            label = "Payment Method",
-                            value = order.paymentMethod
+                        Text(
+                            text = when (order.stage) {
+                                OrderStage.AWAITING_APPROVAL -> "Your order is being reviewed. Once it is approved, we will calculate your delivery fee and payment will become available."
+                                OrderStage.AWAITING_QUOTE -> "Your order has been approved. We are calculating your delivery fee. Payment will be available once the shipping fee is ready."
+                                OrderStage.AWAITING_PAYMENT -> "Your shipping fee is ready. Pay products and shipping together with GCash."
+                                OrderStage.PAID -> if (order.paymentStatus == PaymentStatus.REFUNDED) "This payment is recorded as refunded." else "Payment successful. Your delivery is being prepared."
+                                OrderStage.CANCELLED -> "This order was cancelled."
+                            },
+                            style = PanelScan.type.supporting,
+                            color = colors.textSecondary
                         )
-                        SpecRow(
-                            label = "Payment status",
-                            value = order.delivery.paymentStatus
-                        )
+                        if (order.stage == OrderStage.AWAITING_PAYMENT) {
+                            if (order.paymentStatus == PaymentStatus.FAILED) {
+                                Text("Your last payment did not go through. You can try again.", style = PanelScan.type.supporting, color = colors.destructive)
+                            }
+                            PrimaryButton(
+                                text = if (isBusy) "Opening secure checkout…" else "Pay ${formatCurrency(order.totalAmount)} with GCash",
+                                onClick = onPay,
+                                enabled = !isBusy,
+                                fillMaxWidth = true
+                            )
+                            Text(
+                                "You will leave PanelScan for PayMongo's secure GCash checkout. PanelScan never receives your wallet details. Come back here after paying.",
+                                style = PanelScan.type.label,
+                                color = colors.textTertiary
+                            )
+                        }
                     }
                 }
 
@@ -227,7 +268,7 @@ fun OrderDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(Spacing.xs)
                 ) {
-                    if (order.status == OrderStatus.COMPLETED && order.delivery.paymentStatus == "Paid") {
+                    if (order.isReviewEligible) {
                         if (hasReviewed) {
                             PanelCard(
                                 modifier = Modifier.fillMaxWidth(),
@@ -286,11 +327,14 @@ fun OrderDetailScreen(
                             onClick = { onViewInstallation(order.id) },
                             fillMaxWidth = true
                         )
-                    } else {
+                    }
+
+                    if (order.canCancel) {
                         SecondaryButton(
-                            text = "Request Installation for Order",
-                            icon = Icons.Rounded.Build,
-                            onClick = { onViewInstallation(order.id) },
+                            text = "Cancel order",
+                            onClick = { confirmCancel = true },
+                            enabled = !isBusy,
+                            destructive = true,
                             fillMaxWidth = true
                         )
                     }
@@ -298,6 +342,21 @@ fun OrderDetailScreen(
             }
         }
     }
+}
+
+/** Badge colours for the backend's order statuses (also used by the orders list). */
+fun OrderStatus.badgeTone(): BadgeTone = when (this) {
+    OrderStatus.DELIVERED -> BadgeTone.Success
+    OrderStatus.PROCESSING, OrderStatus.SHIPPED -> BadgeTone.Accent
+    OrderStatus.PENDING -> BadgeTone.Warning
+    OrderStatus.CANCELLED -> BadgeTone.Neutral
+}
+
+private fun OrderStage.badgeTone(): BadgeTone = when (this) {
+    OrderStage.PAID -> BadgeTone.Success
+    OrderStage.AWAITING_PAYMENT -> BadgeTone.Accent
+    OrderStage.AWAITING_APPROVAL, OrderStage.AWAITING_QUOTE -> BadgeTone.Warning
+    OrderStage.CANCELLED -> BadgeTone.Neutral
 }
 
 @Composable
@@ -316,7 +375,15 @@ private fun OrderItemDetailRow(item: OrderItem) {
                 .clip(PanelScan.shapes.control)
                 .border(1.dp, colors.border, PanelScan.shapes.control)
         ) {
-            if (item.imageResId != null) {
+            if (item.imageUrl != null) {
+                SubcomposeAsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = item.panelName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    error = { PanelTexture(item.textureResource, Modifier.fillMaxSize(), PanelScan.shapes.control) }
+                )
+            } else if (item.imageResId != null) {
                 Image(
                     painter = painterResource(id = item.imageResId),
                     contentDescription = item.panelName,

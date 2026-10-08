@@ -1,5 +1,14 @@
 package com.example.panelscan.core.navigation
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalUriHandler
+import com.example.panelscan.feature.address.AddressFormViewModel
+import com.example.panelscan.feature.address.AddressFormScreen
+import com.example.panelscan.data.repository.AddressRepository
 import androidx.compose.runtime.rememberCoroutineScope
 import android.widget.Toast
 import androidx.compose.animation.core.tween
@@ -51,8 +60,6 @@ import com.example.panelscan.core.ui.PanelScanBottomNav
 import com.example.panelscan.core.ui.PriceVisibility
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.data.local.ProjectDatabase
-import com.example.panelscan.data.local.CheckoutDraftStore
-import com.example.panelscan.data.local.SharedPreferencesCheckoutDraftStore
 import com.example.panelscan.data.local.SharedPreferencesNotificationStore
 import com.example.panelscan.data.local.NotificationDestination
 import com.example.panelscan.data.repository.AuthRepository
@@ -81,9 +88,6 @@ import com.example.panelscan.feature.checkout.CheckoutScreen
 import com.example.panelscan.feature.checkout.CheckoutViewModel
 import com.example.panelscan.feature.checkout.DeliveryLocationPickerScreen
 import com.example.panelscan.core.config.IntegrationConfig
-import com.example.panelscan.core.delivery.DeliveryProviders
-import com.example.panelscan.core.payment.GCashPaymentProviders
-import com.example.panelscan.data.repository.DeliveryRepository
 import com.example.panelscan.feature.checkout.OrderConfirmationScreen
 import com.example.panelscan.feature.feedback.FeedbackScreen
 import com.example.panelscan.feature.feedback.FeedbackViewModel
@@ -124,26 +128,26 @@ fun PanelScanNavHost(
     // Lives as long as the app's navigation, so a cart change still reaches the backend after leaving a screen.
     val appScope = rememberCoroutineScope()
     val cartRepository = remember(apiClient) { CartRepository(apiClient, sessionManager, appScope) }
-    val checkoutDraftStore = remember(context) { SharedPreferencesCheckoutDraftStore(context) }
     val notificationRepository = remember(context) {
         NotificationRepository(SharedPreferencesNotificationStore(context)).apply {
             openCustomer((sessionManager.sessionState.value as? CustomerSessionState.LoggedIn)?.user?.email)
         }
     }
-    val orderRepository = remember(notificationRepository) {
+    val addressRepository = remember(apiClient) { AddressRepository(apiClient) }
+    val orderRepository = remember(notificationRepository, apiClient) {
         OrderRepository(
+            api = apiClient,
             onCreated = { order ->
                 notificationRepository.publish(
-                    "Order request saved", "Request #${order.orderNumber} is pending review.",
+                    "Order placed", "Order #${order.orderNumber} is waiting for approval.",
                     NotificationDestination.ORDER, order.id
                 )
             },
             onStatusChanged = { order ->
                 val title = when (order.status) {
-                    OrderStatus.CONFIRMED -> "Order approved"
-                    OrderStatus.PREPARING -> "Order processing"
-                    OrderStatus.FOR_INSTALLATION -> "Order ready for installation"
-                    OrderStatus.COMPLETED -> "Order completed"
+                    OrderStatus.PROCESSING -> "Order processing"
+                    OrderStatus.SHIPPED -> "Order shipped"
+                    OrderStatus.DELIVERED -> "Order delivered"
                     OrderStatus.CANCELLED -> "Order cancelled"
                     OrderStatus.PENDING -> "Order status changed"
                 }
@@ -168,8 +172,9 @@ fun PanelScanNavHost(
     val chatViewModel: ChatViewModel = viewModel(factory = chatViewModelFactory(chatRepository, sessionManager))
     val cartViewModel: CartViewModel = viewModel(factory = cartViewModelFactory(cartRepository))
     val checkoutViewModel: CheckoutViewModel = viewModel(
-        factory = checkoutViewModelFactory(cartRepository, orderRepository, sessionManager, checkoutDraftStore)
+        factory = checkoutViewModelFactory(cartRepository, orderRepository, addressRepository)
     )
+    val addressFormViewModel: AddressFormViewModel = viewModel(factory = addressFormViewModelFactory(addressRepository, sessionManager))
     val installationViewModel: InstallationViewModel = viewModel(
         factory = installationViewModelFactory(installationRepository, orderRepository, sessionManager)
     )
@@ -190,7 +195,14 @@ fun PanelScanNavHost(
     LaunchedEffect(isSignedIn) {
         productRepository.refresh()
         // Signed in: the account's cart (anything added while signed out moves into it).
-        if (isSignedIn) cartRepository.onSignedIn() else cartRepository.onSignedOut()
+        if (isSignedIn) {
+            cartRepository.onSignedIn()
+            orderRepository.refresh()
+        } else {
+            cartRepository.onSignedOut()
+            orderRepository.onSignedOut()
+            addressRepository.onSignedOut()
+        }
     }
     // e.g. "Only 3 items are available." when the backend refuses a cart change.
     LaunchedEffect(cartRepository) {
@@ -627,7 +639,10 @@ fun PanelScanNavHost(
                     CheckoutScreen(
                         viewModel = checkoutViewModel,
                         onBack = { navController.popBackStack() },
-                        onPickExactLocation = { navController.navigate(Screen.DeliveryLocationPicker.route) },
+                        onAddAddress = {
+                            addressFormViewModel.start()
+                            navController.navigate(Screen.AddAddress.route)
+                        },
                         onOrderPlaced = { order ->
                             navController.navigate(Screen.OrderConfirmation.createRoute(order.id)) {
                                 popUpTo(Screen.Checkout.route) { inclusive = true }
@@ -638,16 +653,28 @@ fun PanelScanNavHost(
                 }
             }
 
+            // New saved delivery address (from checkout), pinned on the map first.
+            composable(Screen.AddAddress.route) {
+                AddressFormScreen(
+                    viewModel = addressFormViewModel,
+                    onPickLocation = { navController.navigate(Screen.DeliveryLocationPicker.route) },
+                    onSaved = { saved ->
+                        checkoutViewModel.selectAddress(saved.id)
+                        navController.popBackStack()
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable(Screen.DeliveryLocationPicker.route) {
-                val checkoutState by checkoutViewModel.uiState.collectAsState()
+                val form by addressFormViewModel.state.collectAsState()
                 DeliveryLocationPickerScreen(
-                    initial = checkoutState.exactLocation,
-                    addressHint = listOf(checkoutState.barangay, checkoutState.city, checkoutState.province)
-                        .filter { it.isNotBlank() }
+                    initial = form.pin,
+                    addressHint = listOfNotNull(form.barangay?.name, form.city?.name, form.province?.name)
                         .joinToString(", ")
                         .let { if (it.isBlank()) "" else "$it, Philippines" },
                     onConfirm = { location ->
-                        checkoutViewModel.onExactLocationConfirmed(location)
+                        addressFormViewModel.onPinConfirmed(location)
                         navController.popBackStack()
                     },
                     onBack = { navController.popBackStack() }
@@ -704,6 +731,19 @@ fun PanelScanNavHost(
                     reviews.any { it.orderId == orderId && it.panelId == item.panelId }
                 } == true
                 val review = reviews.firstOrNull { it.orderId == orderId }
+                val detailScope = rememberCoroutineScope()
+                val uriHandler = LocalUriHandler.current
+                var isBusy by remember(orderId) { mutableStateOf(false) }
+                var actionError by remember(orderId) { mutableStateOf<String?>(null) }
+                // Fresh status and payment each time the page opens, and when coming back from GCash.
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(orderId, lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) detailScope.launch { orderRepository.fetchOrder(orderId) }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
                 if (!pricesVisible) {
                     LaunchedEffect(Unit) { navController.navigate(Screen.Login.route) }
                 } else if (order != null) {
@@ -718,6 +758,26 @@ fun PanelScanNavHost(
                         },
                         hasReviewed = hasReviewed,
                         review = review,
+                        isBusy = isBusy,
+                        actionError = actionError,
+                        onPay = {
+                            isBusy = true
+                            actionError = null
+                            detailScope.launch {
+                                orderRepository.startPayment(orderId)
+                                    .onSuccess { url -> uriHandler.openUri(url) }
+                                    .onFailure { actionError = it.message }
+                                isBusy = false
+                            }
+                        },
+                        onCancel = {
+                            isBusy = true
+                            actionError = null
+                            detailScope.launch {
+                                orderRepository.cancelOrder(orderId).onFailure { actionError = it.message }
+                                isBusy = false
+                            }
+                        },
                         bottomPadding = contentBottomPadding
                     )
                 } else {
@@ -903,22 +963,19 @@ private fun cartViewModelFactory(repository: CartRepository) =
 private fun checkoutViewModelFactory(
     cartRepository: CartRepository,
     orderRepository: OrderRepository,
-    sessionManager: SessionManager,
-    draftStore: CheckoutDraftStore
+    addressRepository: AddressRepository
 ) =
     object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            CheckoutViewModel(
-                cartRepository = cartRepository,
-                orderRepository = orderRepository,
-                sessionManager = sessionManager,
-                draftStore = draftStore,
-                // Both resolve to the honest "not configured" providers until a backend
-                // base URL and service implementation are supplied at build time.
-                deliveryRepository = DeliveryRepository(DeliveryProviders.create(IntegrationConfig.delivery)),
-                paymentProvider = GCashPaymentProviders.create(IntegrationConfig.payment)
-            ) as T
+            CheckoutViewModel(cartRepository, orderRepository, addressRepository) as T
+    }
+
+private fun addressFormViewModelFactory(addressRepository: AddressRepository, sessionManager: SessionManager) =
+    object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            AddressFormViewModel(addressRepository, sessionManager) as T
     }
 
 private fun installationViewModelFactory(

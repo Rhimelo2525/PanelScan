@@ -51,7 +51,10 @@ sealed class Screen(val route: String) {
     data object Cart : Screen("cart")
     data object Checkout : Screen("checkout")
 
-    /** Map pin for the exact drop-off point; returns to checkout on confirm. */
+    /** New saved delivery address, from checkout. */
+    data object AddAddress : Screen("add_address")
+
+    /** Map pin for a new saved address; returns to the address form on confirm. */
     data object DeliveryLocationPicker : Screen("delivery_location")
     data object OrderConfirmation : Screen("order_confirmation/{orderId}") {
         fun createRoute(orderId: String) = "order_confirmation/$orderId"

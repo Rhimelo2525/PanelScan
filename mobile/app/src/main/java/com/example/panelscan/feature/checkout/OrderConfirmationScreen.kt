@@ -88,12 +88,12 @@ fun OrderConfirmationScreen(
                     verticalArrangement = Arrangement.spacedBy(Spacing.xxs)
                 ) {
                     Text(
-                        text = "Your request is saved",
+                        text = "Your order is placed",
                         style = PanelScan.type.title,
                         color = colors.textPrimary
                     )
                     Text(
-                        text = "Request #${order.orderNumber} is stored in this app. Payment and delivery are pending confirmation.",
+                        text = "Order #${order.orderNumber} is waiting for PanelScan's approval. Once approved, we quote the delivery fee and you pay products and shipping with GCash from the order page.",
                         style = PanelScan.type.body,
                         color = colors.textSecondary
                     )
@@ -111,63 +111,16 @@ fun OrderConfirmationScreen(
                             color = colors.textPrimary
                         )
                         SpecRow(label = "Order Number", value = order.orderNumber, emphasised = true)
-                        SpecRow(label = "Payment", value = "${order.paymentMethod} · ${order.delivery.paymentStatus}")
-                        SpecRow(
-                            label = "Delivery fee",
-                            value = if (order.delivery.feeQuoted) formatCurrency(order.shippingFee) else order.delivery.quoteStatus
-                        )
-                        order.delivery.vehicle?.let { SpecRow(label = "Vehicle", value = it) }
-                        SpecRow(
-                            label = "Delivery booking",
-                            value = order.delivery.bookingReference ?: order.delivery.bookingStatus
-                        )
-                        SpecRow(label = "Materials subtotal (fees pending)", value = formatCurrency(order.totalAmount))
+                        SpecRow(label = "Status", value = order.stage.label)
+                        SpecRow(label = "Products total", value = formatCurrency(order.subtotal))
+                        SpecRow(label = "Shipping fee", value = "Quoted after approval")
                         SpecRow(label = "Delivery Address", value = order.shippingAddress)
                         SpecRow(label = "Items Count", value = "${order.items.sumOf { it.quantity }} panels")
                         if (order.hasInstallation) {
                             SpecRow(
                                 label = "Installation Service",
-                                value = "Requested — price to be confirmed",
+                                value = order.installationDate?.take(10)?.let { "Requested for $it" } ?: "Requested",
                                 valueColor = colors.accent
-                            )
-                        }
-                    }
-                }
-
-                if (order.hasInstallation) {
-                    PanelCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = colors.surfaceElevated,
-                        contentPadding = PaddingValues(Spacing.md)
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Build,
-                                    contentDescription = null,
-                                    tint = colors.accent,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    text = "Ready to Schedule Installation?",
-                                    style = PanelScan.type.cardTitle,
-                                    color = colors.textPrimary
-                                )
-                            }
-                            Text(
-                                text = "Select your preferred date and time for our certified installation team to fit your panels.",
-                                style = PanelScan.type.supporting,
-                                color = colors.textSecondary
-                            )
-                            PrimaryButton(
-                                text = "Schedule Installation Now",
-                                icon = Icons.AutoMirrored.Rounded.ArrowForward,
-                                onClick = { onScheduleInstallation(order.id) },
-                                fillMaxWidth = true,
-                                modifier = Modifier.padding(top = Spacing.xxs)
                             )
                         }
                     }

@@ -8,16 +8,12 @@ plugins {
 }
 
 /*
- * Integration endpoints are read from local.properties (not committed) or environment
- * variables at build time. Only backend base URLs and non-secret business data belong
- * here: Lalamove and GCash secrets live on the PanelScan backend, never in the APK.
+ * Build-time settings, read from local.properties (not committed) or environment
+ * variables. Only the backend's address and public identifiers belong here: delivery
+ * (Lalamove) and payment (GCash through PayMongo) secrets live on the PanelScan backend.
  *
  *   panelscan.api.baseUrl=http://10.0.2.2:5000/api/                (PANELSCAN_API_BASE_URL; defaults to the live backend)
  *   panelscan.google.webClientId=...apps.googleusercontent.com     (PANELSCAN_GOOGLE_WEB_CLIENT_ID; the backend's GOOGLE_CLIENT_ID)
- *   panelscan.delivery.baseUrl=https://api.example.com/delivery/   (PANELSCAN_DELIVERY_BASE_URL)
- *   panelscan.lalamove.market=PH                                   (PANELSCAN_LALAMOVE_MARKET)
- *   panelscan.pickup.address=...  .lat=..  .lng=..  .contactName=..  .contactPhone=+63...
- *   panelscan.payment.baseUrl=https://api.example.com/payments/    (PANELSCAN_PAYMENT_BASE_URL)
  */
 val integrationProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
@@ -46,14 +42,6 @@ android {
         // Public OAuth client ID (not a secret): Google issues the ID token for it, which the backend verifies.
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", integration("panelscan.google.webClientId", "PANELSCAN_GOOGLE_WEB_CLIENT_ID", "510828049195-0hha5pifnqn2f72kl09ea46lrs7lnilf.apps.googleusercontent.com").quoted())
         buildConfigField("String", "API_BASE_URL", integration("panelscan.api.baseUrl", "PANELSCAN_API_BASE_URL", "https://panelscan-backend.vercel.app/api/").quoted())
-        buildConfigField("String", "DELIVERY_API_BASE_URL", integration("panelscan.delivery.baseUrl", "PANELSCAN_DELIVERY_BASE_URL").quoted())
-        buildConfigField("String", "LALAMOVE_MARKET", integration("panelscan.lalamove.market", "PANELSCAN_LALAMOVE_MARKET", "PH").quoted())
-        buildConfigField("String", "PICKUP_ADDRESS", integration("panelscan.pickup.address", "PANELSCAN_PICKUP_ADDRESS").quoted())
-        buildConfigField("String", "PICKUP_LAT", integration("panelscan.pickup.lat", "PANELSCAN_PICKUP_LAT").quoted())
-        buildConfigField("String", "PICKUP_LNG", integration("panelscan.pickup.lng", "PANELSCAN_PICKUP_LNG").quoted())
-        buildConfigField("String", "PICKUP_CONTACT_NAME", integration("panelscan.pickup.contactName", "PANELSCAN_PICKUP_CONTACT_NAME").quoted())
-        buildConfigField("String", "PICKUP_CONTACT_PHONE", integration("panelscan.pickup.contactPhone", "PANELSCAN_PICKUP_CONTACT_PHONE").quoted())
-        buildConfigField("String", "PAYMENT_API_BASE_URL", integration("panelscan.payment.baseUrl", "PANELSCAN_PAYMENT_BASE_URL").quoted())
     }
 
     buildTypes {

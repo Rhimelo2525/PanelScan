@@ -78,15 +78,31 @@ data class CartItem(
         get() = (panel.pricePerUnit ?: 0.0) * quantity
 }
 
+/** The backend's order statuses (same as the website's order tabs). */
 @Serializable
 enum class OrderStatus(val label: String) {
     PENDING("Pending"),
-    CONFIRMED("Confirmed"),
-    PREPARING("Preparing"),
-    FOR_INSTALLATION("For Installation"),
-    COMPLETED("Completed"),
+    PROCESSING("Processing"),
+    SHIPPED("Shipped"),
+    DELIVERED("Delivered"),
     CANCELLED("Cancelled")
 }
+
+/**
+ * Where an order stands in the order -> shipping quote -> payment workflow, as
+ * on the website (web/src/orders/order-workflow.ts). The backend enforces every
+ * step; this only decides what the customer sees and can do.
+ */
+enum class OrderStage(val label: String) {
+    AWAITING_APPROVAL("Awaiting Approval"),
+    AWAITING_QUOTE("Awaiting Shipping Fee"),
+    AWAITING_PAYMENT("Awaiting Payment"),
+    PAID("Paid"),
+    CANCELLED("Cancelled")
+}
+
+/** The customer's GCash payment for an order (null on the order until one is started). */
+enum class PaymentStatus { PENDING, PAID, FAILED, REFUNDED }
 
 @Serializable
 data class OrderItem(
@@ -98,7 +114,9 @@ data class OrderItem(
     val quantity: Int,
     val lineTotal: Double,
     val textureResource: String,
-    val imageResId: Int? = null
+    val imageResId: Int? = null,
+    /** The product's photo from the backend. */
+    val imageUrl: String? = null
 )
 
 /**
@@ -137,8 +155,28 @@ data class Order(
     val status: OrderStatus,
     val notes: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val delivery: OrderDeliveryDetails = OrderDeliveryDetails()
-)
+    val delivery: OrderDeliveryDetails = OrderDeliveryDetails(),
+    /** A moderator approved the order; the shipping fee is quoted after that. */
+    val moderatorApproved: Boolean = false,
+    /** The shipping fee has been quoted, so products + shipping can be paid. */
+    val shippingQuoted: Boolean = false,
+    /** The order's GCash payment, once looked up (see OrderRepository.findPayment). */
+    val paymentStatus: PaymentStatus? = null,
+    /** Preferred installation date (ISO-8601), when installation was requested. */
+    val installationDate: String? = null
+) {
+    val stage: OrderStage
+        get() = when {
+            paymentStatus == PaymentStatus.PAID || paymentStatus == PaymentStatus.REFUNDED -> OrderStage.PAID
+            status == OrderStatus.CANCELLED -> OrderStage.CANCELLED
+            !moderatorApproved -> OrderStage.AWAITING_APPROVAL
+            !shippingQuoted -> OrderStage.AWAITING_QUOTE
+            else -> OrderStage.AWAITING_PAYMENT
+        }
+
+    /** Only a pending order can be cancelled by the customer (backend rule). */
+    val canCancel: Boolean get() = status == OrderStatus.PENDING
+}
 
 @Serializable
 enum class InstallationStatus(val label: String) {

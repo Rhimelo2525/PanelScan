@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -25,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
 import com.example.panelscan.core.model.Order
-import com.example.panelscan.core.model.OrderStatus
 import com.example.panelscan.core.ui.BadgeTone
 import com.example.panelscan.core.ui.EmptyState
 import com.example.panelscan.core.ui.PanelCard
@@ -46,6 +46,8 @@ fun OrdersScreen(
     bottomPadding: Dp = 0.dp
 ) {
     val orders by orderRepository.orders.collectAsState()
+    // The same orders as the website, reloaded each time the list opens.
+    LaunchedEffect(orderRepository) { orderRepository.refresh() }
     val colors = PanelScan.colors
 
     ScreenScaffold(modifier = modifier) {
@@ -101,12 +103,7 @@ fun OrderCard(
     modifier: Modifier = Modifier
 ) {
     val colors = PanelScan.colors
-    val tone = when (order.status) {
-        OrderStatus.COMPLETED -> BadgeTone.Success
-        OrderStatus.CONFIRMED, OrderStatus.FOR_INSTALLATION -> BadgeTone.Accent
-        OrderStatus.PREPARING, OrderStatus.PENDING -> BadgeTone.Warning
-        OrderStatus.CANCELLED -> BadgeTone.Neutral
-    }
+    val tone = order.status.badgeTone()
 
     PanelCard(
         modifier = modifier.fillMaxWidth(),

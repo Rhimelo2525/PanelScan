@@ -69,32 +69,6 @@ class PhilippineAddressAndCheckoutTest {
     }
 
     @Test
-    fun `test formattedAddress construction`() {
-        val state = CheckoutUiState(
-            street = "Unit 12B, Sapphire Residences",
-            barangay = "BGC (Fort Bonifacio)",
-            city = "Taguig",
-            province = "Metro Manila",
-            region = "NCR — Metro Manila",
-            postalCode = "1634"
-        )
-        val expected = "Unit 12B, Sapphire Residences, Brgy. BGC (Fort Bonifacio), Taguig, Metro Manila, NCR — Metro Manila, 1634"
-        assertEquals(expected, state.formattedAddress)
-        assertTrue(state.addressComplete)
-    }
-
-    @Test
-    fun `test addressComplete returns false when fields are missing`() {
-        val incomplete = CheckoutUiState(
-            street = "Unit 12B",
-            region = "NCR",
-            province = "Metro Manila"
-            // missing city, barangay, postalCode
-        )
-        assertFalse(incomplete.addressComplete)
-    }
-
-    @Test
     fun `test all panels have positive thickness specification`() {
         TestPanels.allPanels.forEach { panel ->
             assertTrue("Panel ${panel.name} must have positive thickness", panel.thicknessMm > 0)
