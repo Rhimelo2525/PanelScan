@@ -202,14 +202,15 @@ data class InstallationBooking(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+/** Feedback on a delivered order (one per order, as on the website). */
 @Serializable
 data class CustomerReview(
     val id: String,
     val orderId: String,
     val orderNumber: String,
-    val panelId: String,
     val customerName: String,
     val rating: Int,
-    val comment: String,
+    /** Optional on the backend. */
+    val comment: String?,
     val createdAt: Long = System.currentTimeMillis()
 )

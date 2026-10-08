@@ -1,5 +1,6 @@
 package com.example.panelscan.core.navigation
 
+import com.example.panelscan.core.model.CustomerReview
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.LifecycleEventObserver
@@ -166,7 +167,7 @@ fun PanelScanNavHost(
             )
         }
     }
-    val feedbackRepository = remember(orderRepository) { FeedbackRepository(orderRepository) }
+    val feedbackRepository = remember(apiClient) { FeedbackRepository(apiClient) }
 
     val authViewModel: AuthViewModel = viewModel(factory = authViewModelFactory(authRepository))
     val chatViewModel: ChatViewModel = viewModel(factory = chatViewModelFactory(chatRepository, sessionManager))
@@ -179,7 +180,7 @@ fun PanelScanNavHost(
         factory = installationViewModelFactory(installationRepository, orderRepository, sessionManager)
     )
     val feedbackViewModel: FeedbackViewModel = viewModel(
-        factory = feedbackViewModelFactory(feedbackRepository, orderRepository, sessionManager)
+        factory = feedbackViewModelFactory(feedbackRepository, orderRepository)
     )
 
     val sessionState by sessionManager.sessionState.collectAsState()
@@ -198,9 +199,11 @@ fun PanelScanNavHost(
         if (isSignedIn) {
             cartRepository.onSignedIn()
             orderRepository.refresh()
+            feedbackRepository.refresh()
         } else {
             cartRepository.onSignedOut()
             orderRepository.onSignedOut()
+            feedbackRepository.onSignedOut()
             addressRepository.onSignedOut()
         }
     }
@@ -349,7 +352,10 @@ fun PanelScanNavHost(
 
             composable(Screen.ProductDetail.route) { entry ->
                 val productId = entry.arguments?.getString("productId").orEmpty()
-                val productReviews by feedbackRepository.reviews.collectAsState()
+                var productReviews by remember(productId) { mutableStateOf<List<CustomerReview>>(emptyList()) }
+                LaunchedEffect(productId, pricesVisible) {
+                    productReviews = if (pricesVisible) feedbackRepository.productReviews(productId).getOrDefault(emptyList()) else emptyList()
+                }
                 // Follows the live catalogue, so a reload (e.g. prices after logging in) shows here too.
                 val catalogue by productRepository.panels.collectAsState()
                 val resolvedPanel = remember(productId, catalogue) { productRepository.getPanelById(productId) }
@@ -368,7 +374,7 @@ fun PanelScanNavHost(
                             checkoutViewModel.beginDirectCheckout(selected, qty)
                             navController.navigate(Screen.Checkout.route)
                         },
-                        reviews = productReviews.filter { it.panelId == resolvedPanel.id },
+                        reviews = productReviews,
                         onOpenCart = { navController.navigate(Screen.Cart.route) },
                         onUseInMeasurement = { selected ->
                             measurementViewModel.setPreselectedPanel(selected.id)
@@ -727,10 +733,8 @@ fun PanelScanNavHost(
                 val orders by orderRepository.orders.collectAsState()
                 val reviews by feedbackRepository.reviews.collectAsState()
                 val order = orders.firstOrNull { it.id == orderId }
-                val hasReviewed = order?.items?.all { item ->
-                    reviews.any { it.orderId == orderId && it.panelId == item.panelId }
-                } == true
                 val review = reviews.firstOrNull { it.orderId == orderId }
+                val hasReviewed = review != null
                 val detailScope = rememberCoroutineScope()
                 val uriHandler = LocalUriHandler.current
                 var isBusy by remember(orderId) { mutableStateOf(false) }
@@ -818,13 +822,10 @@ fun PanelScanNavHost(
                     }
                 )
             ) { entry ->
-                val orderId = entry.arguments?.getString("orderId")
-                LaunchedEffect(orderId) {
-                    feedbackViewModel.setInitialOrder(orderId)
-                }
                 FeedbackScreen(
                     viewModel = feedbackViewModel,
                     onBack = { navController.popBackStack() },
+                    initialOrderId = entry.arguments?.getString("orderId"),
                     bottomPadding = contentBottomPadding
                 )
             }
@@ -991,11 +992,10 @@ private fun installationViewModelFactory(
 
 private fun feedbackViewModelFactory(
     feedbackRepository: FeedbackRepository,
-    orderRepository: OrderRepository,
-    sessionManager: SessionManager
+    orderRepository: OrderRepository
 ) =
     object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            FeedbackViewModel(feedbackRepository, orderRepository, sessionManager) as T
+            FeedbackViewModel(feedbackRepository, orderRepository) as T
     }

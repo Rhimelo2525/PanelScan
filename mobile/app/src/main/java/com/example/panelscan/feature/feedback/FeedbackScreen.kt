@@ -22,7 +22,9 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.RateReview
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +51,8 @@ import kotlin.math.roundToInt
 fun FeedbackScreen(
     viewModel: FeedbackViewModel,
     onBack: () -> Unit,
+    /** Preselected from an order's page. */
+    initialOrderId: String? = null,
     modifier: Modifier = Modifier,
     bottomPadding: Dp = 0.dp
 ) {
@@ -57,21 +61,24 @@ fun FeedbackScreen(
     val eligibleOrders by viewModel.eligibleOrders.collectAsState()
     val colors = PanelScan.colors
 
-    LaunchedEffect(eligibleOrders, state.selectedOrderId, state.selectedPanelId) {
-        if (state.selectedPanelId.isBlank()) {
-            eligibleOrders.firstNotNullOfOrNull { order ->
-                order.items.firstOrNull { item ->
-                    reviews.none { it.orderId == order.id && it.panelId == item.panelId }
-                }?.let { order.id to it.panelId }
-            }?.let { (orderId, panelId) -> viewModel.onPanelSelected(orderId, panelId) }
-        }
+    LaunchedEffect(initialOrderId) { viewModel.onOpened(initialOrderId) }
+
+    if (state.isConfirming) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissConfirm,
+            title = { Text("Submit your feedback?", style = PanelScan.type.sectionTitle) },
+            text = { Text("Feedback can be submitted once per order and cannot be edited afterwards.", style = PanelScan.type.body) },
+            confirmButton = { TextButton(onClick = { viewModel.submitReview() }) { Text("Submit feedback") } },
+            dismissButton = { TextButton(onClick = viewModel::dismissConfirm) { Text("Cancel") } },
+            containerColor = colors.surfaceElevated
+        )
     }
 
     ScreenScaffold(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             PanelScanTopBar(
-                title = "Customer Feedback",
-                subtitle = "Ratings and verified reviews",
+                title = "Feedback",
+                subtitle = "Rate your delivered orders",
                 onBack = onBack
             )
 
@@ -116,7 +123,7 @@ fun FeedbackScreen(
                                 }
                             }
                             Text(
-                                text = "${reviews.size} verified reviews",
+                                text = if (reviews.size == 1) "1 review given" else "${reviews.size} reviews given",
                                 style = PanelScan.type.label,
                                 color = colors.textTertiary,
                                 modifier = Modifier.padding(top = 2.dp)
@@ -130,7 +137,7 @@ fun FeedbackScreen(
                                 color = colors.textPrimary
                             )
                             Text(
-                                text = "Customer satisfaction with our wall & ceiling cladding products and on-site installations.",
+                                text = "Rate a completed order and tell the team how the panels and service worked out. Feedback can be given once per delivered order.",
                                 style = PanelScan.type.supporting,
                                 color = colors.textSecondary
                             )
@@ -196,36 +203,35 @@ fun FeedbackScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Text(
-                                    text = "Rate Your Delivered Order",
+                                    text = "Leave feedback",
                                     style = PanelScan.type.sectionTitle,
                                     color = colors.textPrimary
                                 )
                             }
 
-                            Text("Choose a purchased panel", style = PanelScan.type.label, color = colors.textSecondary)
+                            Text("Delivered order", style = PanelScan.type.label, color = colors.textSecondary)
                             eligibleOrders.forEach { order ->
-                                order.items.distinctBy { it.panelId }.filter { item ->
-                                    reviews.none { it.orderId == order.id && it.panelId == item.panelId }
-                                }.forEach { item ->
-                                    val selected = state.selectedOrderId == order.id && state.selectedPanelId == item.panelId
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(PanelScan.shapes.control)
-                                            .background(if (selected) colors.accentSoft else colors.surfaceMuted)
-                                            .clickable { viewModel.onPanelSelected(order.id, item.panelId) }
-                                            .padding(Spacing.sm),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                                    ) {
+                                val selected = state.selectedOrderId == order.id
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(PanelScan.shapes.control)
+                                        .background(if (selected) colors.accentSoft else colors.surfaceMuted)
+                                        .clickable { viewModel.onOrderSelected(order.id) }
+                                        .padding(Spacing.sm),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Order #${order.orderNumber}", style = PanelScan.type.cardTitle, color = colors.textPrimary)
                                         Text(
-                                            "${item.panelName} · #${order.orderNumber}",
+                                            order.items.joinToString(", ") { it.panelName },
                                             style = PanelScan.type.supporting,
-                                            color = colors.textPrimary,
-                                            modifier = Modifier.weight(1f)
+                                            color = colors.textSecondary,
+                                            maxLines = 2
                                         )
-                                        if (selected) Icon(Icons.Rounded.CheckCircle, contentDescription = "Selected", tint = colors.accent)
                                     }
+                                    if (selected) Icon(Icons.Rounded.CheckCircle, contentDescription = "Selected", tint = colors.accent)
                                 }
                             }
 
@@ -251,7 +257,7 @@ fun FeedbackScreen(
                                                 .padding(2.dp)
                                         )
                                     }
-                                    Text(
+                                    if (state.rating > 0) Text(
                                         text = "${state.rating} / 5",
                                         style = PanelScan.type.cardTitle,
                                         color = colors.accent,
@@ -264,16 +270,16 @@ fun FeedbackScreen(
                             PanelScanTextField(
                                 value = state.comment,
                                 onValueChange = viewModel::onCommentChange,
-                                label = "Review Comments",
-                                placeholder = "How was the panel quality, room fit, and service delivery?",
+                                label = "Comments (optional)",
+                                placeholder = "How were the panels, the delivery, and the service?",
                                 singleLine = false,
                                 maxLines = 4
                             )
 
                             PrimaryButton(
-                                text = if (state.isSubmitting) "Submitting…" else "Submit Review",
+                                text = if (state.isSubmitting) "Submitting…" else "Submit feedback",
                                 icon = Icons.Rounded.CheckCircle,
-                                onClick = { viewModel.submitReview {} },
+                                onClick = viewModel::requestSubmit,
                                 enabled = !state.isSubmitting,
                                 fillMaxWidth = true
                             )
@@ -281,17 +287,35 @@ fun FeedbackScreen(
                     }
                 }
 
+                if (eligibleOrders.isEmpty()) {
+                    PanelCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(Spacing.md)
+                    ) {
+                        Text(
+                            text = if (state.isLoading) "Loading your orders…" else "No orders are awaiting feedback",
+                            style = PanelScan.type.cardTitle,
+                            color = colors.textPrimary
+                        )
+                        if (!state.isLoading) Text(
+                            text = "Feedback can be left once an order has been delivered. Orders you have already reviewed are listed below.",
+                            style = PanelScan.type.supporting,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+
                 // Reviews List
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     Text(
-                        text = "Verified Customer Reviews",
+                        text = "Your past feedback",
                         style = PanelScan.type.sectionTitle,
                         color = colors.textPrimary
                     )
 
                     if (reviews.isEmpty()) {
                         Text(
-                            text = "No customer reviews yet. Reviews appear after a paid order is completed.",
+                            text = "You haven't left any feedback yet.",
                             style = PanelScan.type.body,
                             color = colors.textSecondary
                         )
@@ -332,18 +356,20 @@ private fun ReviewItemCard(review: CustomerReview) {
                 }
             }
 
-            Text(
-                text = review.comment,
-                style = PanelScan.type.body,
-                color = colors.textSecondary
-            )
+            review.comment?.let {
+                Text(
+                    text = it,
+                    style = PanelScan.type.body,
+                    color = colors.textSecondary
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Verified Purchase · #${review.orderNumber}",
+                    text = "Order #${review.orderNumber}",
                     style = PanelScan.type.label,
                     color = colors.textTertiary
                 )

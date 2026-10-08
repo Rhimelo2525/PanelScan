@@ -245,7 +245,7 @@ fun ProductDetailScreen(
                     Text("Customer reviews", style = PanelScan.type.sectionTitle, color = colors.textPrimary)
                     if (reviews.isEmpty()) {
                         Text(
-                            "No verified reviews for this panel yet. Reviews are available after a paid, completed purchase.",
+                            "No reviews for this panel yet. Customers can rate their order once it is delivered.",
                             style = PanelScan.type.supporting,
                             color = colors.textSecondary,
                             modifier = Modifier.padding(top = Spacing.xs)
@@ -264,7 +264,7 @@ fun ProductDetailScreen(
                                         )
                                     }
                                 }
-                                Text(review.comment, style = PanelScan.type.body, color = colors.textPrimary)
+                                review.comment?.let { Text(it, style = PanelScan.type.body, color = colors.textPrimary) }
                                 Text(formatDate(review.createdAt), style = PanelScan.type.label, color = colors.textTertiary)
                             }
                         }

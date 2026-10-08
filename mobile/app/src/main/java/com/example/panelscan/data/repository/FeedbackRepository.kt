@@ -1,65 +1,121 @@
 package com.example.panelscan.data.repository
 
 import com.example.panelscan.core.model.CustomerReview
+import com.example.panelscan.core.network.ApiClient
+import com.example.panelscan.core.network.ApiException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.util.UUID
+import kotlinx.serialization.Serializable
 
 /**
- * Local frontend Feedback and Review Repository.
- * Manages verified customer ratings and service reviews locally with zero backend dependencies.
+ * Customer feedback on the backend (/api/feedback), the same as the website:
+ * one rating per delivered order, with an optional comment, which can't be
+ * edited afterwards. Product pages show the feedback left on orders that
+ * contained that product.
  */
-class FeedbackRepository(private val orderRepository: OrderRepository) {
+class FeedbackRepository(private val api: ApiClient? = null) {
 
     private val _reviews = MutableStateFlow<List<CustomerReview>>(emptyList())
+
+    /** The signed-in customer's own feedback, newest first. */
     val reviews: StateFlow<List<CustomerReview>> = _reviews.asStateFlow()
 
-    fun submitReview(
-        orderId: String,
-        orderNumber: String,
-        panelId: String,
-        customerName: String,
-        rating: Int,
-        comment: String
-    ): CustomerReview {
-        val order = orderRepository.getOrderById(orderId)
-        require(order != null && order.isReviewEligible && order.orderNumber == orderNumber &&
-            order.items.any { it.panelId == panelId }) {
-            "Only a purchased panel from a paid, completed order can be reviewed."
+    /** Loads the customer's feedback; null on success, else why it failed. */
+    suspend fun refresh(): String? {
+        val client = api ?: return null
+        return try {
+            val result: FeedbackPage = client.get("/feedback?limit=$PAGE_SIZE", authenticated = true)
+            _reviews.value = result.feedbacks.map { it.toReview(fullName = true) }
+            null
+        } catch (error: ApiException) {
+            error.message
         }
-        val existing = getReviewForOrderProduct(orderId, panelId)
-        if (existing != null) {
-            return existing
+    }
+
+    /** Rates a delivered order. The comment is optional; blank is sent as none. */
+    suspend fun submit(orderId: String, rating: Int, comment: String): Result<CustomerReview> {
+        val client = api ?: return Result.failure(IllegalStateException("Feedback is not available."))
+        return try {
+            val body = CreateFeedbackRequest(orderId, rating, comment.trim().ifBlank { null })
+            val result: FeedbackResponse = client.post("/feedback", body, authenticated = true)
+            val review = result.feedback.toReview(fullName = true)
+            _reviews.update { listOf(review) + it.filter { r -> r.orderId != orderId } }
+            Result.success(review)
+        } catch (error: ApiException) {
+            Result.failure(IllegalStateException(error.message))
         }
-        val clampedRating = rating.coerceIn(1, 5)
-        val newReview = CustomerReview(
-            id = "review-${UUID.randomUUID().toString().take(8)}",
-            orderId = orderId,
-            orderNumber = orderNumber,
-            panelId = panelId,
-            customerName = customerName.ifBlank { "Verified Customer" },
-            rating = clampedRating,
-            comment = comment.trim(),
-            createdAt = System.currentTimeMillis()
-        )
-        _reviews.update { listOf(newReview) + it }
-        return newReview
+    }
+
+    /** Feedback from orders that included this product (signed-in customers only, as on the backend). */
+    suspend fun productReviews(productId: String): Result<List<CustomerReview>> {
+        val client = api ?: return Result.success(emptyList())
+        return try {
+            val result: FeedbackPage = client.get("/feedback/product/$productId?limit=$PAGE_SIZE", authenticated = true)
+            Result.success(result.feedbacks.map { it.toReview(fullName = false) })
+        } catch (error: ApiException) {
+            Result.failure(IllegalStateException(error.message))
+        }
     }
 
     fun getReviewForOrder(orderId: String): CustomerReview? =
         _reviews.value.firstOrNull { it.orderId == orderId }
 
-    fun getReviewForOrderProduct(orderId: String, panelId: String): CustomerReview? =
-        _reviews.value.firstOrNull { it.orderId == orderId && it.panelId == panelId }
+    fun hasReviewed(orderId: String): Boolean = getReviewForOrder(orderId) != null
 
-    fun reviewsForProduct(panelId: String): List<CustomerReview> =
-        _reviews.value.filter { it.panelId == panelId }
+    /** After logging out: the feedback belongs to the account. */
+    fun onSignedOut() {
+        _reviews.value = emptyList()
+    }
 
-    fun hasReviewedOrderProduct(orderId: String, panelId: String): Boolean =
-        getReviewForOrderProduct(orderId, panelId) != null
+    /** Other customers are shown as "Juan D."; the customer's own feedback with their full name. */
+    private fun ApiFeedback.toReview(fullName: Boolean): CustomerReview {
+        val first = customer?.firstName?.trim().orEmpty()
+        val last = customer?.lastName?.trim().orEmpty()
+        val name = when {
+            fullName -> "$first $last".trim()
+            last.isNotEmpty() -> "$first ${last.first()}.".trim()
+            else -> first
+        }
+        return CustomerReview(
+            id = id,
+            orderId = orderId.orEmpty(),
+            orderNumber = order?.orderNumber.orEmpty(),
+            customerName = name.ifBlank { "Verified customer" },
+            rating = rating,
+            comment = comment?.takeIf { it.isNotBlank() },
+            createdAt = parseIsoMillis(createdAt) ?: System.currentTimeMillis()
+        )
+    }
 
-    fun hasReviewed(orderId: String): Boolean =
-        _reviews.value.any { it.orderId == orderId }
+    @Serializable
+    private data class ApiFeedbackCustomer(val firstName: String = "", val lastName: String = "")
+
+    @Serializable
+    private data class ApiFeedbackOrder(val orderNumber: String = "")
+
+    @Serializable
+    private data class ApiFeedback(
+        val id: String,
+        val orderId: String? = null,
+        val rating: Int,
+        val comment: String? = null,
+        val createdAt: String,
+        val customer: ApiFeedbackCustomer? = null,
+        val order: ApiFeedbackOrder? = null
+    )
+
+    @Serializable
+    private data class FeedbackPage(val feedbacks: List<ApiFeedback> = emptyList())
+
+    @Serializable
+    private data class FeedbackResponse(val feedback: ApiFeedback)
+
+    @Serializable
+    private data class CreateFeedbackRequest(val orderId: String, val rating: Int, val comment: String?)
+
+    companion object {
+        private const val PAGE_SIZE = 50
+    }
 }

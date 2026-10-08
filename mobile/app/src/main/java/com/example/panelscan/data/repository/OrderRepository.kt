@@ -157,9 +157,6 @@ class OrderRepository(
     fun getOrderByNumber(orderNumber: String): Order? =
         _orders.value.firstOrNull { it.orderNumber == orderNumber }
 
-    fun getOrdersEligibleForReview(reviewedOrderIds: Set<String>): List<Order> =
-        _orders.value.filter { it.isReviewEligible && !reviewedOrderIds.contains(it.id) }
-
     private fun upsert(order: Order) {
         _orders.update { current ->
             if (current.any { it.id == order.id }) current.map { if (it.id == order.id) order else it } else listOf(order) + current

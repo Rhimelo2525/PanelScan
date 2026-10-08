@@ -281,7 +281,7 @@ fun OrderDetailScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Your Customer Review",
+                                            text = "Your feedback",
                                             style = PanelScan.type.sectionTitle,
                                             color = colors.textPrimary
                                         )
@@ -302,17 +302,19 @@ fun OrderDetailScreen(
                                                 )
                                             }
                                         }
-                                        Text(
-                                            text = "\"${review.comment}\"",
-                                            style = PanelScan.type.body,
-                                            color = colors.textPrimary
-                                        )
+                                        review.comment?.let {
+                                            Text(
+                                                text = "\"$it\"",
+                                                style = PanelScan.type.body,
+                                                color = colors.textPrimary
+                                            )
+                                        }
                                     }
                                 }
                             }
                         } else {
                             PrimaryButton(
-                                text = "Leave Customer Review",
+                                text = "Leave feedback",
                                 icon = Icons.Rounded.Star,
                                 onClick = { onLeaveFeedback(order.id) },
                                 fillMaxWidth = true
