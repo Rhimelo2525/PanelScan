@@ -14,7 +14,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** InstallationRepository against a fake /api/bookings shaped like the live backend. */
@@ -32,7 +31,7 @@ class InstallationRepositoryApiTest {
            "installer":$installer,
            "order":{"id":"$orderId","orderNumber":"PS-1001","status":"DELIVERED","totalAmount":"3700.00","createdAt":"2026-10-08T02:00:00.000Z","items":[]}}"""
 
-    private fun repository(onUpdated: ((com.example.panelscan.core.model.InstallationBooking) -> Unit)? = null, respond: (String, String, String) -> String): InstallationRepository {
+    private fun repository(respond: (String, String, String) -> String): InstallationRepository {
         val backend = Interceptor { chain ->
             val request = chain.request()
             val path = request.url.encodedPath.removePrefix("/api") + (request.url.encodedQuery?.let { "?$it" } ?: "")
@@ -48,7 +47,7 @@ class InstallationRepositoryApiTest {
             saveTokens("access", "refresh")
             setCustomerSession(CustomerUser(id = "me", firstName = "Juan", lastName = "Dela Cruz", email = "juan@gmail.com"))
         }
-        return InstallationRepository(ApiClient("https://backend.test/api/", session, OkHttpClient.Builder().addInterceptor(backend).build()), onUpdated)
+        return InstallationRepository(ApiClient("https://backend.test/api/", session, OkHttpClient.Builder().addInterceptor(backend).build()))
     }
 
     @Test
@@ -75,18 +74,16 @@ class InstallationRepositoryApiTest {
     }
 
     @Test
-    fun `the team's approval and installer show up, and changes are announced`() = runBlocking {
+    fun `the team's schedule and installer show up after a reload`() = runBlocking {
         var status = "PENDING"
         var installer = "null"
-        val announced = mutableListOf<InstallationStatus>()
-        val repo = repository(onUpdated = { announced += it.status }) { _, _, _ ->
+        val repo = repository { _, _, _ ->
             """{"bookings":[${booking(status = status, installer = installer)}],"pagination":{"page":1,"limit":30,"total":1,"totalPages":1}}"""
         }
 
         assertNull(repo.refresh())
         assertEquals("GET /bookings?limit=30", calls.single())
         assertEquals(InstallationRepository.MORNING, repo.bookings.value.single().preferredTime)
-        assertTrue(announced.isEmpty())
 
         status = "SCHEDULED"
         installer = """{"id":"i1","firstName":"Pedro","lastName":"Reyes","email":"p@x.com","phone":null,"specialty":"PVC ceilings","isActive":true}"""
@@ -96,7 +93,6 @@ class InstallationRepositoryApiTest {
         assertEquals(InstallationStatus.SCHEDULED, scheduled.status)
         assertEquals("Pedro Reyes", scheduled.installerName)
         assertEquals("PVC ceilings", scheduled.installerSpecialty)
-        assertEquals(listOf(InstallationStatus.SCHEDULED), announced)
     }
 
     @Test

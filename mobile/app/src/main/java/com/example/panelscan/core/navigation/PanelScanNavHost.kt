@@ -1,5 +1,6 @@
 package com.example.panelscan.core.navigation
 
+import kotlinx.coroutines.delay
 import com.example.panelscan.core.model.CustomerReview
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.DisposableEffect
@@ -51,7 +52,6 @@ import com.example.panelscan.core.design.PanelScanMotion
 import com.example.panelscan.core.model.MeasurementResult
 import com.example.panelscan.core.model.SavedProject
 import com.example.panelscan.core.model.SurfaceType
-import com.example.panelscan.core.model.OrderStatus
 import com.example.panelscan.core.model.InstallationStatus
 import com.example.panelscan.core.network.ApiClient
 import com.example.panelscan.core.session.CustomerSessionState
@@ -61,8 +61,7 @@ import com.example.panelscan.core.ui.PanelScanBottomNav
 import com.example.panelscan.core.ui.PriceVisibility
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.data.local.ProjectDatabase
-import com.example.panelscan.data.local.SharedPreferencesNotificationStore
-import com.example.panelscan.data.local.NotificationDestination
+import com.example.panelscan.data.repository.NotificationDestination
 import com.example.panelscan.data.repository.AuthRepository
 import com.example.panelscan.data.repository.CartRepository
 import com.example.panelscan.data.repository.ChatRepository
@@ -129,44 +128,10 @@ fun PanelScanNavHost(
     // Lives as long as the app's navigation, so a cart change still reaches the backend after leaving a screen.
     val appScope = rememberCoroutineScope()
     val cartRepository = remember(apiClient) { CartRepository(apiClient, sessionManager, appScope) }
-    val notificationRepository = remember(context) {
-        NotificationRepository(SharedPreferencesNotificationStore(context)).apply {
-            openCustomer((sessionManager.sessionState.value as? CustomerSessionState.LoggedIn)?.user?.email)
-        }
-    }
+    val notificationRepository = remember(apiClient) { NotificationRepository(apiClient, appScope) }
     val addressRepository = remember(apiClient) { AddressRepository(apiClient) }
-    val orderRepository = remember(notificationRepository, apiClient) {
-        OrderRepository(
-            api = apiClient,
-            onCreated = { order ->
-                notificationRepository.publish(
-                    "Order placed", "Order #${order.orderNumber} is waiting for approval.",
-                    NotificationDestination.ORDER, order.id
-                )
-            },
-            onStatusChanged = { order ->
-                val title = when (order.status) {
-                    OrderStatus.PROCESSING -> "Order processing"
-                    OrderStatus.SHIPPED -> "Order shipped"
-                    OrderStatus.DELIVERED -> "Order delivered"
-                    OrderStatus.CANCELLED -> "Order cancelled"
-                    OrderStatus.PENDING -> "Order status changed"
-                }
-                notificationRepository.publish(
-                    title, "Order #${order.orderNumber}: ${order.status.label}.",
-                    NotificationDestination.ORDER, order.id
-                )
-            }
-        )
-    }
-    val installationRepository = remember(notificationRepository, apiClient) {
-        InstallationRepository(apiClient) { booking ->
-            notificationRepository.publish(
-                "Installation request update", "Your installation request is ${booking.status.label.lowercase()}.",
-                NotificationDestination.INSTALLATION, booking.orderId
-            )
-        }
-    }
+    val orderRepository = remember(apiClient) { OrderRepository(apiClient) }
+    val installationRepository = remember(apiClient) { InstallationRepository(apiClient) }
     val feedbackRepository = remember(apiClient) { FeedbackRepository(apiClient) }
 
     val authViewModel: AuthViewModel = viewModel(factory = authViewModelFactory(authRepository))
@@ -184,9 +149,6 @@ fun PanelScanNavHost(
     )
 
     val sessionState by sessionManager.sessionState.collectAsState()
-    LaunchedEffect(sessionState) {
-        notificationRepository.openCustomer((sessionState as? CustomerSessionState.LoggedIn)?.user?.email)
-    }
     val notifications by notificationRepository.notifications.collectAsState()
     val pricesVisible = PriceVisibility.isPriceVisible(sessionState)
 
@@ -202,11 +164,19 @@ fun PanelScanNavHost(
             feedbackRepository.refresh()
             installationRepository.refresh()
         } else {
+            notificationRepository.onSignedOut()
             cartRepository.onSignedOut()
             orderRepository.onSignedOut()
             feedbackRepository.onSignedOut()
             installationRepository.onSignedOut()
             addressRepository.onSignedOut()
+        }
+    }
+    // The inbox (and the unread badge) follows the backend while signed in.
+    LaunchedEffect(isSignedIn) {
+        while (isSignedIn) {
+            notificationRepository.refresh()
+            delay(NOTIFICATION_POLL_MS)
         }
     }
     // e.g. "Only 3 items are available." when the backend refuses a cart change.
@@ -221,12 +191,7 @@ fun PanelScanNavHost(
         )
     }
     val projectsViewModel: ProjectsViewModel = viewModel(
-        factory = projectsViewModelFactory(repository) { project ->
-            notificationRepository.publish(
-                "Project saved", "${project.name} is available in your projects.",
-                NotificationDestination.PROJECT, project.id
-            )
-        }
+        factory = projectsViewModelFactory(repository) { }
     )
     val measurementViewModel: MeasurementViewModel = viewModel()
 
@@ -311,14 +276,14 @@ fun PanelScanNavHost(
                     onOpen = { notification ->
                         val target = when (notification.destination) {
                             NotificationDestination.ORDER -> notification.referenceId
-                                ?.takeIf { orderRepository.getOrderById(it) != null }
                                 ?.let(Screen.OrderDetail::createRoute) ?: Screen.Orders.route
-                            NotificationDestination.ORDERS -> Screen.Orders.route
                             NotificationDestination.PROJECT -> notification.referenceId
+                                ?.takeIf { id -> projects.any { it.id == id } }
                                 ?.let(Screen.ProjectDetail::createRoute) ?: Screen.Projects.route
-                            NotificationDestination.PROJECTS -> Screen.Projects.route
                             NotificationDestination.CHAT -> Screen.Chat.createRoute(notification.referenceId)
-                            NotificationDestination.INSTALLATION -> Screen.Installation.createRoute(notification.referenceId)
+                            NotificationDestination.INSTALLATION -> Screen.Installation.navigationRoute
+                            NotificationDestination.PRODUCT -> notification.referenceId?.let(Screen.ProductDetail::createRoute)
+                            NotificationDestination.PROFILE -> Screen.CustomerProfile.route
                             NotificationDestination.NONE -> null
                         }
                         if (target != null) navController.navigate(target)
@@ -997,3 +962,6 @@ private fun feedbackViewModelFactory(
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             FeedbackViewModel(feedbackRepository, orderRepository) as T
     }
+
+/** How often the inbox is checked while signed in (the website checks on page loads). */
+private const val NOTIFICATION_POLL_MS = 60_000L

@@ -17,10 +17,7 @@ import kotlinx.serialization.Serializable
  * approves, schedules and assigns an installer; a pending request can be
  * cancelled by the customer.
  */
-class InstallationRepository(
-    private val api: ApiClient? = null,
-    private val onUpdated: ((InstallationBooking) -> Unit)? = null
-) {
+class InstallationRepository(private val api: ApiClient? = null) {
 
     private val _bookings = MutableStateFlow<List<InstallationBooking>>(emptyList())
     val bookings: StateFlow<List<InstallationBooking>> = _bookings.asStateFlow()
@@ -30,14 +27,7 @@ class InstallationRepository(
         val client = api ?: return null
         return try {
             val result: BookingPage = client.get("/bookings?limit=$PAGE_SIZE", authenticated = true)
-            val previous = _bookings.value.associateBy { it.id }
-            val loaded = result.bookings.map { it.toBooking() }
-            _bookings.value = loaded
-            // Tell the customer about changes made by the team since the last load.
-            if (previous.isNotEmpty()) {
-                loaded.filter { booking -> previous[booking.id]?.let { it.status != booking.status } == true }
-                    .forEach { onUpdated?.invoke(it) }
-            }
+            _bookings.value = result.bookings.map { it.toBooking() }
             null
         } catch (error: ApiException) {
             error.message

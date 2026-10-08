@@ -37,11 +37,7 @@ data class PlaceOrderInput(
  * website: placed from checkout, approved by a moderator who then quotes the
  * shipping fee, and paid with GCash (products + shipping in one payment).
  */
-class OrderRepository(
-    private val api: ApiClient? = null,
-    private val onCreated: ((Order) -> Unit)? = null,
-    private val onStatusChanged: ((Order) -> Unit)? = null
-) {
+class OrderRepository(private val api: ApiClient? = null) {
 
     private val _orders = MutableStateFlow<List<Order>>(emptyList())
     val orders: StateFlow<List<Order>> = _orders.asStateFlow()
@@ -52,13 +48,7 @@ class OrderRepository(
         return try {
             val result: OrderPage = client.get("/orders?limit=50", authenticated = true)
             val previous = _orders.value.associateBy { it.id }
-            val loaded = result.orders.map { it.toOrder(previous[it.id]?.paymentStatus) }
-            _orders.value = loaded
-            // Tell the customer about changes made by the team since the last load.
-            if (previous.isNotEmpty()) {
-                loaded.filter { order -> previous[order.id]?.let { it.status != order.status } == true }
-                    .forEach { onStatusChanged?.invoke(it) }
-            }
+            _orders.value = result.orders.map { it.toOrder(previous[it.id]?.paymentStatus) }
             null
         } catch (error: ApiException) {
             error.message
@@ -94,7 +84,6 @@ class OrderRepository(
             val result: OrderResponse = client.post("/orders", body, authenticated = true)
             val order = result.order.toOrder(null)
             _orders.update { listOf(order) + it.filter { o -> o.id != order.id } }
-            onCreated?.invoke(order)
             Result.success(order)
         } catch (error: ApiException) {
             Result.failure(IllegalStateException(error.message))

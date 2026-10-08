@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -26,7 +27,7 @@ import com.example.panelscan.core.ui.EmptyState
 import com.example.panelscan.core.ui.PanelCard
 import com.example.panelscan.core.ui.PanelScanTopBar
 import com.example.panelscan.core.ui.ScreenScaffold
-import com.example.panelscan.data.local.CustomerNotification
+import com.example.panelscan.data.repository.CustomerNotification
 import com.example.panelscan.data.repository.NotificationRepository
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,6 +39,7 @@ fun NotificationsScreen(
     onOpen: (CustomerNotification) -> Unit
 ) {
     val notifications by repository.notifications.collectAsState()
+    LaunchedEffect(repository) { repository.refresh() }
     val colors = PanelScan.colors
     val locale = LocalConfiguration.current.locales[0]
     ScreenScaffold {
@@ -47,7 +49,7 @@ fun NotificationsScreen(
                 EmptyState(
                     icon = Icons.Rounded.Notifications,
                     title = "No notifications yet",
-                    description = "Order, project and installation updates will appear here when their status changes.",
+                    description = "Order, payment, delivery and installation updates will appear here.",
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -73,9 +75,6 @@ fun NotificationsScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(notification.title, style = PanelScan.type.cardTitle, color = colors.textPrimary)
                                     Text(notification.message, style = PanelScan.type.supporting, color = colors.textSecondary)
-                                    notification.referenceId?.let { ref ->
-                                        Text("Reference: $ref", style = PanelScan.type.label, color = colors.textTertiary)
-                                    }
                                     Text(
                                         SimpleDateFormat("MMM d, yyyy · h:mm a", locale)
                                             .format(Date(notification.timestampMillis)),
