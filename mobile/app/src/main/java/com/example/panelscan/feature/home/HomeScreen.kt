@@ -223,8 +223,11 @@ private fun HomeHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "PanelScan",
-                style = PanelScan.type.display,
-                color = colors.textPrimary
+                // Shares the row with the logo and three buttons, so it stays on one line.
+                style = PanelScan.type.title,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = "PVC wall and ceiling panels, measured in your own room.",

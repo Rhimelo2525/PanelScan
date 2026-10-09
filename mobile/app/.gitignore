@@ -1,1 +1,3 @@
 /build
+# Signed APKs from Android Studio (Build > Generate Signed App Bundle or APK)
+/release

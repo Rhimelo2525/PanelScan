@@ -208,7 +208,7 @@ fun ProjectDetailScreen(
             title = { Text("Delete this project?", style = PanelScan.type.sectionTitle) },
             text = {
                 Text(
-                    "The measurement and estimate will be removed from this device. " +
+                    "The measurement and estimate will be removed from this device and your PanelScan account. " +
                         "This cannot be undone.",
                     style = PanelScan.type.body,
                     color = colors.textSecondary

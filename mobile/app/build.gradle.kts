@@ -34,8 +34,8 @@ android {
         applicationId = "com.example.panelscan"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1-ar-demo"
+        versionCode = 3
+        versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -45,12 +45,13 @@ android {
     }
 
     buildTypes {
+        // Signed in Android Studio (Build > Generate Signed App Bundle or APK) with the
+        // PanelScan release key, which is kept outside this repository.
         release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // Project rules are in src/main/keepRules/rules.keep.
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
     compileOptions {

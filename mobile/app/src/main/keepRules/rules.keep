@@ -1,12 +1,18 @@
-# Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
-#
-# For more details, see
-#   https://d.android.com/r/tools/r8/keep-rules
+# R8 rules for the release build (minified). AGP passes every file in
+# src/main/keepRules to R8. Libraries that ship their own rules (OkHttp, Room,
+# kotlinx.serialization, Coil) need nothing here.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# AR measurement and 3D: Filament, SceneView and ARCore reach their Java classes
+# from native code (JNI), which R8 cannot see.
+-keep class com.google.android.filament.** { *; }
+-keep class io.github.sceneview.** { *; }
+-keep class com.google.ar.** { *; }
+-dontwarn com.google.android.filament.**
+-dontwarn io.github.sceneview.**
+
+# "Continue with Google": Credential Manager loads its Play Services provider by
+# reflection (rule from the androidx.credentials documentation).
+-if class androidx.credentials.CredentialManager
+-keep class androidx.credentials.playservices.** {
+  *;
+}
