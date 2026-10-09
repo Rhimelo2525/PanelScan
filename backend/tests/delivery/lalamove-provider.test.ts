@@ -80,7 +80,7 @@ describe('LalamoveProvider', () => {
 
   // Fixture shapes below (locode, nested {value,unit} for dimensions/load) match
   // the REAL Lalamove production response, verified live against GET /v3/cities
-  // with the real account credentials - not guessed. See PROJECT_NOTES.txt.
+  // with the real account credentials - not guessed. See docs/archive/PROJECT_NOTES.txt.
   describe('getAvailableServices', () => {
     it('parses services across Luzon cities, de-duplicates by key, and reads the nested {value,unit} dimension/load shape', async () => {
       stubFetchOnce(

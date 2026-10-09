@@ -10,7 +10,7 @@ The repository consists of three distinct components:
 PanelScan/
 ├── web/              # Website Frontend: Vite + React 19 + TypeScript + Tailwind CSS
 ├── backend/          # Website Backend: Node.js + Express + Prisma + CockroachDB
-└── frontend/         # Mobile Application: Native / Expo application with AR / 3D measurement
+└── mobile/           # Android Customer App: Kotlin + Jetpack Compose + ARCore (AR measurement, 3D preview)
 ```
 
 ### Component Distinctions
@@ -26,9 +26,10 @@ PanelScan/
    - Handles real persistent business data: customer accounts, secure authentication, session management, catalog, inventory, order processing, installer scheduling, customer support chat, reviews, and change requests.
    - Enforces strict server-side Role-Based Access Control (`OWNER`, `MODERATOR`, `CUSTOMER`).
 
-3. **Android Application & AR/3D (`frontend/`)**:
-   - Specialized native mobile experience utilizing local device sensors, camera, ARCore, Filament, SceneView, and local database storage.
-   - Operates independently from the website backend to maintain low-latency local AR frame processing and corner detection without unnecessary network overhead.
+3. **Android Customer App (`mobile/`)**:
+   - Native Kotlin + Jetpack Compose app for customers, using the same backend API and accounts as the website: catalogue, cart, checkout with GCash, orders, chat, feedback, installation requests and notifications.
+   - AR measurement (ARCore, SceneView) and the 3D preview run on the device; saved projects are kept on the device and synced to the customer's account (`POST /api/projects/mobile`).
+   - Build with Android Studio, or `./gradlew assembleDebug` in `mobile/`.
 
 ---
 

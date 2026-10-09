@@ -412,7 +412,7 @@ describe('Booking module', () => {
       // Check: customerId relationship + status. NOTE: the Prisma schema has
       // no direct Booking<->Project foreign key (Project only carries
       // customerId/ownerId/moderatorId) - this is a known, documented
-      // limitation (see PROJECT_NOTES.txt), not an oversight in this test.
+      // limitation (see docs/archive/PROJECT_NOTES.txt), not an oversight in this test.
       // The "booking connection" is therefore verified indirectly: this
       // project is the one created as a side effect of *this* booking
       // completing, correlated by customerId, which is the only

@@ -1,7 +1,7 @@
 name: Backend CI
 
 # Runs on every push and every pull request. Both are scoped to `main` because that is
-# currently this repository's only branch (see DEVELOPMENT_GUIDE.md §8) - broaden the
+# currently this repository's only branch (see docs/archive/DEVELOPMENT_GUIDE.md §8) - broaden the
 # `branches` lists below once feature branches are actually in use.
 on:
   push:
@@ -75,7 +75,7 @@ jobs:
       # Integration test database.
       #
       # The real dev/test databases for this project live on CockroachDB Cloud, and that
-      # test cluster has exhausted its monthly Request Unit quota (see PROJECT_NOTES.txt) -
+      # test cluster has exhausted its monthly Request Unit quota (see docs/archive/PROJECT_NOTES.txt) -
       # pointing CI at it would make every run fail on external infrastructure, not on this
       # repository's own code. Instead, CI starts its own throwaway CockroachDB instance
       # for the lifetime of the job: still genuinely CockroachDB (not SQLite, not plain
@@ -113,7 +113,7 @@ jobs:
           exit 1
 
       - name: Apply CockroachDB cluster settings required by this project's migrations
-        # CockroachDB Cloud (and some self-hosted versions - see PROJECT_NOTES.txt §3E,
+        # CockroachDB Cloud (and some self-hosted versions - see docs/archive/PROJECT_NOTES.txt §3E,
         # "Schema-locked tables blocking index creation") create new tables with
         # `schema_locked = true` by default, which then blocks adding indexes/constraints
         # in the same or a later migration batch - exactly what this project's committed

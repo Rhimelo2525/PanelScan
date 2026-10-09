@@ -6,10 +6,10 @@ The repository contains three independent npm projects, not a root workspace. Th
 | --- | --- |
 | `web/` | React/Vite website and frontend-only previews |
 | `backend/` | Existing Express/TypeScript/Prisma API, migrations, Postman collections and Vitest tests; separate from web deployment |
-| `frontend/` | Existing Expo/React Native mobile project, own package/lockfile and Expo license; unchanged by web documentation |
+| `mobile/` | Android customer app (Kotlin, Jetpack Compose, ARCore), built with Gradle; talks to the same backend API |
 | `.github/workflows/backend-ci.yml` | Backend GitHub Actions definition, not web or GitLab CI |
 | `docs/` | Current web architecture, feature, role, design, setup, deployment and testing references |
-| Root handoff/onboarding/roadmap/notes | Earlier backend/platform context; not current web validation evidence |
+| `docs/archive/` | Earlier backend/platform handoff, onboarding, roadmap and notes; historical context, not current status |
 
 ## Web sources
 

@@ -1,6 +1,6 @@
 # Development
 
-Run website commands in `web/`. There is no root npm package; `frontend/` is the mobile app.
+Run website commands in `web/`. There is no root npm package; `mobile/` is the Android customer app (Gradle, not npm).
 
 ## Prerequisites and setup
 

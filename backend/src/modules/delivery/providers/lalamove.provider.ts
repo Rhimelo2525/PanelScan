@@ -154,7 +154,7 @@ export class LalamoveProvider implements DeliveryProvider {
   /**
    * GET /v3/cities - live vehicle lineup, restricted to the two Lalamove
    * "city" groupings that actually cover PanelScan's Luzon-only delivery
-   * coverage (verified live against the real account - see PROJECT_NOTES.txt):
+   * coverage (verified live against the real account - see docs/archive/PROJECT_NOTES.txt):
    *   PH MNL - Manila NCR & South Luzon
    *   PH PAM - Central & North Luzon
    * A whitelist (not "exclude PH CEB / Cebu") on purpose: a locode Lalamove

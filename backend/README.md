@@ -1606,7 +1606,7 @@ Authorization: Bearer {{moderatorToken}}
 This section previously described Phase 1 (auth + users only) as the current state, with everything
 below listed as future work. That's stale — every module below has since been built, tested, and
 documented. This is the corrected, verified-against-the-repository status as of the P0 documentation
-cleanup (see `DEVELOPMENT_ROADMAP.md` at the repo root for the full breakdown, workflow trees, and
+cleanup (see `docs/archive/DEVELOPMENT_ROADMAP.md` for the full breakdown, workflow trees, and
 discovered documentation gaps).
 
 **COMPLETED** — built, tested (530/530 passing), and documented in this README:
@@ -1635,7 +1635,7 @@ discovered documentation gaps).
 - GitHub Actions / CI — no workflow exists yet in this repository (`.github/workflows/` is absent);
   this is greenfield setup, not a fix.
 - Frontend development — the React Native/Expo mobile app and the web (moderator/owner) dashboard.
-  See `FRONTEND_HANDOFF.md` at the repo root for the API contract and per-role task trees.
+  See `docs/archive/FRONTEND_HANDOFF.md` for the API contract and per-role task trees.
 
 **LATER**
 - Account lockout after repeated failed login attempts
