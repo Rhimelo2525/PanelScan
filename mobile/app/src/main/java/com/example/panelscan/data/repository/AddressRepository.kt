@@ -77,7 +77,8 @@ data class AddressSuggestion(
 /**
  * Saved delivery addresses (/api/addresses) and the official place lists the
  * address form picks from (/api/delivery/regions...). Checkout sends a saved
- * address's id; the backend copies it into the order.
+ * address's id; the backend copies it into the order. The profile lists,
+ * edits, deletes and picks the default, as on the website.
  */
 class AddressRepository(private val api: ApiClient) {
 
@@ -99,6 +100,33 @@ class AddressRepository(private val api: ApiClient) {
         Result.success(result.address)
     } catch (error: ApiException) {
         Result.failure(AddressException(error.message.orEmpty(), error.fieldErrors))
+    }
+
+    /** Replaces a saved address; the form always sends every field. */
+    suspend fun update(id: String, input: SavedAddressInput): Result<SavedAddress> = try {
+        val result: AddressResponse = api.put("/addresses/$id", input, authenticated = true)
+        refresh()
+        Result.success(result.address)
+    } catch (error: ApiException) {
+        Result.failure(AddressException(error.message.orEmpty(), error.fieldErrors))
+    }
+
+    /** Makes this the address checkout preselects; null on success, else why it failed. */
+    suspend fun setDefault(id: String): String? = try {
+        api.send("PATCH", "/addresses/$id/default", authenticated = true)
+        refresh()
+        null
+    } catch (error: ApiException) {
+        error.message
+    }
+
+    /** Deletes a saved address (the backend promotes another to default); placed orders keep theirs. */
+    suspend fun delete(id: String): String? = try {
+        api.send("DELETE", "/addresses/$id", authenticated = true)
+        refresh()
+        null
+    } catch (error: ApiException) {
+        error.message
     }
 
     suspend fun regions(): List<Place> = api.get<RegionList>("/delivery/regions", authenticated = true).regions

@@ -51,7 +51,7 @@ sealed class Screen(val route: String) {
     data object Cart : Screen("cart")
     data object Checkout : Screen("checkout")
 
-    /** New saved delivery address, from checkout. */
+    /** New or edited saved delivery address, from checkout or the profile. */
     data object AddAddress : Screen("add_address")
 
     /** Map pin for a new saved address; returns to the address form on confirm. */

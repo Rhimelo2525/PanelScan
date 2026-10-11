@@ -34,16 +34,22 @@ data class AddressFormState(
     val cities: List<Place> = emptyList(),
     val barangays: List<Place> = emptyList(),
     val pinNotice: String? = null,
+    /** The saved address being edited; null when adding one. */
+    val editingId: String? = null,
+    /** The first address, or the current default: stays the default (another is made default from the list). */
+    val defaultLocked: Boolean = false,
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val fieldErrors: Map<String, String> = emptyMap()
 ) {
     /** NCR has no provinces: its cities hang directly off the region. */
     val needsProvince: Boolean get() = region?.hasProvinces != false
+
+    val isEditing: Boolean get() = editingId != null
 }
 
 /**
- * Adding a saved delivery address, as on the website: the customer pins the
+ * Adding or editing a saved delivery address, as on the website: the customer pins the
  * spot on the map (required, so the rider finds it), the backend reads the
  * address off the pin to pre-fill the form, and every place is picked from the
  * official PSGC list (regions the delivery service covers).
@@ -56,15 +62,48 @@ class AddressFormViewModel(
     private val _state = MutableStateFlow(AddressFormState())
     val state: StateFlow<AddressFormState> = _state.asStateFlow()
 
-    /** Starts a fresh form, with the signed-in customer as the recipient. */
+    /** Starts a fresh form, with the signed-in customer as the recipient; the first address is "Home" and the default. */
     fun start() {
         val user = sessionManager.getCurrentUser()
+        val first = addressRepository.addresses.value.isEmpty()
         _state.value = AddressFormState(
+            label = if (first) "Home" else "",
             recipientName = user?.fullName.orEmpty(),
             recipientPhone = user?.phone?.filter { it.isDigit() }?.takeLast(10).orEmpty(),
-            isDefault = addressRepository.addresses.value.isEmpty()
+            isDefault = first,
+            defaultLocked = first
         )
         load { copy(regions = addressRepository.regions()) }
+    }
+
+    /** Opens a saved address for editing, with its pin and places already chosen. */
+    fun startEditing(address: SavedAddress) {
+        val region = Place(address.regionCode, address.regionName, hasProvinces = address.provinceCode != null)
+        val province = address.provinceCode?.let { Place(it, address.provinceName.orEmpty()) }
+        val city = Place(address.cityMunicipalityCode, address.cityMunicipalityName)
+        _state.value = AddressFormState(
+            label = address.label.orEmpty(),
+            recipientName = address.recipientName,
+            recipientPhone = address.recipientPhone.filter { it.isDigit() }.takeLast(10),
+            addressLine1 = address.addressLine1,
+            region = region,
+            province = province,
+            city = city,
+            barangay = Place(address.barangayCode, address.barangayName),
+            postalCode = address.postalCode,
+            pin = ExactDeliveryLocation(address.latitude, address.longitude),
+            isDefault = address.isDefault,
+            editingId = address.id,
+            defaultLocked = address.isDefault
+        )
+        load {
+            copy(
+                regions = addressRepository.regions(),
+                provinces = if (province != null) addressRepository.provinces(region.code) else emptyList(),
+                cities = addressRepository.cities(region.code, province?.code),
+                barangays = addressRepository.barangays(city.code)
+            )
+        }
     }
 
     fun onLabelChange(value: String) = edit { copy(label = value.take(30)) }
@@ -72,7 +111,7 @@ class AddressFormViewModel(
     fun onRecipientPhoneChange(value: String) = edit { copy(recipientPhone = value.filter { it.isDigit() }.take(10)) }
     fun onAddressLineChange(value: String) = edit { copy(addressLine1 = value.take(200)) }
     fun onPostalCodeChange(value: String) = edit { copy(postalCode = value.filter { it.isDigit() }.take(10)) }
-    fun onDefaultChange(value: Boolean) = edit { copy(isDefault = value) }
+    fun onDefaultChange(value: Boolean) = edit { if (defaultLocked) this else copy(isDefault = value) }
 
     fun onRegionSelected(region: Place) {
         edit { copy(region = region, province = null, city = null, barangay = null, provinces = emptyList(), cities = emptyList(), barangays = emptyList()) }
@@ -130,9 +169,9 @@ class AddressFormViewModel(
         }
     }
 
-    fun save(onSaved: (SavedAddress) -> Unit) {
+    /** Checks the form before saving (or before asking to confirm an edit); false shows why. */
+    fun validate(): Boolean {
         val s = _state.value
-        if (s.isSaving) return
         val problem = when {
             s.pin == null -> "Pin your location on the map first."
             s.recipientName.trim().length < 2 -> "Enter the recipient's full name."
@@ -145,32 +184,35 @@ class AddressFormViewModel(
             s.postalCode.length < 3 -> "Enter a valid postal code."
             else -> null
         }
-        if (problem != null) {
-            edit { copy(errorMessage = problem) }
-            return
-        }
+        if (problem != null) edit { copy(errorMessage = problem) }
+        return problem == null
+    }
+
+    fun save(onSaved: (SavedAddress) -> Unit) {
+        val s = _state.value
+        if (s.isSaving || !validate()) return
         edit { copy(isSaving = true, errorMessage = null, fieldErrors = emptyMap()) }
         viewModelScope.launch {
-            addressRepository.create(
-                SavedAddressInput(
-                    label = s.label.trim().ifBlank { null },
-                    recipientName = s.recipientName.trim(),
-                    recipientPhone = "+63${s.recipientPhone}",
-                    addressLine1 = s.addressLine1.trim(),
-                    regionCode = s.region!!.code,
-                    regionName = s.region.name,
-                    provinceCode = s.province?.code,
-                    provinceName = s.province?.name,
-                    cityMunicipalityCode = s.city!!.code,
-                    cityMunicipalityName = s.city.name,
-                    barangayCode = s.barangay!!.code,
-                    barangayName = s.barangay.name,
-                    postalCode = s.postalCode,
-                    latitude = s.pin!!.latitude,
-                    longitude = s.pin.longitude,
-                    isDefault = s.isDefault
-                )
-            ).onSuccess { saved ->
+            val input = SavedAddressInput(
+                label = s.label.trim().ifBlank { null },
+                recipientName = s.recipientName.trim(),
+                recipientPhone = "+63${s.recipientPhone}",
+                addressLine1 = s.addressLine1.trim(),
+                regionCode = s.region!!.code,
+                regionName = s.region.name,
+                provinceCode = s.province?.code,
+                provinceName = s.province?.name,
+                cityMunicipalityCode = s.city!!.code,
+                cityMunicipalityName = s.city.name,
+                barangayCode = s.barangay!!.code,
+                barangayName = s.barangay.name,
+                postalCode = s.postalCode,
+                latitude = s.pin!!.latitude,
+                longitude = s.pin.longitude,
+                isDefault = s.isDefault
+            )
+            val result = s.editingId?.let { addressRepository.update(it, input) } ?: addressRepository.create(input)
+            result.onSuccess { saved ->
                 edit { copy(isSaving = false) }
                 onSaved(saved)
             }.onFailure { error ->
@@ -180,7 +222,8 @@ class AddressFormViewModel(
         }
     }
 
-    private fun edit(change: AddressFormState.() -> AddressFormState) = _state.update { it.change().copy(errorMessage = null) }
+    /** Any change clears the last error; a change that sets one keeps it. */
+    private fun edit(change: AddressFormState.() -> AddressFormState) = _state.update { it.copy(errorMessage = null).change() }
 
     /** Loads a place list; a failure is shown instead of leaving an empty picker unexplained. */
     private fun load(block: suspend AddressFormState.() -> AddressFormState) {

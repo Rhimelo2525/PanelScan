@@ -223,7 +223,7 @@ fun AccountScreen(
                             SettingsRow(
                                 icon = Icons.Rounded.Person,
                                 title = "My Customer Profile",
-                                supporting = "Profile details and Account Security",
+                                supporting = "Profile details, shipping addresses and security",
                                 chevron = true,
                                 onClick = onNavigateToCustomerProfile
                             )

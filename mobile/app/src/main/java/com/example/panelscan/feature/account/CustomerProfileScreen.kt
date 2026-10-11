@@ -63,7 +63,10 @@ import com.example.panelscan.core.ui.PhilippinePhoneField
 import com.example.panelscan.core.ui.PrimaryButton
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.StatusBadge
+import com.example.panelscan.data.repository.AddressRepository
 import com.example.panelscan.data.repository.AuthRepository
+import com.example.panelscan.data.repository.SavedAddress
+import com.example.panelscan.feature.address.ShippingAddressesSection
 import com.example.panelscan.data.repository.AuthResult
 import kotlinx.coroutines.launch
 
@@ -71,6 +74,11 @@ import kotlinx.coroutines.launch
 fun CustomerProfileScreen(
     currentUser: CustomerUser,
     authRepository: AuthRepository,
+    addressRepository: AddressRepository,
+    addressNotice: String?,
+    onAddressNoticeShown: () -> Unit,
+    onAddAddress: () -> Unit,
+    onEditAddress: (SavedAddress) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onChangePasswordClick: () -> Unit = {}
@@ -488,6 +496,15 @@ fun CustomerProfileScreen(
                     enabled = !isSaving,
                     icon = Icons.Rounded.Save,
                     modifier = Modifier.fillMaxWidth()
+                )
+
+                // Saved delivery addresses (own actions; not part of "Save Changes")
+                ShippingAddressesSection(
+                    addressRepository = addressRepository,
+                    notice = addressNotice,
+                    onNoticeShown = onAddressNoticeShown,
+                    onAddAddress = onAddAddress,
+                    onEditAddress = onEditAddress
                 )
 
                 Spacer(modifier = Modifier.height(Spacing.lg))

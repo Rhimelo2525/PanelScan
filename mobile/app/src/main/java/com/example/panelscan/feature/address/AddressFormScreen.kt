@@ -52,7 +52,7 @@ import com.example.panelscan.core.ui.SecondaryButton
 import com.example.panelscan.data.repository.Place
 import com.example.panelscan.data.repository.SavedAddress
 
-/** Add a saved delivery address: map pin first, then the address the backend read off it, checked by the customer. */
+/** Add or edit a saved delivery address: map pin first, then the address the backend read off it, checked by the customer. */
 @Composable
 fun AddressFormScreen(
     viewModel: AddressFormViewModel,
@@ -63,10 +63,15 @@ fun AddressFormScreen(
     val state by viewModel.state.collectAsState()
     val colors = PanelScan.colors
     val editable = !state.isSaving
+    var confirmEdit by remember { mutableStateOf(false) }
 
     ScreenScaffold {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
-            PanelScanTopBar(title = "Add delivery address", subtitle = "Saved to your account, also on the website", onBack = onBack)
+            PanelScanTopBar(
+                title = if (state.isEditing) "Edit delivery address" else "Add delivery address",
+                subtitle = "Saved to your account, also on the website",
+                onBack = onBack
+            )
 
             Column(
                 modifier = Modifier
@@ -168,9 +173,24 @@ fun AddressFormScreen(
                             placeholder = "Home, Office…",
                             enabled = editable
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = state.isDefault, onCheckedChange = viewModel::onDefaultChange, enabled = editable)
-                            Text("Use as my default address", style = PanelScan.type.body, color = colors.textPrimary)
+                        Row(verticalAlignment = Alignment.Top) {
+                            Checkbox(
+                                checked = state.isDefault,
+                                onCheckedChange = viewModel::onDefaultChange,
+                                enabled = editable && !state.defaultLocked
+                            )
+                            Column(modifier = Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Use as my default address", style = PanelScan.type.body, color = colors.textPrimary)
+                                Text(
+                                    when {
+                                        !state.defaultLocked -> "It will be preselected at checkout."
+                                        state.isEditing -> "This is your default. To change it, set another address as default."
+                                        else -> "Your first address is your default. It's preselected at checkout."
+                                    },
+                                    style = PanelScan.type.supporting,
+                                    color = colors.textSecondary
+                                )
+                            }
                         }
                     }
                 }
@@ -181,13 +201,49 @@ fun AddressFormScreen(
                     .padding(horizontal = Spacing.gutter, vertical = Spacing.sm)
             ) {
                 PrimaryButton(
-                    text = if (state.isSaving) "Saving…" else "Save address",
-                    onClick = { viewModel.save(onSaved) },
+                    text = when {
+                        state.isSaving -> "Saving…"
+                        state.isEditing -> "Save changes"
+                        else -> "Save address"
+                    },
+                    onClick = {
+                        // Overwriting a saved address is a permanent change; adding a new one is not.
+                        if (!state.isEditing) viewModel.save(onSaved)
+                        else if (viewModel.validate()) confirmEdit = true
+                    },
                     enabled = editable,
                     fillMaxWidth = true
                 )
             }
         }
+    }
+
+    if (confirmEdit) {
+        AlertDialog(
+            onDismissRequest = { confirmEdit = false },
+            containerColor = colors.surface,
+            shape = PanelScan.shapes.card,
+            title = { Text("Save changes to this address?", style = PanelScan.type.sectionTitle) },
+            text = {
+                Text(
+                    "The saved address will be replaced with the details you entered. " +
+                        "Orders already placed keep the address they were placed with.",
+                    style = PanelScan.type.body,
+                    color = colors.textSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmEdit = false
+                    viewModel.save(onSaved)
+                }) { Text("Save changes", style = PanelScan.type.button, color = colors.accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEdit = false }) {
+                    Text("Cancel", style = PanelScan.type.button, color = colors.textSecondary)
+                }
+            }
+        )
     }
 }
 

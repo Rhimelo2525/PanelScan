@@ -106,6 +106,9 @@ class ApiClient(
     suspend inline fun <reified B, reified T> patch(path: String, body: B, authenticated: Boolean = false): T =
         json.decodeFromJsonElement(send("PATCH", path, json.encodeToJsonElement(body), authenticated))
 
+    suspend inline fun <reified B, reified T> put(path: String, body: B, authenticated: Boolean = false): T =
+        json.decodeFromJsonElement(send("PUT", path, json.encodeToJsonElement(body), authenticated))
+
     /**
      * Swaps the refresh token for a new pair. Concurrent 401s share one
      * refresh: a caller whose token was already replaced just retries.

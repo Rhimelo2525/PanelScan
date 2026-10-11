@@ -140,6 +140,8 @@ fun PanelScanNavHost(
         factory = checkoutViewModelFactory(cartRepository, orderRepository, addressRepository)
     )
     val addressFormViewModel: AddressFormViewModel = viewModel(factory = addressFormViewModelFactory(addressRepository, sessionManager))
+    // "Address saved" / "Address updated", shown once on the profile after the form closes.
+    var addressNotice by remember { mutableStateOf<String?>(null) }
     val installationViewModel: InstallationViewModel = viewModel(
         factory = installationViewModelFactory(installationRepository, orderRepository)
     )
@@ -540,6 +542,17 @@ fun PanelScanNavHost(
                     CustomerProfileScreen(
                         currentUser = current.user,
                         authRepository = authRepository,
+                        addressRepository = addressRepository,
+                        addressNotice = addressNotice,
+                        onAddressNoticeShown = { addressNotice = null },
+                        onAddAddress = {
+                            addressFormViewModel.start()
+                            navController.navigate(Screen.AddAddress.route)
+                        },
+                        onEditAddress = { address ->
+                            addressFormViewModel.startEditing(address)
+                            navController.navigate(Screen.AddAddress.route)
+                        },
                         onBack = { navController.popBackStack() }
                     )
                 } else {
@@ -633,13 +646,17 @@ fun PanelScanNavHost(
                 }
             }
 
-            // New saved delivery address (from checkout), pinned on the map first.
+            // New or edited saved delivery address (from checkout or the profile), pinned on the map first.
             composable(Screen.AddAddress.route) {
                 AddressFormScreen(
                     viewModel = addressFormViewModel,
                     onPickLocation = { navController.navigate(Screen.DeliveryLocationPicker.route) },
                     onSaved = { saved ->
-                        checkoutViewModel.selectAddress(saved.id)
+                        if (navController.previousBackStackEntry?.destination?.route == Screen.Checkout.route) {
+                            checkoutViewModel.selectAddress(saved.id)
+                        } else {
+                            addressNotice = if (addressFormViewModel.state.value.isEditing) "Address updated" else "Address saved"
+                        }
                         navController.popBackStack()
                     },
                     onBack = { navController.popBackStack() }
