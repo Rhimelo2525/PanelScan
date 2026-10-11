@@ -307,8 +307,8 @@ private fun EstimationSheet(
                 )
             }
             StatusBadge(
-                text = if (panel.inStock) "In stock" else "3–5 days",
-                tone = if (panel.inStock) BadgeTone.Success else BadgeTone.Warning
+                text = if (panel.inStock) "In stock" else "Out of stock",
+                tone = if (panel.inStock) BadgeTone.Success else BadgeTone.Destructive
             )
         }
 

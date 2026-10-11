@@ -48,6 +48,7 @@ import com.example.panelscan.core.ui.formatMeters
 
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.rounded.Remove
@@ -65,6 +66,7 @@ import com.example.panelscan.core.ui.IconAffordance
 import com.example.panelscan.core.ui.SecondaryButton
 import com.example.panelscan.core.ui.formatDate
 import com.example.panelscan.core.model.CustomerReview
+import com.example.panelscan.data.repository.CartRepository
 
 @Composable
 fun ProductDetailScreen(
@@ -74,7 +76,8 @@ fun ProductDetailScreen(
     modifier: Modifier = Modifier,
     showPrice: Boolean = false,
     onNavigateToSignIn: () -> Unit = {},
-    onAddToCart: (PVCPanel, Int) -> Unit = { _, _ -> },
+    /** Returns why it could not be added (e.g. out of stock), or null when added. */
+    onAddToCart: (PVCPanel, Int) -> String? = { _, _ -> null },
     onProceedToCheckout: (PVCPanel, Int) -> Unit = { _, _ -> },
     reviews: List<CustomerReview> = emptyList(),
     onOpenCart: () -> Unit = {},
@@ -83,6 +86,11 @@ fun ProductDetailScreen(
     val colors = PanelScan.colors
     var quantity by remember { mutableIntStateOf(1) }
     var addedToCartState by remember { mutableStateOf(false) }
+    var cartProblem by remember { mutableStateOf<String?>(null) }
+    // Available stock (on hand minus reserved), as the backend checks it; null when unknown.
+    val available = panel.inventoryQty
+    val outOfStock = available != null && available <= 0
+    val maxQuantity = available?.coerceAtLeast(1) ?: Int.MAX_VALUE
 
     ScreenScaffold(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -118,8 +126,8 @@ fun ProductDetailScreen(
                     ) {
                         StatusBadge(text = panel.category.removePrefix("PVC "), tone = BadgeTone.Accent)
                         StatusBadge(
-                            text = if (panel.inStock) "In stock" else "3–5 days",
-                            tone = if (panel.inStock) BadgeTone.Success else BadgeTone.Warning,
+                            text = if (panel.inStock) "In stock" else "Out of stock",
+                            tone = if (panel.inStock) BadgeTone.Success else BadgeTone.Destructive,
                             showDot = true
                         )
                     }
@@ -227,14 +235,14 @@ fun ProductDetailScreen(
                     panel.inventoryQty?.let {
                         SpecRow(
                             label = "Stock qty",
-                            value = if (it > 0) "$it panels" else "Made to order"
+                            value = if (it > 0) "$it panels" else "None available"
                         )
                         SpecDivider()
                     }
                     SpecRow(
                         label = "Availability",
-                        value = if (panel.inStock) "In stock" else "Made to order",
-                        valueColor = if (panel.inStock) colors.success else colors.warning
+                        value = if (panel.inStock) "In stock" else "Out of stock",
+                        valueColor = if (panel.inStock) colors.success else colors.destructive
                     )
                 }
 
@@ -306,7 +314,31 @@ fun ProductDetailScreen(
                     .padding(bottom = bottomPadding),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
-                if (addedToCartState) {
+                val problem = cartProblem ?: if (outOfStock && showPrice) CartRepository.OUT_OF_STOCK else null
+                if (problem != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(PanelScan.shapes.controlCompact)
+                            .background(colors.destructiveSoft)
+                            .padding(horizontal = Spacing.sm, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ErrorOutline,
+                            contentDescription = null,
+                            tint = colors.destructive,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = problem,
+                            style = PanelScan.type.supporting,
+                            color = colors.destructive,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else if (addedToCartState) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -346,7 +378,10 @@ fun ProductDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            onClick = { if (quantity > 1) quantity-- },
+                            onClick = {
+                                if (quantity > 1) quantity--
+                                cartProblem = null
+                            },
                             enabled = quantity > 1,
                             modifier = Modifier.size(36.dp)
                         ) {
@@ -364,13 +399,17 @@ fun ProductDetailScreen(
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
                         IconButton(
-                            onClick = { quantity++ },
+                            onClick = {
+                                if (quantity < maxQuantity) quantity++
+                                else cartProblem = "Only $available items are available."
+                            },
+                            enabled = !outOfStock,
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Add,
                                 contentDescription = "Increase quantity",
-                                tint = colors.textPrimary,
+                                tint = if (!outOfStock && quantity < maxQuantity) colors.textPrimary else colors.textTertiary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -378,16 +417,21 @@ fun ProductDetailScreen(
 
                     // Add to Cart Button
                     PrimaryButton(
-                        text = if (showPrice) "Add to Cart" else "Log in to Buy",
+                        text = when {
+                            !showPrice -> "Log in to Buy"
+                            outOfStock -> "Out of stock"
+                            else -> "Add to Cart"
+                        },
                         icon = Icons.Rounded.ShoppingCart,
                         onClick = {
                             if (showPrice) {
-                                onAddToCart(panel, quantity)
-                                addedToCartState = true
+                                cartProblem = onAddToCart(panel, quantity)
+                                addedToCartState = cartProblem == null
                             } else {
                                 onNavigateToSignIn()
                             }
                         },
+                        enabled = !showPrice || !outOfStock,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -398,6 +442,7 @@ fun ProductDetailScreen(
                     onClick = {
                         if (showPrice) onProceedToCheckout(panel, quantity) else onNavigateToSignIn()
                     },
+                    enabled = !showPrice || (!outOfStock && quantity <= maxQuantity),
                     modifier = Modifier.fillMaxWidth()
                 )
 

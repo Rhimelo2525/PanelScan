@@ -76,8 +76,14 @@ class CartRepository(
 
     private val isSynced: Boolean get() = api != null && scope != null && sessionManager?.isLoggedIn() == true
 
-    fun addToCart(panel: PVCPanel, quantity: Int = 1) {
-        if (quantity <= 0) return
+    /**
+     * Adds [quantity] of [panel], or returns why it can't (the website's and the
+     * backend's wording): out of stock, or more than is available. The backend
+     * checks again and its refusal is announced on [messages].
+     */
+    fun addToCart(panel: PVCPanel, quantity: Int = 1): String? {
+        if (quantity <= 0) return null
+        stockProblem(panel, (_items.value.firstOrNull { it.id == panel.id }?.quantity ?: 0) + quantity)?.let { return it }
         _items.update { currentList ->
             if (currentList.any { it.id == panel.id }) {
                 currentList.map { item -> if (item.id == panel.id) item.copy(quantity = item.quantity + quantity) else item }
@@ -88,12 +94,21 @@ class CartRepository(
         // Auto-select the newly added / incremented item
         _selectedItemIds.update { it + panel.id }
         sync(announceErrors = true) { postCart("/cart/items", AddItemRequest(panel.id, quantity)) }
+        return null
     }
 
     fun updateQuantity(itemId: String, newQuantity: Int) {
         if (newQuantity <= 0) {
             removeFromCart(itemId)
             return
+        }
+        val item = _items.value.firstOrNull { it.id == itemId }
+        // More than the stock: say so instead of letting the backend refuse it.
+        if (item != null && newQuantity > item.quantity) {
+            stockProblem(item.panel, newQuantity)?.let { problem ->
+                _messages.tryEmit(problem)
+                return
+            }
         }
         _items.update { currentList ->
             currentList.map { item -> if (item.id == itemId) item.copy(quantity = newQuantity) else item }
@@ -240,6 +255,16 @@ class CartRepository(
         }
     }
 
+    /** Why [wanted] of [panel] can't be in the cart, from the latest catalogue stock; null when it can (or stock is unknown). */
+    private fun stockProblem(panel: PVCPanel, wanted: Int): String? {
+        val available = (ProductCatalog.findById(panel.id) ?: panel).inventoryQty ?: return null
+        return when {
+            available <= 0 -> OUT_OF_STOCK
+            wanted > available -> "Only $available items are available."
+            else -> null
+        }
+    }
+
     /** The catalogue's full panel (sizes, photo) when loaded, else what the cart itself says. */
     private fun ApiCartProduct.toPanel(): PVCPanel {
         val fromCatalogue = ProductCatalog.findById(id)
@@ -289,4 +314,8 @@ class CartRepository(
 
     @Serializable
     private data class ApiImage(val url: String)
+
+    companion object {
+        const val OUT_OF_STOCK = "This product is currently out of stock."
+    }
 }

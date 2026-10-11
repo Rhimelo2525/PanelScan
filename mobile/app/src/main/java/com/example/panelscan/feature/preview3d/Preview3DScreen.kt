@@ -85,7 +85,8 @@ fun Preview3DScreen(
     project: SavedProject,
     onBack: () -> Unit,
     onSaveProject: (SavedProject) -> Unit,
-    onAddToCart: (panel: com.example.panelscan.core.model.PVCPanel, quantity: Int) -> Unit = { _, _ -> },
+    /** Returns why it could not be added (e.g. out of stock), or null when added. */
+    onAddToCart: (panel: com.example.panelscan.core.model.PVCPanel, quantity: Int) -> String? = { _, _ -> null },
     showPrice: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -98,6 +99,7 @@ fun Preview3DScreen(
     var showPanelPicker by remember { mutableStateOf(false) }
     var showDimensions by remember { mutableStateOf(true) }
     var cartAdded by remember { mutableStateOf(false) }
+    var cartProblem by remember { mutableStateOf<String?>(null) }
     var panMode by remember { mutableStateOf(false) }
 
     var yaw by remember { mutableStateOf(-18f) }
@@ -394,6 +396,14 @@ fun Preview3DScreen(
                     modifier = Modifier.padding(vertical = Spacing.sm),
                     color = PanelScan.colors.border
                 )
+                cartProblem?.let {
+                    Text(
+                        text = it,
+                        style = PanelScan.type.supporting,
+                        color = PanelScan.colors.destructive,
+                        modifier = Modifier.padding(bottom = Spacing.xs)
+                    )
+                }
                 OverlayPrimaryButton(
                     text = if (cartAdded) {
                         "✓ Added to Cart — Continue"
@@ -406,8 +416,8 @@ fun Preview3DScreen(
                             estimation = estimation
                         )
                         onSaveProject(saved)
-                        onAddToCart(selectedPanel, estimation.finalQuantity)
-                        cartAdded = true
+                        cartProblem = onAddToCart(selectedPanel, estimation.finalQuantity)
+                        cartAdded = cartProblem == null
                     }
                 )
             }

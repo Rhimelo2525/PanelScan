@@ -3,6 +3,7 @@ package com.example.panelscan.data.repository
 import com.example.panelscan.TestPanels
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -84,5 +85,28 @@ class CartFlowTest {
         assertEquals(marbleItem.id, cartRepository.items.value.first().id)
         assertEquals(1, cartRepository.itemCount)
         assertEquals(1250.0, cartRepository.subtotal, 0.001)
+    }
+
+    @Test
+    fun `out-of-stock items and more than the stock are refused with the website's message`() {
+        val soldOut = TestPanels.allPanels.first { it.inventoryQty == 0 }
+        val nine = TestPanels.allPanels.first { it.inventoryQty == 9 }
+
+        assertEquals(CartRepository.OUT_OF_STOCK, cartRepository.addToCart(soldOut, 1))
+        assertTrue(cartRepository.items.value.isEmpty())
+
+        assertEquals("Only 9 items are available.", cartRepository.addToCart(nine, 10))
+        assertTrue(cartRepository.items.value.isEmpty())
+
+        assertNull(cartRepository.addToCart(nine, 6))
+        assertEquals("Only 9 items are available.", cartRepository.addToCart(nine, 4))
+        assertNull(cartRepository.addToCart(nine, 3))
+        assertEquals(9, cartRepository.items.value.single().quantity)
+
+        // The cart's + button stops at the stock too.
+        cartRepository.updateQuantity(nine.id, 10)
+        assertEquals(9, cartRepository.items.value.single().quantity)
+        cartRepository.updateQuantity(nine.id, 4)
+        assertEquals(4, cartRepository.items.value.single().quantity)
     }
 }

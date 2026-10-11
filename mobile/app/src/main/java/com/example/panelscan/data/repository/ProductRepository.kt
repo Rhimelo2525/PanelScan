@@ -80,7 +80,8 @@ class ProductRepository(private val api: ApiClient) {
     private fun ApiProduct.toPanel(): PVCPanel {
         val categoryName = category?.name ?: ""
         val isCeiling = categoryName.contains("ceiling", ignoreCase = true)
-        val available = inventory?.let { (it.quantity - it.reservedQty).coerceAtLeast(0) }
+        // On hand minus reserved, as the cart and checkout check it; no inventory record means none.
+        val available = inventory?.let { (it.quantity - it.reservedQty).coerceAtLeast(0) } ?: 0
         val image = images.firstOrNull { it.isPrimary } ?: images.minByOrNull { it.sortOrder }
         return PVCPanel(
             id = id,
@@ -93,7 +94,7 @@ class ProductRepository(private val api: ApiClient) {
             pricePerUnit = price?.toDoubleOrNull(),
             finish = material ?: "PVC",
             description = description.orEmpty(),
-            inStock = (available ?: 0) > 0,
+            inStock = available > 0,
             sku = sku,
             imageUrl = image?.url?.let(::absoluteUrl),
             material = material,

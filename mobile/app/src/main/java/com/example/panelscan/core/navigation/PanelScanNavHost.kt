@@ -467,8 +467,9 @@ fun PanelScanNavHost(
                             projectsViewModel.saveProject(updated)
                         },
                         onAddToCart = { panel, qty ->
-                            cartRepository.addToCart(panel, qty)
-                            navController.navigate(Screen.Cart.route)
+                            cartRepository.addToCart(panel, qty).also { problem ->
+                                if (problem == null) navController.navigate(Screen.Cart.route)
+                            }
                         },
                         showPrice = pricesVisible
                     )

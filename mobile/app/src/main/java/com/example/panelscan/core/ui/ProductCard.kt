@@ -77,8 +77,8 @@ fun ProductCard(
             PanelImage(panel = panel, modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f))
             if (!panel.inStock) {
                 StatusBadge(
-                    text = "Made to order",
-                    tone = BadgeTone.Warning,
+                    text = "Out of stock",
+                    tone = BadgeTone.Destructive,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(Spacing.xs)
@@ -138,15 +138,15 @@ fun ProductCard(
                     Box(
                         modifier = Modifier
                             .background(
-                                if (panel.inStock) colors.successSoft else colors.warningSoft,
+                                if (panel.inStock) colors.successSoft else colors.destructiveSoft,
                                 PanelScan.shapes.chip
                             )
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = if (panel.inStock) "In stock" else "3–5 days",
+                            text = if (panel.inStock) "In stock" else "Out of stock",
                             style = PanelScan.type.label,
-                            color = if (panel.inStock) colors.success else colors.warning
+                            color = if (panel.inStock) colors.success else colors.destructive
                         )
                     }
                 }
@@ -218,7 +218,7 @@ fun ProductRowCard(
                 )
                 Text(
                     text = "${panel.material ?: "PVC"} · ${formatAreaWithUnit(panel.coverageSquareMeters)} · " +
-                        if (panel.inStock) "In stock" else "3–5 days",
+                        if (panel.inStock) "In stock" else "Out of stock",
                     style = PanelScan.type.label,
                     color = colors.textTertiary,
                     maxLines = 1,
