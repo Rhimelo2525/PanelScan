@@ -33,9 +33,12 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,12 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
 import com.example.panelscan.core.session.CustomerUser
@@ -61,6 +62,7 @@ import com.example.panelscan.core.ui.PanelScanTextField
 import com.example.panelscan.core.ui.PanelScanTopBar
 import com.example.panelscan.core.ui.PhilippinePhoneField
 import com.example.panelscan.core.ui.PrimaryButton
+import com.example.panelscan.core.ui.ProfilePhoto
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.StatusBadge
 import com.example.panelscan.data.repository.AddressRepository
@@ -98,7 +100,8 @@ fun CustomerProfileScreen(
         mutableStateOf(ten)
     }
     var birthdate by remember { mutableStateOf(currentUser.birthdate ?: "") }
-    var avatarUriString by remember { mutableStateOf(currentUser.profilePictureUri) }
+    var isUploadingPhoto by remember { mutableStateOf(false) }
+    var confirmRemovePhoto by remember { mutableStateOf(false) }
 
     var firstNameError by remember { mutableStateOf<String?>(null) }
     var lastNameError by remember { mutableStateOf<String?>(null) }
@@ -131,13 +134,68 @@ fun CustomerProfileScreen(
         }
     }
 
+    // The photo is saved to the account straight away, as on the website.
+    fun showPhotoResult(result: AuthResult, done: String) {
+        when (result) {
+            is AuthResult.Success -> {
+                successMessage = done
+                errorMessage = null
+            }
+            is AuthResult.Error -> {
+                errorMessage = result.message
+                successMessage = null
+            }
+        }
+    }
+
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            avatarUriString = uri.toString()
+            isUploadingPhoto = true
             successMessage = null
+            errorMessage = null
+            coroutineScope.launch {
+                val jpeg = prepareProfilePicture(context, uri)
+                if (jpeg == null) {
+                    errorMessage = "That file couldn't be read as a photo. Choose a JPG, PNG or WebP image."
+                } else {
+                    showPhotoResult(authRepository.uploadProfilePicture(jpeg), "Profile picture updated.")
+                }
+                isUploadingPhoto = false
+            }
         }
+    }
+
+    if (confirmRemovePhoto) {
+        AlertDialog(
+            onDismissRequest = { confirmRemovePhoto = false },
+            containerColor = colors.surface,
+            shape = PanelScan.shapes.card,
+            title = { Text("Remove your profile picture?", style = PanelScan.type.sectionTitle) },
+            text = {
+                Text(
+                    "Your photo will be removed from your account, here and on the website.",
+                    style = PanelScan.type.body,
+                    color = colors.textSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemovePhoto = false
+                    isUploadingPhoto = true
+                    coroutineScope.launch {
+                        showPhotoResult(authRepository.removeProfilePicture(), "Profile picture removed.")
+                        isUploadingPhoto = false
+                    }
+                }) { Text("Remove photo", style = PanelScan.type.button, color = colors.destructive) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemovePhoto = false }) {
+                    Text("Cancel", style = PanelScan.type.button, color = colors.textSecondary)
+                }
+            }
+        )
     }
 
     val openDatePicker = {
@@ -182,29 +240,30 @@ fun CustomerProfileScreen(
                         .padding(vertical = Spacing.sm),
                     contentAlignment = Alignment.Center
                 ) {
+                    // The badge sits on the circle's edge, so only the photo itself is clipped round.
                     Box(
                         modifier = Modifier
                             .size(108.dp)
-                            .clip(CircleShape)
-                            .background(colors.surfaceElevated)
-                            .border(2.dp, colors.accent, CircleShape)
-                            .clickable { photoPickerLauncher.launch("image/*") },
+                            .clickable(enabled = !isUploadingPhoto) { photoPickerLauncher.launch("image/*") },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (!avatarUriString.isNullOrBlank()) {
-                            AsyncImage(
-                                model = avatarUriString,
-                                contentDescription = "Profile Avatar",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.Person,
-                                contentDescription = null,
-                                tint = colors.accent,
-                                modifier = Modifier.size(54.dp)
-                            )
+                        ProfilePhoto(
+                            path = currentUser.profilePictureUri,
+                            load = authRepository::loadProfilePicture,
+                            iconSize = 54.dp,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(colors.surfaceElevated)
+                                .border(2.dp, colors.accent, CircleShape)
+                        )
+                        if (isUploadingPhoto) {
+                            Box(
+                                modifier = Modifier.fillMaxSize().clip(CircleShape).background(colors.scrim),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = colors.accentContrast, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
+                            }
                         }
 
                         // Edit Badge
@@ -228,12 +287,22 @@ fun CustomerProfileScreen(
                 }
 
                 Text(
-                    text = "Tap photo to choose a profile image from your device",
+                    text = when {
+                        isUploadingPhoto -> "Saving your photo…"
+                        currentUser.profilePictureUri == null -> "Tap the photo to add a profile picture"
+                        else -> "Tap the photo to change it"
+                    },
                     style = PanelScan.type.label,
                     color = colors.textTertiary,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
+                if (currentUser.profilePictureUri != null && !isUploadingPhoto) {
+                    TextButton(
+                        onClick = { confirmRemovePhoto = true },
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) { Text("Remove photo", style = PanelScan.type.button, color = colors.destructive) }
+                }
 
                 // Feedback messages
                 successMessage?.let { msg ->
@@ -477,8 +546,7 @@ fun CustomerProfileScreen(
                                 firstName = cleanFirst,
                                 lastName = cleanLast,
                                 phone = if (phoneDigits.isNotBlank()) phoneDigits else null,
-                                birthdate = birthdate,
-                                profilePictureUri = avatarUriString
+                                birthdate = birthdate
                             )
                             isSaving = false
                             when (res) {

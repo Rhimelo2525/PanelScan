@@ -132,13 +132,47 @@ class AuthRepositoryApiTest {
         val (repo, session) = repository(backend)
         repo.login("juan@gmail.com", "PanelScan2026!")
 
-        val result = repo.updateProfile("Juan", "Dela Cruz", "9171234567", "1995-05-15", null)
+        val result = repo.updateProfile("Juan", "Dela Cruz", "9171234567", "1995-05-15")
 
         assertTrue(result is AuthResult.Success)
         assertEquals(listOf("/auth/login", "/auth/me", "/auth/refresh", "/auth/me"), backend.calls.map { it.path })
         assertEquals("Bearer new", backend.calls.last().authorization)
         assertEquals("new", session.accessToken)
         assertEquals("refresh-2", session.refreshToken)
+    }
+
+    @Test
+    fun `the profile picture is the account's, uploaded and removed through the backend`() = runBlocking {
+        val withPicture = user.replace("\"emailVerified\":true", "\"emailVerified\":true,\"profilePictureUrl\":\"/users/u1/profile-picture?v=42\"")
+        val backend = FakeBackend { call ->
+            when {
+                call.path == "/auth/login" -> 200 to """{"success":true,"message":"ok","data":{"user":$user,"token":"access-1","refreshToken":"refresh-1"}}"""
+                call.method == "PUT" -> 200 to """{"success":true,"message":"Profile picture updated successfully.","data":{"user":$withPicture}}"""
+                call.method == "DELETE" -> 200 to """{"success":true,"message":"Profile picture removed successfully.","data":{"user":$user}}"""
+                else -> 200 to "PICTURE"
+            }
+        }
+        val (repo, session) = repository(backend)
+        repo.login("juan@gmail.com", "PanelScan2026!")
+        fun picture() = (session.sessionState.value as CustomerSessionState.LoggedIn).user.profilePictureUri
+
+        assertTrue(repo.uploadProfilePicture(byteArrayOf(1, 2, 3)) is AuthResult.Success)
+        val upload = backend.calls.last()
+        assertEquals("/auth/me/profile-picture", upload.path)
+        assertTrue(upload.body.contains("name=\"image\"; filename=\"profile.jpg\""))
+        assertEquals("/users/u1/profile-picture?v=42", picture())
+
+        // Loaded signed in, then kept: the address changes with every new upload.
+        assertEquals("PICTURE", repo.loadProfilePicture(picture()!!)!!.decodeToString())
+        assertEquals("Bearer access-1", backend.calls.last().authorization)
+        repo.loadProfilePicture(picture()!!)
+        assertEquals(1, backend.calls.count { it.path == "/users/u1/profile-picture" })
+        // A photo address from an older app version (kept on the device) is never requested.
+        assertNull(repo.loadProfilePicture("content://media/external/images/1"))
+
+        assertTrue(repo.removeProfilePicture() is AuthResult.Success)
+        assertEquals("DELETE", backend.calls.last().method)
+        assertNull(picture())
     }
 
     @Test

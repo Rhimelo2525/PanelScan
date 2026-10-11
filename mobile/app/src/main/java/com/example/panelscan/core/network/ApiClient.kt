@@ -18,8 +18,10 @@ import kotlinx.serialization.json.contentOrNull
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -79,12 +81,14 @@ class ApiClient(
         method: String,
         path: String,
         body: JsonElement? = null,
-        authenticated: Boolean = false
+        authenticated: Boolean = false,
+        /** Sent instead of [body] when set, e.g. a multipart file upload. */
+        rawBody: RequestBody? = null
     ): JsonElement {
         val sentToken = if (authenticated) tokens.accessToken else null
-        val response = execute(method, path, body, sentToken)
+        val response = execute(method, path, body, sentToken, rawBody)
         if (response.status == 401 && authenticated && refreshSession(sentToken)) {
-            return unwrap(execute(method, path, body, tokens.accessToken))
+            return unwrap(execute(method, path, body, tokens.accessToken, rawBody))
         }
         if (response.status == 401 && authenticated) {
             tokens.onSessionExpired()
@@ -109,6 +113,39 @@ class ApiClient(
     suspend inline fun <reified B, reified T> put(path: String, body: B, authenticated: Boolean = false): T =
         json.decodeFromJsonElement(send("PUT", path, json.encodeToJsonElement(body), authenticated))
 
+    /** Sends one file as a multipart form field (signed in), e.g. a profile picture. */
+    suspend fun uploadFile(method: String, path: String, field: String, fileName: String, mimeType: String, bytes: ByteArray): JsonElement {
+        val form = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(field, fileName, bytes.toRequestBody(mimeType.toMediaType()))
+            .build()
+        return send(method, path, authenticated = true, rawBody = form)
+    }
+
+    /**
+     * Downloads a file the backend serves only to the signed-in user, following
+     * its redirect to storage (OkHttp drops the token when the host changes).
+     */
+    suspend fun download(path: String): ByteArray {
+        val sentToken = tokens.accessToken
+        var response = fetchBytes(path, sentToken)
+        if (response.first == 401 && refreshSession(sentToken)) response = fetchBytes(path, tokens.accessToken)
+        if (response.first !in 200..299) throw ApiException(response.first, "This image could not be loaded.")
+        return response.second
+    }
+
+    private suspend fun fetchBytes(path: String, accessToken: String?): Pair<Int, ByteArray> = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(baseUrl + path)
+            .apply { if (accessToken != null) header("Authorization", "Bearer $accessToken") }
+            .build()
+        try {
+            http.newCall(request).execute().use { response -> response.code to (response.body?.bytes() ?: ByteArray(0)) }
+        } catch (error: IOException) {
+            throw ApiException(0, NETWORK_ERROR_MESSAGE)
+        }
+    }
+
     /**
      * Swaps the refresh token for a new pair. Concurrent 401s share one
      * refresh: a caller whose token was already replaced just retries.
@@ -124,13 +161,13 @@ class ApiClient(
         true
     }
 
-    private suspend fun execute(method: String, path: String, body: JsonElement?, accessToken: String?): RawResponse =
+    private suspend fun execute(method: String, path: String, body: JsonElement?, accessToken: String?, rawBody: RequestBody? = null): RawResponse =
         withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url(baseUrl + path)
                 .header("Accept", "application/json")
                 .apply { if (accessToken != null) header("Authorization", "Bearer $accessToken") }
-                .method(method, body?.let { json.encodeToString(JsonElement.serializer(), it).toRequestBody(JSON) }
+                .method(method, rawBody ?: body?.let { json.encodeToString(JsonElement.serializer(), it).toRequestBody(JSON) }
                     ?: if (method == "GET") null else ByteArray(0).toRequestBody(JSON))
                 .build()
             try {

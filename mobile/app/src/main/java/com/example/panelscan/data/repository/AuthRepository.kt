@@ -8,6 +8,7 @@ import com.example.panelscan.core.session.SessionManager
 import com.example.panelscan.core.validation.AccountRules
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.decodeFromJsonElement
 
 sealed interface AuthResult {
     data class Success(val user: CustomerUser) : AuthResult
@@ -136,13 +137,12 @@ class AuthRepository(
         )
     }
 
-    /** Saves name, phone and birthdate. The profile photo stays on this device for now. */
+    /** Saves name, phone and birthdate; the photo has its own upload below. */
     suspend fun updateProfile(
         firstName: String,
         lastName: String,
         phone: String?,
-        birthdate: String?,
-        profilePictureUri: String?
+        birthdate: String?
     ): AuthResult = authCall {
         val result: UserResponse = api.patch(
             "/auth/me",
@@ -154,7 +154,28 @@ class AuthRepository(
             ),
             authenticated = true
         )
-        result.user.toCustomerUser(profilePictureUri).also(sessionManager::updateUserProfile)
+        result.user.toCustomerUser().also(sessionManager::updateUserProfile)
+    }
+
+    /** Uploads a new profile picture (a JPEG); the backend crops it square, as for the website. */
+    suspend fun uploadProfilePicture(jpeg: ByteArray): AuthResult = authCall {
+        val data = api.uploadFile("PUT", "/auth/me/profile-picture", "image", "profile.jpg", "image/jpeg", jpeg)
+        api.json.decodeFromJsonElement<UserResponse>(data).user.toCustomerUser().also(sessionManager::updateUserProfile)
+    }
+
+    suspend fun removeProfilePicture(): AuthResult = authCall {
+        val data = api.send("DELETE", "/auth/me/profile-picture", authenticated = true)
+        api.json.decodeFromJsonElement<UserResponse>(data).user.toCustomerUser().also(sessionManager::updateUserProfile)
+    }
+
+    // Each upload gets a new versioned address, so a loaded picture never goes stale.
+    private val pictures = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+    /** The picture at the backend's [path] (it checks the viewer is signed in); null when it can't be loaded. */
+    suspend fun loadProfilePicture(path: String): ByteArray? = if (!path.startsWith("/")) null else pictures[path] ?: try {
+        api.download(path).also { pictures[path] = it }
+    } catch (error: ApiException) {
+        null
     }
 
     private suspend fun authCall(block: suspend () -> CustomerUser): AuthResult = try {
@@ -170,7 +191,7 @@ class AuthRepository(
         ActionResult.Error(error.message.orEmpty(), error.fieldErrors)
     }
 
-    private fun ApiUser.toCustomerUser(profilePictureUri: String? = currentUser?.profilePictureUri) = CustomerUser(
+    private fun ApiUser.toCustomerUser() = CustomerUser(
         id = id,
         firstName = firstName,
         lastName = lastName,
@@ -179,7 +200,7 @@ class AuthRepository(
         birthdate = birthdate,
         age = birthdate?.let { calculateAge(it) },
         role = role,
-        profilePictureUri = profilePictureUri,
+        profilePictureUri = profilePictureUrl,
         emailVerified = emailVerified
     )
 
@@ -192,7 +213,9 @@ class AuthRepository(
         val phone: String? = null,
         val birthdate: String? = null,
         val role: String = "CUSTOMER",
-        val emailVerified: Boolean = false
+        val emailVerified: Boolean = false,
+        /** "/users/{id}/profile-picture?v=…", served to the owner only; null without a picture. */
+        val profilePictureUrl: String? = null
     )
 
     @Serializable

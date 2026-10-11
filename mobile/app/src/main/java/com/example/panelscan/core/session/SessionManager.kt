@@ -77,7 +77,8 @@ class SessionManager(context: Context? = null) : TokenStore {
                 birthdate = p.getString(KEY_USER_BIRTHDATE, null),
                 age = ageVal,
                 role = p.getString(KEY_USER_ROLE, "CUSTOMER") ?: "CUSTOMER",
-                profilePictureUri = p.getString(KEY_USER_AVATAR, null),
+                // Only the backend's picture address; older versions kept a photo URI on this device.
+                profilePictureUri = p.getString(KEY_USER_AVATAR, null)?.takeIf { it.startsWith("/") },
                 emailVerified = p.getBoolean(KEY_EMAIL_VERIFIED, false)
             )
             _sessionState.value = CustomerSessionState.LoggedIn(user)

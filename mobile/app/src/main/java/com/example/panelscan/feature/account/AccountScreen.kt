@@ -37,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.example.panelscan.R
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
+import com.example.panelscan.core.ui.ProfilePhoto
 import com.example.panelscan.core.session.CustomerSessionState
 import com.example.panelscan.core.ui.BadgeTone
 import com.example.panelscan.core.ui.PanelCard
@@ -65,8 +67,6 @@ import com.example.panelscan.core.ui.pressScale
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.LocalShipping
 import androidx.compose.material.icons.rounded.RateReview
-import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
 import com.example.panelscan.data.repository.AuthRepository
 
 @Composable
@@ -92,6 +92,10 @@ fun AccountScreen(
 ) {
     val colors = PanelScan.colors
     var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    // Picks up a name or photo changed on the website since this device last checked.
+    val signedIn = sessionState is CustomerSessionState.LoggedIn
+    LaunchedEffect(signedIn) { if (signedIn) authRepository?.refreshCurrentUser() }
 
     if (showLogoutConfirm) {
         AlertDialog(
@@ -154,29 +158,15 @@ fun AccountScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                             ) {
-                                Box(
+                                ProfilePhoto(
+                                    path = user.profilePictureUri,
+                                    load = { path -> authRepository?.loadProfilePicture(path) },
+                                    iconSize = 28.dp,
                                     modifier = Modifier
                                         .size(54.dp)
                                         .clip(PanelScan.shapes.control)
-                                        .background(colors.accentSoft),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!user.profilePictureUri.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = user.profilePictureUri,
-                                            contentDescription = "Profile picture",
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Person,
-                                            contentDescription = null,
-                                            tint = colors.accent,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                    }
-                                }
+                                        .background(colors.accentSoft)
+                                )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = user.fullName.ifBlank { user.email },
