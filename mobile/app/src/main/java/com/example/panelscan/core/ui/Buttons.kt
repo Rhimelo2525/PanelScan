@@ -89,7 +89,9 @@ fun SecondaryButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
     fillMaxWidth: Boolean = true,
-    destructive: Boolean = false
+    destructive: Boolean = false,
+    /** Shown after the label instead of before it, e.g. a "View order →" arrow. */
+    iconAfterText: Boolean = false
 ) {
     val colors = PanelScan.colors
     val contentColor = if (destructive) colors.destructive else colors.textPrimary
@@ -107,7 +109,7 @@ fun SecondaryButton(
             .then(if (fillMaxWidth) Modifier.fillMaxWidth() else Modifier)
             .defaultMinSize(minHeight = ButtonHeight)
     ) {
-        ButtonContent(text = text, icon = icon)
+        ButtonContent(text = text, icon = icon, iconAfterText = iconAfterText)
     }
 }
 
@@ -133,21 +135,21 @@ fun TertiaryButton(
 private fun ButtonContent(
     text: String,
     icon: ImageVector?,
-    color: Color = Color.Unspecified
+    color: Color = Color.Unspecified,
+    iconAfterText: Boolean = false
 ) {
+    val tint = if (color == Color.Unspecified) LocalContentColor.current else color
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (color == Color.Unspecified) LocalContentColor.current else color
-            )
+        if (icon != null && !iconAfterText) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = tint)
         }
         Text(text = text, style = PanelScan.type.button, color = color)
+        if (icon != null && iconAfterText) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = tint)
+        }
     }
 }
 

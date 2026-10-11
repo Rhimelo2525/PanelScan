@@ -706,12 +706,15 @@ fun PanelScanNavHost(
                 if (!pricesVisible) {
                     LaunchedEffect(Unit) { navController.navigate(Screen.Login.route) }
                 } else {
+                    val reviews by feedbackRepository.reviews.collectAsState()
                     OrdersScreen(
                         orderRepository = orderRepository,
+                        reviewedOrderIds = reviews.mapTo(HashSet()) { it.orderId },
                         onBack = { navController.popBackStack() },
                         onOpenOrder = { orderId ->
                             navController.navigate(Screen.OrderDetail.createRoute(orderId))
                         },
+                        onFeedback = { orderId -> navController.navigate(Screen.Feedback.createRoute(orderId)) },
                         onBrowseCatalog = { navController.navigateToTab(Screen.Products) },
                         bottomPadding = contentBottomPadding
                     )

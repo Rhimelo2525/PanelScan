@@ -134,7 +134,9 @@ data class OrderDeliveryDetails(
     val quoteStatus: String = "Not quoted",
     val paymentStatus: String = "Pending",
     val bookingReference: String? = null,
-    val bookingStatus: String = "Not booked"
+    val bookingStatus: String = "Not booked",
+    /** The backend's delivery stage ("AWAITING_QUOTE", "PICKED_UP"...); null before there is one. */
+    val status: String? = null
 )
 
 @Serializable

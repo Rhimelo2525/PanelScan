@@ -197,7 +197,8 @@ class OrderRepository(private val api: ApiClient? = null) {
                     else -> "Pending"
                 },
                 bookingReference = delivery?.trackingNumber ?: delivery?.lalamoveOrderId,
-                bookingStatus = delivery?.deliveryStatus ?: "Not booked"
+                bookingStatus = delivery?.deliveryStatus ?: "Not booked",
+                status = delivery?.deliveryStatus
             ),
             moderatorApproved = moderatorApproved,
             shippingQuoted = delivery?.quotedAt != null,

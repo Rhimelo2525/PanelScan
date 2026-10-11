@@ -351,7 +351,7 @@ fun OrderStatus.badgeTone(): BadgeTone = when (this) {
     OrderStatus.DELIVERED -> BadgeTone.Success
     OrderStatus.PROCESSING, OrderStatus.SHIPPED -> BadgeTone.Accent
     OrderStatus.PENDING -> BadgeTone.Warning
-    OrderStatus.CANCELLED -> BadgeTone.Neutral
+    OrderStatus.CANCELLED -> BadgeTone.Destructive
 }
 
 private fun OrderStage.badgeTone(): BadgeTone = when (this) {
