@@ -202,6 +202,7 @@ fun PanelScanNavHost(
     val measurementViewModel: MeasurementViewModel = viewModel()
 
     val projects by projectsViewModel.projects.collectAsState()
+    val projectProgress by projectsViewModel.progress.collectAsState()
     val measurementState by measurementViewModel.uiState.collectAsState()
 
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -283,7 +284,9 @@ fun PanelScanNavHost(
                         val target = when (notification.destination) {
                             NotificationDestination.ORDER -> notification.referenceId
                                 ?.let(Screen.OrderDetail::createRoute) ?: Screen.Orders.route
+                            // Notifications name the backend's project id; the app keys projects by its own.
                             NotificationDestination.PROJECT -> notification.referenceId
+                                ?.let { id -> projectProgress.entries.firstOrNull { it.value.backendId == id }?.key ?: id }
                                 ?.takeIf { id -> projects.any { it.id == id } }
                                 ?.let(Screen.ProjectDetail::createRoute) ?: Screen.Projects.route
                             NotificationDestination.CHAT -> Screen.Chat.createRoute(notification.referenceId)
@@ -423,8 +426,10 @@ fun PanelScanNavHost(
             }
 
             composable(Screen.Projects.route) {
+                LaunchedEffect(Unit) { projectsViewModel.refreshProgress() }
                 ProjectsScreen(
                     projects = projects,
+                    progress = projectProgress,
                     onOpenProject = { project ->
                         navController.navigate(Screen.ProjectDetail.createRoute(project.id))
                     },
@@ -439,8 +444,10 @@ fun PanelScanNavHost(
                 if (project == null) {
                     ProjectLoadingScreen()
                 } else {
+                    LaunchedEffect(project.id) { projectsViewModel.refreshProgress() }
                     ProjectDetailScreen(
                         project = project,
+                        progress = projectProgress[project.id],
                         onBack = { navController.popBackStack() },
                         showPrice = pricesVisible,
                         onOpen3DPreview = {

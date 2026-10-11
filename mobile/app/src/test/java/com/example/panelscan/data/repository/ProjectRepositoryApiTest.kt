@@ -3,6 +3,7 @@ package com.example.panelscan.data.repository
 import com.example.panelscan.core.model.Estimation
 import com.example.panelscan.core.model.MeasurementResult
 import com.example.panelscan.core.model.PVCPanel
+import com.example.panelscan.core.model.ProjectTeamStatus
 import com.example.panelscan.core.model.SavedProject
 import com.example.panelscan.core.model.SurfaceType
 import com.example.panelscan.core.network.ApiClient
@@ -101,6 +102,28 @@ class ProjectRepositoryApiTest {
         assertTrue(sent.contains("\"panelName\":\"Oak Wall Panel\""))
         assertTrue(sent.contains("\"panelSku\":\"OAK-60\""))
         assertTrue(sent.contains("\"finalQuantity\":7"))
+    }
+
+    @Test
+    fun `the team's status comes back from the account, and signing out forgets it`() = runBlocking {
+        val inProgress = remoteProject("app-2")
+            .replace("\"status\":\"PENDING\"", "\"status\":\"IN_PROGRESS\",\"moderatorId\":\"mod-1\",\"startDate\":\"2026-10-20T00:00:00.000Z\"")
+        val repo = repository { method, _, _ -> if (method == "GET") """{"projects":[$inProgress]}""" else savedResponse }
+
+        repo.saveProject(project())
+        assertEquals(ProjectTeamStatus.PENDING, repo.progress.value.getValue("app-1").status)
+        assertTrue(repo.progress.value.getValue("app-1").deletable)
+
+        assertNull(repo.refreshProgress())
+        val progress = repo.progress.value.getValue("app-2")
+        assertEquals(ProjectTeamStatus.IN_PROGRESS, progress.status)
+        assertEquals("r-app-2", progress.backendId)
+        assertTrue(progress.assigned)
+        assertEquals("2026-10-20T00:00:00.000Z", progress.startDate)
+        assertTrue(!progress.deletable)
+
+        repo.onSignedOut()
+        assertTrue(repo.progress.value.isEmpty())
     }
 
     @Test

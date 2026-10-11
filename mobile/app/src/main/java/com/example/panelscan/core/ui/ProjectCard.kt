@@ -23,6 +23,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
+import com.example.panelscan.core.model.ProjectProgress
+import com.example.panelscan.core.model.ProjectTeamStatus
 import com.example.panelscan.core.model.SavedProject
 
 /** Full-width saved project card used on the Projects screen. */
@@ -30,7 +32,9 @@ import com.example.panelscan.core.model.SavedProject
 fun ProjectCard(
     project: SavedProject,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** The team's status, for a project saved to the account. */
+    progress: ProjectProgress? = null
 ) {
     val colors = PanelScan.colors
     PanelCard(
@@ -64,6 +68,7 @@ fun ProjectCard(
                         tone = BadgeTone.Accent
                     )
                     StatusBadge(text = "${project.estimation.finalQuantity} panels")
+                    progress?.let { StatusBadge(text = it.status.label, tone = it.status.badgeTone()) }
                 }
             }
         }
@@ -138,4 +143,11 @@ fun RecentProjectCard(
             )
         }
     }
+}
+
+fun ProjectTeamStatus.badgeTone(): BadgeTone = when (this) {
+    ProjectTeamStatus.PENDING -> BadgeTone.Warning
+    ProjectTeamStatus.IN_PROGRESS -> BadgeTone.Accent
+    ProjectTeamStatus.COMPLETED -> BadgeTone.Success
+    ProjectTeamStatus.CANCELLED -> BadgeTone.Destructive
 }

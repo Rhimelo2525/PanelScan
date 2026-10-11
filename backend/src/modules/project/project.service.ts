@@ -2,6 +2,7 @@ import { NotificationType, Prisma, ProjectSource, ProjectStatus, UserRole } from
 
 import { prisma } from '../../config/database';
 import { createNotification } from '../notifications/notification.service';
+import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { projectInclude } from './project.types';
 import type { PaginatedProjects, ProjectFilters, ProjectWithRelations } from './project.types';
@@ -233,7 +234,7 @@ export class ProjectService {
       return prisma.project.update({ where: { id: existing.id }, data, include: projectInclude });
     }
 
-    return prisma.project.create({
+    const created = await prisma.project.create({
       data: {
         ...data,
         customerId,
@@ -243,6 +244,18 @@ export class ProjectService {
       },
       include: projectInclude,
     });
+
+    // A new app project waits for the owner to assign a moderator; saving it again is not news.
+    const customerName = `${created.customer.firstName} ${created.customer.lastName}`.trim();
+    await notifyStaff({
+      type: NotificationType.SYSTEM,
+      title: 'New project from the mobile app',
+      message: `${customerName} saved "${created.name}" from the PanelScan app. Assign a moderator to follow it up.`,
+      metadata: { projectId: created.id, event: 'MOBILE_PROJECT_CREATED' },
+      roles: [UserRole.OWNER],
+    });
+
+    return created;
   }
 
   /**

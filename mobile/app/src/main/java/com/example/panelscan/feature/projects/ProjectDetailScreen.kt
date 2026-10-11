@@ -49,10 +49,16 @@ import com.example.panelscan.core.ui.formatCurrency
 import com.example.panelscan.core.ui.formatDate
 import com.example.panelscan.core.ui.formatMeters
 import com.example.panelscan.core.ui.label
+import com.example.panelscan.core.ui.badgeTone
+import com.example.panelscan.core.model.ProjectProgress
+import com.example.panelscan.core.model.ProjectTeamStatus
+import com.example.panelscan.data.repository.parseIsoMillis
 
 @Composable
 fun ProjectDetailScreen(
     project: SavedProject,
+    /** The team's status, for a project saved to the account; null while only on this device. */
+    progress: ProjectProgress?,
     onBack: () -> Unit,
     onOpen3DPreview: () -> Unit,
     onDelete: () -> Unit,
@@ -166,7 +172,9 @@ fun ProjectDetailScreen(
                         SpecRow(
                             label = "Estimated cost",
                             value = if (showPrice) {
-                                project.estimation.estimatedCost?.let { formatCurrency(it) } ?: "—"
+                                (project.estimation.estimatedCost
+                                    ?: project.selectedPanel.pricePerUnit?.let { it * project.estimation.finalQuantity })
+                                    ?.let { formatCurrency(it) } ?: "—"
                             } else {
                                 "Log in to view pricing"
                             },
@@ -176,12 +184,22 @@ fun ProjectDetailScreen(
                     }
                 }
 
-                SecondaryButton(
-                    text = "Delete project",
-                    icon = Icons.Rounded.Delete,
-                    destructive = true,
-                    onClick = { confirmDelete = true }
-                )
+                progress?.let { TeamSection(it) }
+
+                if (progress == null || progress.deletable) {
+                    SecondaryButton(
+                        text = "Delete project",
+                        icon = Icons.Rounded.Delete,
+                        destructive = true,
+                        onClick = { confirmDelete = true }
+                    )
+                } else {
+                    Text(
+                        "The PanelScan team is handling this project, so it can no longer be deleted.",
+                        style = PanelScan.type.supporting,
+                        color = colors.textSecondary
+                    )
+                }
             }
 
             Box(
@@ -246,5 +264,29 @@ private fun SectionCard(
             color = PanelScan.colors.textPrimary
         )
         content()
+    }
+}
+
+/** The team's side: the status the owner or moderator set, and the schedule once there is one. */
+@Composable
+private fun TeamSection(progress: ProjectProgress) {
+    val colors = PanelScan.colors
+    SectionCard(title = "PanelScan team") {
+        Column(modifier = Modifier.padding(top = Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            StatusBadge(text = progress.status.label, tone = progress.status.badgeTone())
+            Text(
+                when (progress.status) {
+                    ProjectTeamStatus.PENDING -> if (progress.assigned) "A PanelScan team member has been assigned and will get in touch about this project."
+                    else "Saved to your account. The PanelScan team will review it and assign someone to follow it up."
+                    ProjectTeamStatus.IN_PROGRESS -> "The PanelScan team is working on this project."
+                    ProjectTeamStatus.COMPLETED -> "This project is complete."
+                    ProjectTeamStatus.CANCELLED -> "This project was cancelled."
+                },
+                style = PanelScan.type.supporting,
+                color = colors.textSecondary
+            )
+            progress.startDate?.let(::parseIsoMillis)?.let { SpecRow(label = "Start", value = formatDate(it)) }
+            progress.endDate?.let(::parseIsoMillis)?.let { SpecRow(label = "Target end", value = formatDate(it)) }
+        }
     }
 }

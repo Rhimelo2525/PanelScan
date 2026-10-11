@@ -1067,6 +1067,20 @@ describe('Project module', () => {
       expect(listed.body.data.projects.map((p: { id: string }) => p.id)).toEqual([dbProject?.id]);
     });
 
+    it('tells every owner about a new app project once, not again when it is saved again', async () => {
+      const owner = await createOwner();
+      const customer = await createCustomer();
+
+      const saved = await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${customer.token}`).send(appProject);
+      await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${customer.token}`).send({ ...appProject, name: 'Living room wall' });
+
+      const notifications = await prisma.notification.findMany({ where: { userId: owner.user.id, title: 'New project from the mobile app' } });
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0]?.type).toBe(NotificationType.SYSTEM);
+      expect(notifications[0]?.message).toContain('"Wall · 3.20 × 2.60 m"');
+      expect(notifications[0]?.metadata).toEqual({ projectId: saved.body.data.project.id, event: 'MOBILE_PROJECT_CREATED' });
+    });
+
     it('updates the same project when the app saves it again, instead of adding another', async () => {
       const customer = await createCustomer();
       const first = await request(app).post('/api/projects/mobile').set('Authorization', `Bearer ${customer.token}`).send(appProject);

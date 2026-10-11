@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
 import com.example.panelscan.core.model.SavedProject
+import com.example.panelscan.core.model.ProjectProgress
 import com.example.panelscan.core.ui.EmptyState
 import com.example.panelscan.core.ui.PanelScanTopBar
 import com.example.panelscan.core.ui.ProjectCard
@@ -25,6 +26,8 @@ import com.example.panelscan.core.ui.ScreenScaffold
 @Composable
 fun ProjectsScreen(
     projects: List<SavedProject>,
+    /** The team's status per project saved to the account. */
+    progress: Map<String, ProjectProgress>,
     onOpenProject: (SavedProject) -> Unit,
     onStartMeasurement: () -> Unit,
     modifier: Modifier = Modifier,
@@ -66,13 +69,14 @@ fun ProjectsScreen(
                     items(projects, key = { it.id }) { project ->
                         ProjectCard(
                             project = project,
+                            progress = progress[project.id],
                             onClick = { onOpenProject(project) },
                             modifier = Modifier.animateItem()
                         )
                     }
                     item {
                         Text(
-                            text = "Estimates include a 10% waste allowance.",
+                            text = "Estimates include a waste allowance for cutting.",
                             style = PanelScan.type.supporting,
                             color = PanelScan.colors.textTertiary,
                             modifier = Modifier.padding(top = Spacing.xs)

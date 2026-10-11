@@ -2,6 +2,7 @@ package com.example.panelscan.feature.projects
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.panelscan.core.model.ProjectProgress
 import com.example.panelscan.core.model.SavedProject
 import com.example.panelscan.data.repository.ProjectRepository
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,6 +17,13 @@ class ProjectsViewModel(private val repository: ProjectRepository) : ViewModel()
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    /** The PanelScan team's status per project saved to the account. */
+    val progress: StateFlow<Map<String, ProjectProgress>> = repository.progress
+
+    fun refreshProgress() {
+        viewModelScope.launch { repository.refreshProgress() }
+    }
 
     /** Saved on the device at once; an upload that fails is retried at the next sign-in. */
     fun saveProject(project: SavedProject) {

@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { formatPanelCount, formatSize, readAppMeasurement } from "@/projects/app-project-measurement"
 import type { AdminProject, ProjectStatus } from "@/types/admin"
 
 const PROJECT_STATUSES: ProjectStatus[] = ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"]
@@ -72,6 +73,7 @@ export function AdminProjectsPage() {
             empty={<EmptyState icon={ClipboardList} title="No projects yet" description="Projects created from the PanelScan mobile AR and 3D workflow will appear here." />}
             columns={[
               { key: "name", header: "Project", primary: true, cell: (row) => <span><span className="block font-medium">{row.name}</span><span className="block text-xs text-muted-foreground">{fullName(row.customer)}</span></span> },
+              { key: "estimate", header: "App estimate", secondary: true, cell: (row) => <EstimateCell project={row} /> },
               { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} /> },
               { key: "moderator", header: "Assigned to", cell: (row) => row.moderator ? fullName(row.moderator) : <span className="text-muted-foreground">Unassigned</span> },
               { key: "start", header: "Start", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.startDate)}</span> },
@@ -134,6 +136,18 @@ function ProjectSheet({ project, isOwner, onClose, onSaved }: { project: AdminPr
               <div><dt className="text-xs text-muted-foreground">Target end</dt><dd className="mt-1">{formatDate(project.endDate)}</dd></div>
             </dl>
 
+            <AppMeasurement project={project} />
+
+            {project.customer && (
+              <div>
+                <h3 className="text-xs font-semibold tracking-[0.1em] text-muted-foreground uppercase">Customer</h3>
+                <dl className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                  <div><dt className="text-xs text-muted-foreground">Email</dt><dd className="mt-1 break-all"><a className="underline-offset-4 hover:underline" href={`mailto:${project.customer.email}`}>{project.customer.email}</a></dd></div>
+                  <div><dt className="text-xs text-muted-foreground">Phone</dt><dd className="mt-1">{project.customer.phone ? <a className="underline-offset-4 hover:underline" href={`tel:${project.customer.phone}`}>{project.customer.phone}</a> : "—"}</dd></div>
+                </dl>
+              </div>
+            )}
+
             {project.description && <div><h3 className="text-xs font-semibold tracking-[0.1em] text-muted-foreground uppercase">Overview</h3><p className="mt-2 text-sm leading-6">{project.description}</p></div>}
 
             <div className="space-y-2">
@@ -181,5 +195,44 @@ function ProjectSheet({ project, isOwner, onClose, onSaved }: { project: AdminPr
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** The panel and amount the customer worked out in the app, at a glance. */
+function EstimateCell({ project }: { project: AdminProject }) {
+  const measurement = readAppMeasurement(project.arMetadata)
+  if (!measurement?.panelName) return <span className="text-muted-foreground">—</span>
+  const area = measurement.areaSquareMeters === null ? null : `${measurement.areaSquareMeters.toFixed(2)} m²`
+  return (
+    <span>
+      <span className="block">{measurement.panelName}</span>
+      <span className="block text-xs text-muted-foreground">{[measurement.finalQuantity === null ? null : `${measurement.finalQuantity} panels`, area].filter(Boolean).join(" · ")}</span>
+    </span>
+  )
+}
+
+/** The measurement and panel estimate saved in the mobile app, for the moderator who follows it up. */
+function AppMeasurement({ project }: { project: AdminProject }) {
+  const measurement = readAppMeasurement(project.arMetadata)
+  if (!measurement) return null
+  const rows: { label: string; value: string | null }[] = [
+    { label: "Surface", value: measurement.surface },
+    { label: "Size", value: formatSize(measurement.widthMeters, measurement.heightMeters) },
+    { label: "Area", value: measurement.areaSquareMeters === null ? null : `${measurement.areaSquareMeters.toFixed(2)} m²` },
+    { label: "Panel", value: measurement.panelName && (measurement.panelSku ? `${measurement.panelName} (${measurement.panelSku})` : measurement.panelName) },
+    { label: "Panel size", value: formatSize(measurement.panelWidthMeters, measurement.panelHeightMeters) },
+    { label: "Panels needed", value: formatPanelCount(measurement) },
+    { label: "Estimated cost", value: measurement.estimatedCost === null ? null : formatMoneyDetail(measurement.estimatedCost) },
+    { label: "Saved in the app", value: measurement.savedAt ? formatDate(measurement.savedAt) : null },
+  ]
+  return (
+    <div>
+      <h3 className="text-xs font-semibold tracking-[0.1em] text-muted-foreground uppercase">Measurement from the app</h3>
+      <dl className="mt-2 grid grid-cols-2 gap-3 surface-card p-3 text-sm">
+        {rows.filter((row) => row.value).map((row) => (
+          <div key={row.label}><dt className="text-xs text-muted-foreground">{row.label}</dt><dd className="mt-1">{row.value}</dd></div>
+        ))}
+      </dl>
+    </div>
   )
 }

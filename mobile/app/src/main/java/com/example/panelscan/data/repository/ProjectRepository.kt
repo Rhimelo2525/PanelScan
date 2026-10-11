@@ -6,7 +6,10 @@ import com.example.panelscan.core.network.ApiException
 import com.example.panelscan.data.local.ProjectDao
 import com.example.panelscan.data.local.ProjectEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
@@ -21,7 +24,8 @@ import java.net.URLEncoder
  * Saved measurement projects. They are kept on the device (so measuring works
  * offline) and, while signed in, also saved to the account on the backend as
  * MOBILE_AR_3D projects (POST /api/projects/mobile), which the website's
- * "My Projects" page and the team see. Like the cart: projects saved while
+ * "My Projects" page and the team see (owner and moderators, on the admin
+ * Projects page). The team's status comes back as [progress]. Like the cart: projects saved while
  * signed out join the account at the next sign-in, and the account's projects
  * leave the device at sign-out.
  */
@@ -34,6 +38,11 @@ class ProjectRepository(
 ) {
     /** App project ids known to be saved on the account. */
     private val syncedIds = mutableSetOf<String>()
+
+    private val _progress = MutableStateFlow<Map<String, ProjectProgress>>(emptyMap())
+
+    /** The team's status per app project id, for projects saved to the account. */
+    val progress: StateFlow<Map<String, ProjectProgress>> = _progress.asStateFlow()
 
     val allProjects: Flow<List<SavedProject>> = combine(projectDao.getAllProjects(), catalog) { entities, panels ->
         entities.map { it.toDomain(panels) }
@@ -64,6 +73,7 @@ class ProjectRepository(
                 if (error.status != 404) return error.message
             }
             synchronized(syncedIds) { syncedIds -= project.id }
+            _progress.update { it - project.id }
         }
         projectDao.deleteProject(project.toEntity())
         return null
@@ -83,6 +93,7 @@ class ProjectRepository(
             syncedIds.clear()
             syncedIds += remoteIds
         }
+        _progress.value = remote.progressById()
         remote.filter { it.externalProjectId != null && it.externalProjectId !in local }
             .mapNotNull { it.toEntity() }
             .forEach { projectDao.insertProject(it) }
@@ -91,8 +102,23 @@ class ProjectRepository(
         return failure
     }
 
+    /** Reloads the team's status for the account's projects (when the Projects screens open); null on success. */
+    suspend fun refreshProgress(): String? {
+        val client = api ?: return null
+        if (!isSignedIn()) return null
+        return try {
+            val remote = client.get<ProjectPage>("/projects?source=MOBILE_AR_3D&limit=$PAGE_SIZE", authenticated = true).projects
+            synchronized(syncedIds) { syncedIds += remote.mapNotNull { it.externalProjectId } }
+            _progress.value = remote.progressById()
+            null
+        } catch (error: ApiException) {
+            error.message
+        }
+    }
+
     /** After signing out: the account's projects leave the device; ones never uploaded stay. */
     suspend fun onSignedOut() {
+        _progress.value = emptyMap()
         val synced = synchronized(syncedIds) { syncedIds.toSet().also { syncedIds.clear() } }
         if (synced.isEmpty()) return
         projectDao.getAllProjects().first().filter { it.id in synced }.forEach { projectDao.deleteProject(it) }
@@ -101,10 +127,12 @@ class ProjectRepository(
     private suspend fun upload(entity: ProjectEntity): String? {
         val client = api ?: return null
         val panel = catalog.value.firstOrNull { it.id == entity.selectedPanelId }
+        // Saved without a price (e.g. measured signed out): the team still sees today's estimate.
+        val cost = entity.estimatedCost ?: panel?.pricePerUnit?.let { it * entity.finalQuantity }
         val body = MobileProjectRequest(
             externalProjectId = entity.id,
             name = entity.name.trim().take(NAME_MAX),
-            budget = entity.estimatedCost?.takeIf { it > 0 },
+            budget = cost?.takeIf { it > 0 },
             arMetadata = metadataJson.encodeToJsonElement(
                 ProjectMetadata(
                     surfaceType = entity.surfaceType,
@@ -119,19 +147,31 @@ class ProjectRepository(
                     baseQuantity = entity.baseQuantity,
                     wastePercent = entity.wastePercent,
                     finalQuantity = entity.finalQuantity,
-                    estimatedCost = entity.estimatedCost,
+                    estimatedCost = cost,
                     savedAt = entity.createdAt
                 )
             ).jsonObject
         )
         return try {
-            client.post<MobileProjectRequest, ProjectResponse>("/projects/mobile", body, authenticated = true)
+            val saved = client.post<MobileProjectRequest, ProjectResponse>("/projects/mobile", body, authenticated = true).project
             synchronized(syncedIds) { syncedIds += entity.id }
+            _progress.update { it + (entity.id to saved.toProgress()) }
             null
         } catch (error: ApiException) {
             error.message
         }
     }
+
+    private fun List<ApiProject>.progressById(): Map<String, ProjectProgress> =
+        mapNotNull { project -> project.externalProjectId?.let { it to project.toProgress() } }.toMap()
+
+    private fun ApiProject.toProgress() = ProjectProgress(
+        backendId = id,
+        status = runCatching { ProjectTeamStatus.valueOf(status) }.getOrDefault(ProjectTeamStatus.PENDING),
+        assigned = moderatorId != null,
+        startDate = startDate,
+        endDate = endDate
+    )
 
     /** A project saved from another device; null when its measurement can't be read. */
     private fun ApiProject.toEntity(): ProjectEntity? {
@@ -187,7 +227,11 @@ class ProjectRepository(
         val name: String,
         val externalProjectId: String? = null,
         val arMetadata: JsonObject? = null,
-        val createdAt: String
+        val createdAt: String,
+        val status: String = "PENDING",
+        val moderatorId: String? = null,
+        val startDate: String? = null,
+        val endDate: String? = null
     )
 
     @Serializable

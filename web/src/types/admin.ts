@@ -210,6 +210,8 @@ export interface ProjectPerson {
   firstName: string
   lastName: string
   email: string
+  /** Sent for the customer only. */
+  phone?: string | null
 }
 
 export type ProjectSource = "MANUAL" | "MOBILE_AR_3D"

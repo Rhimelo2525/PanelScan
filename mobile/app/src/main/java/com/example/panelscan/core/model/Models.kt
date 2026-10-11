@@ -59,6 +59,29 @@ data class Estimation(
 }
 
 @Serializable
+/** Where the PanelScan team is with a project saved to the account (the backend's project status). */
+enum class ProjectTeamStatus(val label: String) {
+    PENDING("Pending review"),
+    IN_PROGRESS("In progress"),
+    COMPLETED("Completed"),
+    CANCELLED("Cancelled")
+}
+
+/** The team's side of a project saved to the account, as the owner and moderators see it on the website. */
+data class ProjectProgress(
+    /** The project's id on the backend (notifications refer to it). */
+    val backendId: String,
+    val status: ProjectTeamStatus,
+    /** A moderator has been assigned to follow it up. */
+    val assigned: Boolean,
+    /** Planned start and target end (ISO), once the team has scheduled it. */
+    val startDate: String? = null,
+    val endDate: String? = null
+) {
+    /** The backend lets the customer delete it only before the team takes it on. */
+    val deletable: Boolean get() = status == ProjectTeamStatus.PENDING && !assigned
+}
+
 data class SavedProject(
     val id: String,
     val name: String,
