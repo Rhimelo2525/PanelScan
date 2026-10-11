@@ -148,7 +148,7 @@ fun PanelScanNavHost(
     )
 
     val sessionState by sessionManager.sessionState.collectAsState()
-    val notifications by notificationRepository.notifications.collectAsState()
+    val unreadNotifications by notificationRepository.unreadCount.collectAsState()
     val pricesVisible = PriceVisibility.isPriceVisible(sessionState)
 
     // The catalogue comes from the backend; prices are included only when signed in,
@@ -268,7 +268,7 @@ fun PanelScanNavHost(
                     onOpenFeedback = { navController.navigate(Screen.Feedback.navigationRoute) },
                     onOpenAbout = { navController.navigate(Screen.About.route) },
                     onOpenNotifications = { navController.navigate(Screen.Notifications.route) },
-                    unreadNotifications = notifications.count { !it.read },
+                    unreadNotifications = unreadNotifications,
                     bottomPadding = contentBottomPadding
                 )
             }
