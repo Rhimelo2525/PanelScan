@@ -1,4 +1,5 @@
 import { apiRequest } from "@/api/client"
+import { getProductById } from "@/api/products"
 import type { CustomerMeasurementProject, CustomerProjectResultSet, CustomerProjectStatus } from "@/types/customer-project"
 import type { AdminProject, Pagination } from "@/types/admin"
 
@@ -51,7 +52,7 @@ export async function listCustomerProjectResults(signal?: AbortSignal): Promise<
     })
 
     return {
-      projects: data.projects.map(toCustomerProject),
+      projects: await withPanelCostFallback(data.projects.map(toCustomerProject), signal),
       source: "API",
       notice: "",
     }
@@ -62,4 +63,33 @@ export async function listCustomerProjectResults(signal?: AbortSignal): Promise<
       notice: "",
     }
   }
+}
+
+/**
+ * Projects saved by older app builds carry no estimated cost. Like the app,
+ * fall back to the panel's current price × the panel quantity. A panel that
+ * can no longer be loaded (deleted, no price) simply stays "Not estimated".
+ */
+async function withPanelCostFallback(projects: CustomerMeasurementProject[], signal?: AbortSignal): Promise<CustomerMeasurementProject[]> {
+  const panelIds = [...new Set(projects
+    .filter((p) => p.estimatedMaterialCost === null && p.requiredPanelQuantity !== null && p.selectedPanel)
+    .map((p) => p.selectedPanel!.id))]
+  if (panelIds.length === 0) return projects
+
+  const prices = new Map<string, number>()
+  await Promise.all(panelIds.map(async (id) => {
+    try {
+      const price = Number((await getProductById(id, signal))?.price)
+      if (Number.isFinite(price) && price > 0) prices.set(id, price)
+    } catch {
+      // Leave this panel's projects unestimated.
+    }
+  }))
+
+  return projects.map((p) => {
+    const price = p.selectedPanel ? prices.get(p.selectedPanel.id) : undefined
+    return p.estimatedMaterialCost === null && p.requiredPanelQuantity !== null && price !== undefined
+      ? { ...p, estimatedMaterialCost: price * p.requiredPanelQuantity }
+      : p
+  })
 }
