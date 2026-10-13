@@ -52,7 +52,7 @@ export async function listCustomerProjectResults(signal?: AbortSignal): Promise<
     })
 
     return {
-      projects: await withPanelCostFallback(data.projects.map(toCustomerProject), signal),
+      projects: await withPanelDetails(data.projects.map(toCustomerProject), signal),
       source: "API",
       notice: "",
     }
@@ -66,30 +66,32 @@ export async function listCustomerProjectResults(signal?: AbortSignal): Promise<
 }
 
 /**
- * Projects saved by older app builds carry no estimated cost. Like the app,
- * fall back to the panel's current price × the panel quantity. A panel that
- * can no longer be loaded (deleted, no price) simply stays "Not estimated".
+ * Adds what the app shows from the selected panel's product: its photo as
+ * the project thumbnail and, for projects saved by older app builds without
+ * an estimated cost, the panel's current price × the panel quantity. A panel
+ * that can no longer be loaded keeps the icon and stays "Not estimated".
  */
-async function withPanelCostFallback(projects: CustomerMeasurementProject[], signal?: AbortSignal): Promise<CustomerMeasurementProject[]> {
-  const panelIds = [...new Set(projects
-    .filter((p) => p.estimatedMaterialCost === null && p.requiredPanelQuantity !== null && p.selectedPanel)
-    .map((p) => p.selectedPanel!.id))]
+async function withPanelDetails(projects: CustomerMeasurementProject[], signal?: AbortSignal): Promise<CustomerMeasurementProject[]> {
+  const panelIds = [...new Set(projects.flatMap((p) => (p.selectedPanel ? [p.selectedPanel.id] : [])))]
   if (panelIds.length === 0) return projects
 
-  const prices = new Map<string, number>()
+  const panels = new Map<string, { price: number | null; imageUrl: string | null }>()
   await Promise.all(panelIds.map(async (id) => {
     try {
-      const price = Number((await getProductById(id, signal))?.price)
-      if (Number.isFinite(price) && price > 0) prices.set(id, price)
+      const product = await getProductById(id, signal)
+      if (!product) return
+      const price = Number(product.price)
+      const image = product.images.find((img) => img.isPrimary) ?? product.images[0]
+      panels.set(id, { price: Number.isFinite(price) && price > 0 ? price : null, imageUrl: image?.url ?? null })
     } catch {
-      // Leave this panel's projects unestimated.
+      // Leave this panel's projects as saved.
     }
   }))
 
   return projects.map((p) => {
-    const price = p.selectedPanel ? prices.get(p.selectedPanel.id) : undefined
-    return p.estimatedMaterialCost === null && p.requiredPanelQuantity !== null && price !== undefined
-      ? { ...p, estimatedMaterialCost: price * p.requiredPanelQuantity }
-      : p
+    const panel = p.selectedPanel ? panels.get(p.selectedPanel.id) : undefined
+    if (!panel) return p
+    const cost = p.estimatedMaterialCost ?? (p.requiredPanelQuantity !== null && panel.price !== null ? panel.price * p.requiredPanelQuantity : null)
+    return { ...p, estimatedMaterialCost: cost, previewImageUrl: p.previewImageUrl ?? panel.imageUrl }
   })
 }

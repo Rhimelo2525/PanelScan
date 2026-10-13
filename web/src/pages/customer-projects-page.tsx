@@ -80,9 +80,7 @@ function ProjectListCard({ project }: { project: CustomerMeasurementProject }) {
   return (
     <Link to={`?project=${encodeURIComponent(project.id)}`} className="surface-panel group block h-full p-4 transition-colors hover:border-primary/40 hover:bg-secondary/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Open ${project.name}, ${project.projectCode}`}>
       <div className="flex items-center gap-3.5">
-        <div className="relative grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-secondary">
-          {project.previewImageUrl ? <img src={project.previewImageUrl} alt="" className="absolute inset-0 size-full object-cover" /> : <PanelsTopLeft className="size-6 text-muted-foreground" aria-hidden="true" />}
-        </div>
+        <PanelThumbnail url={project.previewImageUrl} className="size-16 rounded-lg" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold">{project.name}</h2>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">{project.selectedPanel?.name ?? "No panel selected"}</p>
@@ -108,46 +106,54 @@ function ProjectResultCard({ project }: { project: CustomerMeasurementProject })
   const panel = project.selectedPanel
   const cost = project.estimatedMaterialCost
   return (
-    <article className="surface-panel mx-auto max-w-4xl p-5 sm:p-7">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-4">
-          <div className="relative grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg bg-secondary">
-            {project.previewImageUrl ? <img src={project.previewImageUrl} alt="" className="absolute inset-0 size-full object-cover" /> : <PanelsTopLeft className="size-6 text-muted-foreground" aria-hidden="true" />}
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2"><StatusBadge status={project.status} /><span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium"><Smartphone className="size-3" aria-hidden="true" />Measured with Mobile AR</span></div>
-            <h2 className="mt-2.5 text-2xl font-semibold tracking-[-0.035em]">{project.name}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{project.roomName} · {project.surfaceType === "WALL" ? "Wall surface" : "Ceiling surface"}</p>
-          </div>
+    <article className="surface-panel mx-auto max-w-4xl overflow-hidden">
+      {/* The selected panel's photo, large across the top, as in the app. */}
+      <div className="relative">
+        <PanelThumbnail url={project.previewImageUrl} className="aspect-[16/9] w-full sm:aspect-[21/9]" iconClassName="size-12" />
+        <div className="absolute top-4 left-4 flex flex-wrap gap-2">
+          <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground shadow-sm">{project.surfaceType === "WALL" ? "Wall" : "Ceiling"}</span>
+          {project.requiredPanelQuantity !== null && <span className="rounded-full bg-background/90 px-2.5 py-1 text-xs font-semibold shadow-sm backdrop-blur">{project.requiredPanelQuantity} {project.requiredPanelQuantity === 1 ? "panel" : "panels"}</span>}
         </div>
-        <div className="flex flex-col items-start gap-2 sm:items-end">
-          <ProjectCode code={project.projectCode} />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" aria-hidden="true" />Saved {date.format(new Date(project.measuredAt))}</div>
-        </div>
-      </header>
-
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MeasurementStat icon={Ruler} label="Width" value={`${project.widthMeters.toFixed(2)} m`} />
-        <MeasurementStat icon={Ruler} label="Height" value={`${project.heightMeters.toFixed(2)} m`} />
-        <MeasurementStat icon={Maximize2} label="Area" value={`${project.areaSquareMeters.toFixed(2)} m²`} />
-        <MeasurementStat icon={Calculator} label="Panels needed" value={project.requiredPanelQuantity === null ? "—" : String(project.requiredPanelQuantity)} />
       </div>
 
-      <section className="mt-4 rounded-lg border border-border bg-secondary/35 p-5" aria-labelledby={`estimate-${project.id}`}>
-        <div className="flex items-center gap-2"><Calculator className="size-4 text-primary" aria-hidden="true" /><h3 id={`estimate-${project.id}`} className="font-semibold">Estimation summary</h3></div>
-        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-muted-foreground">Selected PVC panel</dt>
-            <dd className="mt-1 font-medium">{panel?.name ?? "Not selected"}</dd>
-            {panel?.sku && <dd className="mt-0.5 font-mono text-xs text-muted-foreground">{panel.sku}</dd>}
+      <div className="p-5 sm:p-7">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2"><StatusBadge status={project.status} /><span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium"><Smartphone className="size-3" aria-hidden="true" />Measured with Mobile AR</span></div>
+              <h2 className="mt-2.5 text-2xl font-semibold tracking-[-0.035em]">{project.name}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{project.roomName} · {project.surfaceType === "WALL" ? "Wall surface" : "Ceiling surface"}</p>
+            </div>
           </div>
-          <div className="sm:text-right">
-            <dt className="text-xs text-muted-foreground">Estimated material cost</dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-[-0.02em] tabular-nums">{cost === null ? "Not estimated" : formatPesos(cost, true)}</dd>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <ProjectCode code={project.projectCode} />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" aria-hidden="true" />Saved {date.format(new Date(project.measuredAt))}</div>
           </div>
-        </dl>
-        <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">{project.estimationSummary} Estimates are for planning; confirm with PanelScan before ordering.</p>
-      </section>
+        </header>
+
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MeasurementStat icon={Ruler} label="Width" value={`${project.widthMeters.toFixed(2)} m`} />
+          <MeasurementStat icon={Ruler} label="Height" value={`${project.heightMeters.toFixed(2)} m`} />
+          <MeasurementStat icon={Maximize2} label="Area" value={`${project.areaSquareMeters.toFixed(2)} m²`} />
+          <MeasurementStat icon={Calculator} label="Panels needed" value={project.requiredPanelQuantity === null ? "—" : String(project.requiredPanelQuantity)} />
+        </div>
+
+        <section className="mt-4 rounded-lg border border-border bg-secondary/35 p-5" aria-labelledby={`estimate-${project.id}`}>
+          <div className="flex items-center gap-2"><Calculator className="size-4 text-primary" aria-hidden="true" /><h3 id={`estimate-${project.id}`} className="font-semibold">Estimation summary</h3></div>
+          <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-muted-foreground">Selected PVC panel</dt>
+              <dd className="mt-1 font-medium">{panel?.name ?? "Not selected"}</dd>
+              {panel?.sku && <dd className="mt-0.5 font-mono text-xs text-muted-foreground">{panel.sku}</dd>}
+            </div>
+            <div className="sm:text-right">
+              <dt className="text-xs text-muted-foreground">Estimated material cost</dt>
+              <dd className="mt-1 text-2xl font-semibold tracking-[-0.02em] tabular-nums">{cost === null ? "Not estimated" : formatPesos(cost, true)}</dd>
+            </div>
+          </dl>
+          <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">{project.estimationSummary} Estimates are for planning; confirm with PanelScan before ordering.</p>
+        </section>
+      </div>
     </article>
   )
 }
@@ -178,5 +184,15 @@ function ProjectCode({ code }: { code: string }) {
     <button type="button" onClick={() => void copy()} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-xs font-semibold tracking-wide hover:bg-secondary/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Copy project code ${code}`} title="Copy project code">
       {code}<Copy className="size-3 text-muted-foreground" aria-hidden="true" />
     </button>
+  )
+}
+
+/** The selected panel's photo, or the panel icon when there is none or it fails to load. */
+function PanelThumbnail({ url, className, iconClassName = "size-6" }: { url: string | null; className: string; iconClassName?: string }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <div className={`relative grid shrink-0 place-items-center overflow-hidden bg-secondary ${className}`}>
+      {url && !failed ? <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} className="absolute inset-0 size-full object-cover" /> : <PanelsTopLeft className={`${iconClassName} text-muted-foreground`} aria-hidden="true" />}
+    </div>
   )
 }
