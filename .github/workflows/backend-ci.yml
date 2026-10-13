@@ -23,7 +23,9 @@ concurrency:
 jobs:
   backend:
     name: Build, typecheck, and test the backend
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest) so the runner image only changes when this file
+    # does - which also avoids GitHub's "ubuntu-latest will migrate" notice.
+    runs-on: ubuntu-24.04
 
     # backend/package.json declares engines.node: "24.x" (matching Vercel and modern
     # Node runtimes) - align CI with the engine declaration and avoid runner deprecation.
@@ -35,13 +37,13 @@ jobs:
         working-directory: backend
 
     steps:
-      # 1. Checkout repository
+      # 1. Checkout repository (v5 actions run on Node 24, not the deprecated Node 20)
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 2. Set up Node.js using the repository's actual supported Node version
       - name: Set up Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
