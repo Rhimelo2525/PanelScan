@@ -38,7 +38,10 @@ export function MessagesPage() {
   const [draft, setDraft] = useState("")
   const [isSending, setIsSending] = useState(false)
   const [threadKey, setThreadKey] = useState(0)
-  const threadEndRef = useRef<HTMLDivElement>(null)
+  // The thread scrolls inside its panel; it follows new messages only while
+  // the customer is already at the bottom, so reading older ones isn't interrupted.
+  const threadRef = useRef<HTMLDivElement>(null)
+  const wasAtBottomRef = useRef(true)
   // Guards against a second send before the first finishes (e.g. Enter pressed twice quickly).
   const sendingRef = useRef(false)
 
@@ -68,7 +71,10 @@ export function MessagesPage() {
     return () => controller.abort()
   }, [conversationId, threadKey])
 
-  useEffect(() => { threadEndRef.current?.scrollIntoView({ block: "nearest" }) }, [messages])
+  useEffect(() => {
+    const thread = threadRef.current
+    if (thread && wasAtBottomRef.current) thread.scrollTop = thread.scrollHeight
+  }, [messages])
 
   // A moderator's reply should appear without a manual refresh. Only a
   // successful response is applied - a transient failure leaves the thread
@@ -93,6 +99,7 @@ export function MessagesPage() {
       const id = conversationId ?? (await createConversation()).id
       await postMessage(id, content)
       setDraft("")
+      wasAtBottomRef.current = true
       if (conversationId) setThreadKey((value) => value + 1)
       else setConversationId(id)
     } catch {
@@ -119,7 +126,7 @@ export function MessagesPage() {
       ) : isLoading ? (
         <Skeleton className="mt-10 h-96 w-full" />
       ) : (
-        <section className="mt-10 flex min-h-[30rem] flex-col surface-card motion-swap" aria-label="Conversation">
+        <section className="mt-10 flex h-[calc(100dvh-12rem)] min-h-[28rem] max-h-[52rem] flex-col surface-card motion-swap" aria-label="Conversation">
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
             <h2 className="truncate text-sm font-semibold">PanelScan Support</h2>
             {conversationId && (
@@ -129,7 +136,7 @@ export function MessagesPage() {
             )}
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
+          <div ref={threadRef} onScroll={(event) => { const thread = event.currentTarget; wasAtBottomRef.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80 }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4" aria-live="polite">
             {isLoadingThread && messages.length === 0 ? <Skeleton className="h-32 w-full" /> : messages.length === 0 ? (
               <p className="py-12 text-center text-sm text-muted-foreground">No messages yet. Send the first one below and the team will reply here.</p>
             ) : (
@@ -144,7 +151,6 @@ export function MessagesPage() {
                 )
               })
             )}
-            <div ref={threadEndRef} />
           </div>
 
           <div className="border-t border-border p-3">
