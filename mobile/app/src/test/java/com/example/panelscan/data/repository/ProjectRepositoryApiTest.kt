@@ -3,7 +3,6 @@ package com.example.panelscan.data.repository
 import com.example.panelscan.core.model.Estimation
 import com.example.panelscan.core.model.MeasurementResult
 import com.example.panelscan.core.model.PVCPanel
-import com.example.panelscan.core.model.ProjectTeamStatus
 import com.example.panelscan.core.model.SavedProject
 import com.example.panelscan.core.model.SurfaceType
 import com.example.panelscan.core.network.ApiClient
@@ -105,25 +104,27 @@ class ProjectRepositoryApiTest {
     }
 
     @Test
-    fun `the team's status comes back from the account, and signing out forgets it`() = runBlocking {
-        val inProgress = remoteProject("app-2")
-            .replace("\"status\":\"PENDING\"", "\"status\":\"IN_PROGRESS\",\"moderatorId\":\"mod-1\",\"startDate\":\"2026-10-20T00:00:00.000Z\"")
-        val repo = repository { method, _, _ -> if (method == "GET") """{"projects":[$inProgress]}""" else savedResponse }
+    fun `each project on the account gets its reference code, and signing out forgets them`() = runBlocking {
+        val withCode = remoteProject("app-2").replace("\"status\":\"PENDING\"", "\"status\":\"PENDING\",\"projectCode\":\"PRJ-2026-1A2B3C4D\"")
+        val repo = repository { method, _, _ -> if (method == "GET") """{"projects":[$withCode]}""" else savedResponse }
 
+        // Without a code from the backend it is worked out the same way: Manila year + id prefix.
         repo.saveProject(project())
-        assertEquals(ProjectTeamStatus.PENDING, repo.progress.value.getValue("app-1").status)
-        assertTrue(repo.progress.value.getValue("app-1").deletable)
+        assertEquals("PRJ-2026-RAPP1", repo.references.value.getValue("app-1").code)
 
-        assertNull(repo.refreshProgress())
-        val progress = repo.progress.value.getValue("app-2")
-        assertEquals(ProjectTeamStatus.IN_PROGRESS, progress.status)
-        assertEquals("r-app-2", progress.backendId)
-        assertTrue(progress.assigned)
-        assertEquals("2026-10-20T00:00:00.000Z", progress.startDate)
-        assertTrue(!progress.deletable)
+        assertNull(repo.refreshReferences())
+        val reference = repo.references.value.getValue("app-2")
+        assertEquals("PRJ-2026-1A2B3C4D", reference.code)
+        assertEquals("r-app-2", reference.backendId)
 
         repo.onSignedOut()
-        assertTrue(repo.progress.value.isEmpty())
+        assertTrue(repo.references.value.isEmpty())
+    }
+
+    @Test
+    fun `codes use the year in Philippine time and the id's first 8 hex digits`() {
+        val newYearsEveUtc = parseIsoMillis("2026-12-31T17:00:00.000Z")!!
+        assertEquals("PRJ-2027-1A2B3C4D", projectCodeFor("1a2b3c4d-5e6f-4a1b-8c2d-0123456789ab", newYearsEveUtc))
     }
 
     @Test

@@ -6,22 +6,21 @@ import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { projectController } from './project.controller';
 import {
-  assignProjectSchema,
-  createProjectSchema,
   idParamsSchema,
+  listProjectCustomersSchema,
   listProjectsSchema,
   mobileProjectParamsSchema,
   mobileProjectSchema,
-  updateProjectSchema,
-  updateProjectStatusSchema,
 } from './project.validation';
 
 const router = Router();
 
 router.use(authenticate);
 
-// POST /api/projects - OWNER only.
-router.post('/', restrictTo(UserRole.OWNER), validate(createProjectSchema), projectController.create);
+// Customer projects are created and deleted by the customer only (from the
+// mobile app). The owner and moderators have view-only access: there is no
+// staff route that creates, edits, assigns, changes the status of, or
+// deletes a project.
 
 // POST /api/projects/mobile - CUSTOMER saves a project from the mobile app (MOBILE_AR_3D),
 // keyed by the app's project id so saving it again updates the same project.
@@ -36,27 +35,20 @@ router.delete(
   projectController.removeMobile,
 );
 
-// GET /api/projects - OWNER: every project. MODERATOR: assigned only. CUSTOMER: own only.
-router.get('/', validate(listProjectsSchema), projectController.getAll);
-
-// GET /api/projects/:id - ownership/assignment-checked for CUSTOMER/MODERATOR (404 otherwise). OWNER: any.
-router.get('/:id', validate(idParamsSchema), projectController.getById);
-
-// PATCH /api/projects/:id - OWNER: any field. MODERATOR: schedule/notes only on their assigned project.
-router.patch('/:id', restrictTo(UserRole.OWNER, UserRole.MODERATOR), validate(updateProjectSchema), projectController.update);
-
-// PATCH /api/projects/:id/status - OWNER: any project. MODERATOR: their assigned project only.
-router.patch(
-  '/:id/status',
+// GET /api/projects/customers - OWNER/MODERATOR: customers who have projects, with counts.
+// Registered before /:id so "customers" is never read as a project id.
+router.get(
+  '/customers',
   restrictTo(UserRole.OWNER, UserRole.MODERATOR),
-  validate(updateProjectStatusSchema),
-  projectController.updateStatus,
+  validate(listProjectCustomersSchema),
+  projectController.getCustomers,
 );
 
-// PATCH /api/projects/:id/assign - OWNER only ("Cannot reassign projects" is explicitly listed under MODERATOR's restrictions).
-router.patch('/:id/assign', restrictTo(UserRole.OWNER), validate(assignProjectSchema), projectController.assign);
+// GET /api/projects - OWNER/MODERATOR: every project. CUSTOMER: own only.
+// ?code=PRJ-2026-1A2B3C4D finds a project by its reference code.
+router.get('/', validate(listProjectsSchema), projectController.getAll);
 
-// DELETE /api/projects/:id - OWNER only.
-router.delete('/:id', restrictTo(UserRole.OWNER), validate(idParamsSchema), projectController.remove);
+// GET /api/projects/:id - OWNER/MODERATOR: any. CUSTOMER: own only (404 otherwise).
+router.get('/:id', validate(idParamsSchema), projectController.getById);
 
 export default router;

@@ -8,6 +8,9 @@ export const projectInclude = {
 
 export type ProjectWithRelations = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
 
+/** A project as the API returns it: with its reference code ("PRJ-2026-1A2B3C4D"). */
+export type ProjectView = ProjectWithRelations & { projectCode: string };
+
 export interface PaginationMeta {
   page: number;
   limit: number;
@@ -27,11 +30,36 @@ export interface ProjectFilters {
   dateFrom?: Date;
   dateTo?: Date;
   search?: string;
+  /** A reference code ("PRJ-2026-1A2B3C4D"): the one project it names. */
+  code?: string;
   sortBy?: 'name' | 'createdAt' | 'startDate' | 'endDate';
   sortOrder?: 'asc' | 'desc';
 }
 
 export interface PaginatedProjects {
-  projects: ProjectWithRelations[];
+  projects: ProjectView[];
+  pagination: PaginationMeta;
+}
+
+export interface CustomerFilters {
+  page?: number;
+  limit?: number;
+  source?: ProjectSource;
+  /** Words matched against first name, last name and email. */
+  search?: string;
+}
+
+export interface ProjectCustomer {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  projectCount: number;
+  lastProjectAt: Date | null;
+}
+
+export interface PaginatedProjectCustomers {
+  customers: ProjectCustomer[];
   pagination: PaginationMeta;
 }

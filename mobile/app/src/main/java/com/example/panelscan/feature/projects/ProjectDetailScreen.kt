@@ -49,16 +49,19 @@ import com.example.panelscan.core.ui.formatCurrency
 import com.example.panelscan.core.ui.formatDate
 import com.example.panelscan.core.ui.formatMeters
 import com.example.panelscan.core.ui.label
-import com.example.panelscan.core.ui.badgeTone
-import com.example.panelscan.core.model.ProjectProgress
-import com.example.panelscan.core.model.ProjectTeamStatus
-import com.example.panelscan.data.repository.parseIsoMillis
+import com.example.panelscan.core.model.ProjectReference
+import android.widget.Toast
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 
 @Composable
 fun ProjectDetailScreen(
     project: SavedProject,
-    /** The team's status, for a project saved to the account; null while only on this device. */
-    progress: ProjectProgress?,
+    /** Its reference code, for a project saved to the account; null while only on this device. */
+    reference: ProjectReference?,
     onBack: () -> Unit,
     onOpen3DPreview: () -> Unit,
     onDelete: () -> Unit,
@@ -184,22 +187,14 @@ fun ProjectDetailScreen(
                     }
                 }
 
-                progress?.let { TeamSection(it) }
+                reference?.let { CodeSection(it) }
 
-                if (progress == null || progress.deletable) {
-                    SecondaryButton(
-                        text = "Delete project",
-                        icon = Icons.Rounded.Delete,
-                        destructive = true,
-                        onClick = { confirmDelete = true }
-                    )
-                } else {
-                    Text(
-                        "The PanelScan team is handling this project, so it can no longer be deleted.",
-                        style = PanelScan.type.supporting,
-                        color = colors.textSecondary
-                    )
-                }
+                SecondaryButton(
+                    text = "Delete project",
+                    icon = Icons.Rounded.Delete,
+                    destructive = true,
+                    onClick = { confirmDelete = true }
+                )
             }
 
             Box(
@@ -267,26 +262,34 @@ private fun SectionCard(
     }
 }
 
-/** The team's side: the status the owner or moderator set, and the schedule once there is one. */
+/** The project's reference code, to quote when contacting PanelScan; the team looks the project up by it. */
 @Composable
-private fun TeamSection(progress: ProjectProgress) {
+private fun CodeSection(reference: ProjectReference) {
     val colors = PanelScan.colors
-    SectionCard(title = "PanelScan team") {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    SectionCard(title = "Project code") {
         Column(modifier = Modifier.padding(top = Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            StatusBadge(text = progress.status.label, tone = progress.status.badgeTone())
             Text(
-                when (progress.status) {
-                    ProjectTeamStatus.PENDING -> if (progress.assigned) "A PanelScan team member has been assigned and will get in touch about this project."
-                    else "Saved to your account. The PanelScan team will review it and assign someone to follow it up."
-                    ProjectTeamStatus.IN_PROGRESS -> "The PanelScan team is working on this project."
-                    ProjectTeamStatus.COMPLETED -> "This project is complete."
-                    ProjectTeamStatus.CANCELLED -> "This project was cancelled."
-                },
+                reference.code,
+                style = PanelScan.type.sectionTitle,
+                fontFamily = FontFamily.Monospace,
+                color = colors.textPrimary
+            )
+            Text(
+                "Saved to your account. Share this code with PanelScan when you message about this project.",
                 style = PanelScan.type.supporting,
                 color = colors.textSecondary
             )
-            progress.startDate?.let(::parseIsoMillis)?.let { SpecRow(label = "Start", value = formatDate(it)) }
-            progress.endDate?.let(::parseIsoMillis)?.let { SpecRow(label = "Target end", value = formatDate(it)) }
+            SecondaryButton(
+                text = "Copy code",
+                icon = Icons.Rounded.ContentCopy,
+                fillMaxWidth = false,
+                onClick = {
+                    clipboard.setText(AnnotatedString(reference.code))
+                    Toast.makeText(context, "Project code copied", Toast.LENGTH_SHORT).show()
+                }
+            )
         }
     }
 }

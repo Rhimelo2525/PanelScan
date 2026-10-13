@@ -25,7 +25,8 @@ import java.net.URLEncoder
  * offline) and, while signed in, also saved to the account on the backend as
  * MOBILE_AR_3D projects (POST /api/projects/mobile), which the website's
  * "My Projects" page and the team see (owner and moderators, on the admin
- * Projects page). The team's status comes back as [progress]. Like the cart: projects saved while
+ * Projects page, view-only). Each gets a reference code ([references]) the
+ * customer can quote to the team. Like the cart: projects saved while
  * signed out join the account at the next sign-in, and the account's projects
  * leave the device at sign-out.
  */
@@ -39,10 +40,10 @@ class ProjectRepository(
     /** App project ids known to be saved on the account. */
     private val syncedIds = mutableSetOf<String>()
 
-    private val _progress = MutableStateFlow<Map<String, ProjectProgress>>(emptyMap())
+    private val _references = MutableStateFlow<Map<String, ProjectReference>>(emptyMap())
 
-    /** The team's status per app project id, for projects saved to the account. */
-    val progress: StateFlow<Map<String, ProjectProgress>> = _progress.asStateFlow()
+    /** The account's reference per app project id, for projects saved to the account. */
+    val references: StateFlow<Map<String, ProjectReference>> = _references.asStateFlow()
 
     val allProjects: Flow<List<SavedProject>> = combine(projectDao.getAllProjects(), catalog) { entities, panels ->
         entities.map { it.toDomain(panels) }
@@ -73,7 +74,7 @@ class ProjectRepository(
                 if (error.status != 404) return error.message
             }
             synchronized(syncedIds) { syncedIds -= project.id }
-            _progress.update { it - project.id }
+            _references.update { it - project.id }
         }
         projectDao.deleteProject(project.toEntity())
         return null
@@ -93,7 +94,7 @@ class ProjectRepository(
             syncedIds.clear()
             syncedIds += remoteIds
         }
-        _progress.value = remote.progressById()
+        _references.value = remote.referencesById()
         remote.filter { it.externalProjectId != null && it.externalProjectId !in local }
             .mapNotNull { it.toEntity() }
             .forEach { projectDao.insertProject(it) }
@@ -102,14 +103,14 @@ class ProjectRepository(
         return failure
     }
 
-    /** Reloads the team's status for the account's projects (when the Projects screens open); null on success. */
-    suspend fun refreshProgress(): String? {
+    /** Reloads the account's references (when the Projects screens open); null on success. */
+    suspend fun refreshReferences(): String? {
         val client = api ?: return null
         if (!isSignedIn()) return null
         return try {
             val remote = client.get<ProjectPage>("/projects?source=MOBILE_AR_3D&limit=$PAGE_SIZE", authenticated = true).projects
             synchronized(syncedIds) { syncedIds += remote.mapNotNull { it.externalProjectId } }
-            _progress.value = remote.progressById()
+            _references.value = remote.referencesById()
             null
         } catch (error: ApiException) {
             error.message
@@ -118,7 +119,7 @@ class ProjectRepository(
 
     /** After signing out: the account's projects leave the device; ones never uploaded stay. */
     suspend fun onSignedOut() {
-        _progress.value = emptyMap()
+        _references.value = emptyMap()
         val synced = synchronized(syncedIds) { syncedIds.toSet().also { syncedIds.clear() } }
         if (synced.isEmpty()) return
         projectDao.getAllProjects().first().filter { it.id in synced }.forEach { projectDao.deleteProject(it) }
@@ -155,22 +156,19 @@ class ProjectRepository(
         return try {
             val saved = client.post<MobileProjectRequest, ProjectResponse>("/projects/mobile", body, authenticated = true).project
             synchronized(syncedIds) { syncedIds += entity.id }
-            _progress.update { it + (entity.id to saved.toProgress()) }
+            _references.update { it + (entity.id to saved.toReference()) }
             null
         } catch (error: ApiException) {
             error.message
         }
     }
 
-    private fun List<ApiProject>.progressById(): Map<String, ProjectProgress> =
-        mapNotNull { project -> project.externalProjectId?.let { it to project.toProgress() } }.toMap()
+    private fun List<ApiProject>.referencesById(): Map<String, ProjectReference> =
+        mapNotNull { project -> project.externalProjectId?.let { it to project.toReference() } }.toMap()
 
-    private fun ApiProject.toProgress() = ProjectProgress(
+    private fun ApiProject.toReference() = ProjectReference(
         backendId = id,
-        status = runCatching { ProjectTeamStatus.valueOf(status) }.getOrDefault(ProjectTeamStatus.PENDING),
-        assigned = moderatorId != null,
-        startDate = startDate,
-        endDate = endDate
+        code = projectCode ?: projectCodeFor(id, parseIsoMillis(createdAt) ?: System.currentTimeMillis())
     )
 
     /** A project saved from another device; null when its measurement can't be read. */
@@ -228,10 +226,8 @@ class ProjectRepository(
         val externalProjectId: String? = null,
         val arMetadata: JsonObject? = null,
         val createdAt: String,
-        val status: String = "PENDING",
-        val moderatorId: String? = null,
-        val startDate: String? = null,
-        val endDate: String? = null
+        /** Sent by the backend; worked out here the same way if it isn't. */
+        val projectCode: String? = null
     )
 
     @Serializable
@@ -296,4 +292,16 @@ private fun SavedProject.toEntity(): ProjectEntity {
         estimatedCost = estimation.estimatedCost,
         createdAt = createdAt
     )
+}
+
+/**
+ * A project's reference code, as the backend makes it (project.code.ts): the
+ * year it was saved in Philippine time and the first 8 hex digits of its id,
+ * e.g. "PRJ-2026-1A2B3C4D".
+ */
+internal fun projectCodeFor(backendId: String, createdAtMillis: Long): String {
+    val year = java.util.Calendar.getInstance(com.example.panelscan.core.util.ManilaTime.ZONE)
+        .apply { timeInMillis = createdAtMillis }
+        .get(java.util.Calendar.YEAR)
+    return "PRJ-$year-${backendId.replace("-", "").take(8).uppercase()}"
 }

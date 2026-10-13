@@ -1,6 +1,7 @@
-import { ArrowLeft, Box, CalendarDays, Calculator, Maximize2, PanelsTopLeft, Ruler, Smartphone, Sparkles } from "lucide-react"
+import { ArrowLeft, Box, CalendarDays, Calculator, Copy, Maximize2, PanelsTopLeft, Ruler, Smartphone, Sparkles } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
+import { toast } from "sonner"
 
 import { StatusBadge } from "@/components/admin/status-badge"
 import { Container } from "@/components/layout/container"
@@ -68,7 +69,10 @@ function ProjectResultCard({ project }: { project: CustomerMeasurementProject })
         <div className="p-5 sm:p-7 lg:p-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div><div className="flex flex-wrap items-center gap-2"><StatusBadge status={project.status} /><span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium"><Smartphone className="size-3" aria-hidden="true" />Measured with Mobile AR</span></div><h2 className="mt-4 text-2xl font-semibold tracking-[-0.035em]">{project.name}</h2><p className="mt-1.5 text-sm text-muted-foreground">{project.roomName} · {project.surfaceType === "WALL" ? "Wall surface" : "Ceiling surface"}</p></div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" aria-hidden="true" />{date.format(new Date(project.measuredAt))}</div>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" aria-hidden="true" />{date.format(new Date(project.measuredAt))}</div>
+              <ProjectCode code={project.projectCode} />
+            </div>
           </div>
 
           <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -106,4 +110,21 @@ function ProjectListSkeleton() {
 
 function ProjectEmptyState() {
   return <section className="rounded-xl border border-dashed border-border bg-card px-6 py-16 text-center"><Smartphone className="mx-auto size-8 text-muted-foreground" aria-hidden="true" /><h2 className="mt-4 text-xl font-semibold">No measurement projects yet</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">When the PanelScan mobile app becomes available, use it to measure a wall or ceiling and save the project. Synced measurements, estimates, and compatible previews will appear here.</p></section>
+}
+
+/** The project's reference code, to quote when contacting PanelScan about it. */
+function ProjectCode({ code }: { code: string }) {
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(code)
+      toast.success("Project code copied", { description: "Share it with PanelScan when you ask about this project." })
+    } catch {
+      toast.error("The code could not be copied", { description: code })
+    }
+  }
+  return (
+    <button type="button" onClick={() => void copy()} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary px-2 py-1 font-mono text-xs font-semibold tracking-wide hover:bg-secondary/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Copy project code ${code}`} title="Copy project code">
+      {code}<Copy className="size-3 text-muted-foreground" aria-hidden="true" />
+    </button>
+  )
 }

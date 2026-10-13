@@ -1,31 +1,22 @@
 import { NotificationType, Prisma, ProjectSource, ProjectStatus, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
-import { createNotification } from '../notifications/notification.service';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { parseProjectCode, projectCodeFor } from './project.code';
 import { projectInclude } from './project.types';
-import type { PaginatedProjects, ProjectFilters, ProjectWithRelations } from './project.types';
-import type { AssignProjectInput, CreateProjectInput, MobileProjectInput, UpdateProjectInput } from './project.validation';
+import type {
+  CustomerFilters,
+  PaginatedProjectCustomers,
+  PaginatedProjects,
+  ProjectFilters,
+  ProjectView,
+  ProjectWithRelations,
+} from './project.types';
+import type { MobileProjectInput } from './project.validation';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
-
-/**
- * PENDING -> IN_PROGRESS -> COMPLETED, with CANCELLED reachable from either
- * non-terminal state. COMPLETED and CANCELLED are both terminal - matches
- * this module's explicit "COMPLETED -> PENDING/IN_PROGRESS" and
- * "CANCELLED -> IN_PROGRESS" rejected-transition list.
- */
-const ALLOWED_STATUS_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
-  [ProjectStatus.PENDING]: [ProjectStatus.IN_PROGRESS, ProjectStatus.CANCELLED],
-  [ProjectStatus.IN_PROGRESS]: [ProjectStatus.COMPLETED, ProjectStatus.CANCELLED],
-  [ProjectStatus.COMPLETED]: [],
-  [ProjectStatus.CANCELLED]: [],
-};
-
-/** MODERATOR may only touch schedule + notes via PATCH /:id - name/description/budget are OWNER-only. */
-const MODERATOR_UPDATABLE_FIELDS: ReadonlySet<keyof UpdateProjectInput> = new Set(['startDate', 'endDate', 'notes']);
 
 const buildOrderBy = (
   sortBy: ProjectFilters['sortBy'],
@@ -38,67 +29,33 @@ const buildOrderBy = (
   return { createdAt: direction };
 };
 
+/** Every project the API returns carries its reference code. */
+const withCode = (project: ProjectWithRelations): ProjectView => ({ ...project, projectCode: projectCodeFor(project) });
+
+/** Each word must match the customer's first name, last name or email ("Justin Ablog" finds Justin Andre Ablog). */
+const customerSearch = (search: string | undefined): Prisma.UserWhereInput => {
+  const words = search?.trim().split(/\s+/).filter(Boolean) ?? [];
+  if (words.length === 0) return {};
+  return {
+    AND: words.map((word) => ({
+      OR: [
+        { firstName: { contains: word, mode: 'insensitive' } },
+        { lastName: { contains: word, mode: 'insensitive' } },
+        { email: { contains: word, mode: 'insensitive' } },
+      ],
+    })),
+  };
+};
+
+/**
+ * Customer projects. Customers create them (from the mobile app) and may
+ * delete their own; the owner and moderators can only view them - there is
+ * deliberately no staff write path in this module.
+ */
 export class ProjectService {
-  async createProject(requesterId: string, requesterRole: UserRole, input: CreateProjectInput): Promise<ProjectWithRelations> {
-    const customerId = requesterRole === UserRole.CUSTOMER ? requesterId : (input.customerId ?? requesterId);
-    const ownerId = requesterRole === UserRole.OWNER ? requesterId : null;
-
-    await this.assertCustomer(customerId);
-    if (input.moderatorId) {
-      await this.assertActiveModerator(input.moderatorId);
-    }
-
-    const project = await prisma.project.create({
-      data: {
-        customerId,
-        ownerId,
-        moderatorId: input.moderatorId,
-        name: input.name,
-        description: input.description,
-        notes: input.notes,
-        budget: input.budget,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        status: ProjectStatus.PENDING,
-        source: input.source ?? ProjectSource.MANUAL,
-        externalProjectId: input.externalProjectId,
-        arDataUrl: input.arDataUrl,
-        arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
-        threeDModelUrl: input.threeDModelUrl,
-        threeDMetadata: input.threeDMetadata ? (input.threeDMetadata as Prisma.InputJsonValue) : undefined,
-      },
-      include: projectInclude,
-    });
-
-    await createNotification({
-      userId: customerId,
-      type: NotificationType.SYSTEM,
-      title: 'Project created',
-      message: `Your project "${project.name}" has been created.`,
-      metadata: { projectId: project.id, event: 'PROJECT_CREATED', status: project.status },
-    });
-
-    if (input.moderatorId) {
-      await createNotification({
-        userId: input.moderatorId,
-        type: NotificationType.SYSTEM,
-        title: 'Moderator assigned',
-        message: `You have been assigned to project "${project.name}".`,
-        metadata: { projectId: project.id, event: 'MODERATOR_ASSIGNED' },
-      });
-    }
-
-    return project;
-  }
-
-  /** OWNER: every project. */
+  /** OWNER and MODERATOR: every project, view-only. */
   async getAllProjects(filters: ProjectFilters): Promise<PaginatedProjects> {
     return this.listProjects(filters);
-  }
-
-  /** MODERATOR: assigned projects only. */
-  async getAssignedProjects(moderatorId: string, filters: ProjectFilters): Promise<PaginatedProjects> {
-    return this.listProjects({ ...filters, moderatorId });
   }
 
   /** CUSTOMER: own projects only. */
@@ -106,9 +63,52 @@ export class ProjectService {
     return this.listProjects({ ...filters, customerId });
   }
 
+  /**
+   * OWNER and MODERATOR: the customers who have projects, most recently
+   * active first, with how many projects each has - the Projects page's
+   * first level, before opening one customer's projects.
+   */
+  async listProjectCustomers(filters: CustomerFilters): Promise<PaginatedProjectCustomers> {
+    const page = filters.page ?? DEFAULT_PAGE;
+    const limit = filters.limit ?? DEFAULT_LIMIT;
+    const where: Prisma.ProjectWhereInput = {
+      ...(filters.source ? { source: filters.source } : {}),
+      customer: customerSearch(filters.search),
+    };
+
+    const [groups, allGroups] = await Promise.all([
+      prisma.project.groupBy({
+        by: ['customerId'],
+        where,
+        _count: { _all: true },
+        _max: { createdAt: true },
+        orderBy: { _max: { createdAt: 'desc' } },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.project.groupBy({ by: ['customerId'], where }),
+    ]);
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: groups.map((group) => group.customerId) } },
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+    });
+    const byId = new Map(users.map((user) => [user.id, user]));
+
+    const customers = groups.flatMap((group) => {
+      const user = byId.get(group.customerId);
+      return user ? [{ ...user, projectCount: group._count._all, lastProjectAt: group._max.createdAt }] : [];
+    });
+    const total = allGroups.length;
+    return { customers, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  }
+
   private async listProjects(filters: ProjectFilters): Promise<PaginatedProjects> {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_LIMIT;
+
+    // A reference code names one project: its id prefix and the year it was made.
+    const code = filters.code ? parseProjectCode(filters.code) : null;
 
     const where: Prisma.ProjectWhereInput = {
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
@@ -118,14 +118,18 @@ export class ProjectService {
       ...(filters.source ? { source: filters.source } : {}),
       ...(filters.externalProjectId ? { externalProjectId: filters.externalProjectId } : {}),
       ...(filters.search ? { name: { contains: filters.search, mode: 'insensitive' } } : {}),
-      ...(filters.dateFrom || filters.dateTo
-        ? {
-            createdAt: {
-              ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
-              ...(filters.dateTo ? { lte: filters.dateTo } : {}),
-            },
-          }
-        : {}),
+      ...(code ? { id: { gte: code.idFrom, lte: code.idTo } } : {}),
+      AND: [
+        filters.dateFrom || filters.dateTo
+          ? {
+              createdAt: {
+                ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
+                ...(filters.dateTo ? { lte: filters.dateTo } : {}),
+              },
+            }
+          : {},
+        code ? { createdAt: { gte: code.createdFrom, lt: code.createdBefore } } : {},
+      ],
     };
 
     const [projects, total] = await Promise.all([
@@ -139,10 +143,14 @@ export class ProjectService {
       prisma.project.count({ where }),
     ]);
 
-    return { projects, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+    return {
+      projects: projects.map(withCode),
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
   }
 
-  async getProjectById(projectId: string, requesterId: string, requesterRole: UserRole): Promise<ProjectWithRelations> {
+  /** OWNER and MODERATOR: any project. CUSTOMER: their own (404 otherwise, so ids can't be probed). */
+  async getProjectById(projectId: string, requesterId: string, requesterRole: UserRole): Promise<ProjectView> {
     const project = await prisma.project.findUnique({ where: { id: projectId }, include: projectInclude });
     if (!project) {
       throw new AppError('Project not found.', 404);
@@ -150,67 +158,7 @@ export class ProjectService {
     if (requesterRole === UserRole.CUSTOMER && project.customerId !== requesterId) {
       throw new AppError('Project not found.', 404);
     }
-    if (requesterRole === UserRole.MODERATOR && project.moderatorId !== requesterId) {
-      throw new AppError('Project not found.', 404);
-    }
-    return project;
-  }
-
-  /**
-   * OWNER can update every field below. MODERATOR can only touch their own
-   * assigned project (404 otherwise, same ID-enumeration-prevention policy
-   * as everywhere else in this codebase) and only schedule/notes fields -
-   * name/description/budget are rejected with 403 rather than silently
-   * dropped, so a MODERATOR's request never appears to "partially succeed"
-   * without telling them why.
-   */
-  async updateProject(
-    projectId: string,
-    requesterId: string,
-    requesterRole: UserRole,
-    input: UpdateProjectInput,
-  ): Promise<ProjectWithRelations> {
-    const existing = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!existing) {
-      throw new AppError('Project not found.', 404);
-    }
-
-    if (requesterRole === UserRole.MODERATOR) {
-      if (existing.moderatorId !== requesterId) {
-        throw new AppError('Project not found.', 404);
-      }
-      const disallowedFields = (Object.keys(input) as Array<keyof UpdateProjectInput>).filter(
-        (field) => !MODERATOR_UPDATABLE_FIELDS.has(field),
-      );
-      if (disallowedFields.length > 0) {
-        throw new AppError(`You do not have permission to update: ${disallowedFields.join(', ')}.`, 403);
-      }
-    }
-
-    const nextStartDate = input.startDate ?? existing.startDate ?? undefined;
-    const nextEndDate = input.endDate ?? existing.endDate ?? undefined;
-    if (nextStartDate && nextEndDate && nextEndDate < nextStartDate) {
-      throw new AppError('endDate cannot be before startDate.', 400);
-    }
-
-    return prisma.project.update({
-      where: { id: projectId },
-      data: {
-        name: input.name,
-        description: input.description,
-        notes: input.notes,
-        budget: input.budget,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        source: input.source,
-        externalProjectId: input.externalProjectId,
-        arDataUrl: input.arDataUrl,
-        arMetadata: input.arMetadata ? (input.arMetadata as Prisma.InputJsonValue) : undefined,
-        threeDModelUrl: input.threeDModelUrl,
-        threeDMetadata: input.threeDMetadata ? (input.threeDMetadata as Prisma.InputJsonValue) : undefined,
-      },
-      include: projectInclude,
-    });
+    return withCode(project);
   }
 
   /**
@@ -218,7 +166,7 @@ export class ProjectService {
    * estimate) as a MOBILE_AR_3D project. Keyed by the app's project id, so
    * saving the same project again updates it instead of adding another.
    */
-  async syncMobileProject(customerId: string, input: MobileProjectInput): Promise<ProjectWithRelations> {
+  async syncMobileProject(customerId: string, input: MobileProjectInput): Promise<ProjectView> {
     await this.assertCustomer(customerId);
     const data = {
       name: input.name,
@@ -231,28 +179,29 @@ export class ProjectService {
       where: { customerId, source: ProjectSource.MOBILE_AR_3D, externalProjectId: input.externalProjectId },
     });
     if (existing) {
-      return prisma.project.update({ where: { id: existing.id }, data, include: projectInclude });
+      return withCode(await prisma.project.update({ where: { id: existing.id }, data, include: projectInclude }));
     }
 
-    const created = await prisma.project.create({
-      data: {
-        ...data,
-        customerId,
-        status: ProjectStatus.PENDING,
-        source: ProjectSource.MOBILE_AR_3D,
-        externalProjectId: input.externalProjectId,
-      },
-      include: projectInclude,
-    });
+    const created = withCode(
+      await prisma.project.create({
+        data: {
+          ...data,
+          customerId,
+          status: ProjectStatus.PENDING,
+          source: ProjectSource.MOBILE_AR_3D,
+          externalProjectId: input.externalProjectId,
+        },
+        include: projectInclude,
+      }),
+    );
 
-    // A new app project waits for the owner to assign a moderator; saving it again is not news.
+    // Staff can look it up by its code; saving it again is not news.
     const customerName = `${created.customer.firstName} ${created.customer.lastName}`.trim();
     await notifyStaff({
       type: NotificationType.SYSTEM,
       title: 'New project from the mobile app',
-      message: `${customerName} saved "${created.name}" from the PanelScan app. Assign a moderator to follow it up.`,
-      metadata: { projectId: created.id, event: 'MOBILE_PROJECT_CREATED' },
-      roles: [UserRole.OWNER],
+      message: `${customerName} saved "${created.name}" (${created.projectCode}) from the PanelScan app.`,
+      metadata: { projectId: created.id, projectCode: created.projectCode, event: 'MOBILE_PROJECT_CREATED' },
     });
 
     return created;
@@ -275,119 +224,6 @@ export class ProjectService {
     await prisma.project.delete({ where: { id: existing.id } });
   }
 
-  async updateProjectStatus(
-    projectId: string,
-    requesterId: string,
-    requesterRole: UserRole,
-    newStatus: ProjectStatus,
-  ): Promise<ProjectWithRelations> {
-    return prisma.$transaction(async (tx) => {
-      const project = await tx.project.findUnique({ where: { id: projectId } });
-      if (!project) {
-        throw new AppError('Project not found.', 404);
-      }
-      if (requesterRole === UserRole.MODERATOR && project.moderatorId !== requesterId) {
-        throw new AppError('Project not found.', 404);
-      }
-
-      const allowedNext = ALLOWED_STATUS_TRANSITIONS[project.status];
-      if (!allowedNext.includes(newStatus)) {
-        throw new AppError(`Cannot change project status from ${project.status} to ${newStatus}.`, 400);
-      }
-
-      const updated = await tx.project.update({ where: { id: projectId }, data: { status: newStatus }, include: projectInclude });
-
-      const { title, message } = this.describeStatusChange(project.name, newStatus);
-      await createNotification(
-        {
-          userId: project.customerId,
-          type: NotificationType.SYSTEM,
-          title,
-          message,
-          metadata: { projectId: project.id, event: 'PROJECT_STATUS_CHANGED', status: newStatus },
-        },
-        tx,
-      );
-
-      return updated;
-    });
-  }
-
-  private describeStatusChange(projectName: string, status: ProjectStatus): { title: string; message: string } {
-    if (status === ProjectStatus.IN_PROGRESS) {
-      return { title: 'Project started', message: `Your project "${projectName}" is now in progress.` };
-    }
-    if (status === ProjectStatus.COMPLETED) {
-      return { title: 'Project completed', message: `Your project "${projectName}" has been completed.` };
-    }
-    return { title: 'Project cancelled', message: `Your project "${projectName}" has been cancelled.` };
-  }
-
-  /** OWNER-only. Reassigns any combination of customer/moderator/owner in one call. */
-  async assignProject(projectId: string, input: AssignProjectInput): Promise<ProjectWithRelations> {
-    const existing = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!existing) {
-      throw new AppError('Project not found.', 404);
-    }
-
-    if (input.customerId) {
-      await this.assertCustomer(input.customerId);
-    }
-    if (input.moderatorId) {
-      await this.assertActiveModerator(input.moderatorId);
-    }
-    if (input.ownerId) {
-      await this.assertOwner(input.ownerId);
-    }
-
-    const updated = await prisma.project.update({
-      where: { id: projectId },
-      data: {
-        customerId: input.customerId,
-        moderatorId: input.moderatorId,
-        ownerId: input.ownerId,
-      },
-      include: projectInclude,
-    });
-
-    if (input.moderatorId && input.moderatorId !== existing.moderatorId) {
-      await createNotification({
-        userId: input.moderatorId,
-        type: NotificationType.SYSTEM,
-        title: 'Moderator assigned',
-        message: `You have been assigned to project "${updated.name}".`,
-        metadata: { projectId: updated.id, event: 'MODERATOR_ASSIGNED' },
-      });
-    }
-
-    if (input.ownerId && input.ownerId !== existing.ownerId) {
-      await createNotification({
-        userId: input.ownerId,
-        type: NotificationType.SYSTEM,
-        title: 'Owner assigned',
-        message: `You have been assigned as owner of project "${updated.name}".`,
-        metadata: { projectId: updated.id, event: 'OWNER_ASSIGNED' },
-      });
-    }
-
-    return updated;
-  }
-
-  /** OWNER can delete any project; CUSTOMER can delete their own project. */
-  async deleteProject(projectId: string, requesterId: string, requesterRole: UserRole): Promise<void> {
-    const existing = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!existing) {
-      throw new AppError('Project not found.', 404);
-    }
-    if (requesterRole === UserRole.CUSTOMER && existing.customerId !== requesterId) {
-      throw new AppError('Project not found.', 404);
-    }
-    if (requesterRole === UserRole.MODERATOR) {
-      throw new AppError('Moderators cannot delete projects.', 403);
-    }
-    await prisma.project.delete({ where: { id: projectId } });
-  }
-
   private async assertCustomer(customerId: string): Promise<void> {
     const user = await prisma.user.findUnique({ where: { id: customerId } });
     if (!user) {
@@ -395,29 +231,6 @@ export class ProjectService {
     }
     if (user.role !== UserRole.CUSTOMER) {
       throw new AppError('The provided user is not a customer.', 400);
-    }
-  }
-
-  private async assertActiveModerator(moderatorId: string): Promise<void> {
-    const user = await prisma.user.findUnique({ where: { id: moderatorId } });
-    if (!user) {
-      throw new AppError('Moderator not found.', 404);
-    }
-    if (user.role !== UserRole.MODERATOR) {
-      throw new AppError('The provided user is not a moderator.', 400);
-    }
-    if (!user.isActive) {
-      throw new AppError('Cannot assign an inactive moderator.', 400);
-    }
-  }
-
-  private async assertOwner(ownerId: string): Promise<void> {
-    const user = await prisma.user.findUnique({ where: { id: ownerId } });
-    if (!user) {
-      throw new AppError('Owner not found.', 404);
-    }
-    if (user.role !== UserRole.OWNER) {
-      throw new AppError('The provided user is not an owner.', 400);
     }
   }
 }

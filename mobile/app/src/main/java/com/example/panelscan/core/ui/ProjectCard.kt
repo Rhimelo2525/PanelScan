@@ -19,12 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
-import com.example.panelscan.core.model.ProjectProgress
-import com.example.panelscan.core.model.ProjectTeamStatus
+import com.example.panelscan.core.model.ProjectReference
 import com.example.panelscan.core.model.SavedProject
 
 /** Full-width saved project card used on the Projects screen. */
@@ -33,8 +33,8 @@ fun ProjectCard(
     project: SavedProject,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    /** The team's status, for a project saved to the account. */
-    progress: ProjectProgress? = null
+    /** Its reference code, for a project saved to the account. */
+    reference: ProjectReference? = null
 ) {
     val colors = PanelScan.colors
     PanelCard(
@@ -68,7 +68,15 @@ fun ProjectCard(
                         tone = BadgeTone.Accent
                     )
                     StatusBadge(text = "${project.estimation.finalQuantity} panels")
-                    progress?.let { StatusBadge(text = it.status.label, tone = it.status.badgeTone()) }
+                }
+                reference?.let {
+                    Text(
+                        text = it.code,
+                        style = PanelScan.type.label,
+                        fontFamily = FontFamily.Monospace,
+                        color = colors.textSecondary,
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -143,11 +151,4 @@ fun RecentProjectCard(
             )
         }
     }
-}
-
-fun ProjectTeamStatus.badgeTone(): BadgeTone = when (this) {
-    ProjectTeamStatus.PENDING -> BadgeTone.Warning
-    ProjectTeamStatus.IN_PROGRESS -> BadgeTone.Accent
-    ProjectTeamStatus.COMPLETED -> BadgeTone.Success
-    ProjectTeamStatus.CANCELLED -> BadgeTone.Destructive
 }

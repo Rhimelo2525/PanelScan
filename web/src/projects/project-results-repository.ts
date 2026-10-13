@@ -22,6 +22,7 @@ function toCustomerProject(p: AdminProject): CustomerMeasurementProject {
     : null
   return {
     id: p.id,
+    projectCode: p.projectCode,
     name: p.name,
     roomName: p.description ?? "Main Space",
     surfaceType: meta.surfaceType === "CEILING" ? "CEILING" : "WALL",

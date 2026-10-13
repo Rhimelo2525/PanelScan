@@ -216,8 +216,24 @@ export interface ProjectPerson {
 
 export type ProjectSource = "MANUAL" | "MOBILE_AR_3D"
 
+/** A customer who has projects, for the Projects page's customer directory. */
+export interface ProjectCustomer {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  phone: string | null
+  projectCount: number
+  lastProjectAt: string | null
+}
+
+/** "PRJ-2026-1A2B3C4D", in any letter case. */
+export const PROJECT_CODE_PATTERN = /^PRJ-\d{4}-[0-9A-F]{8}$/i
+
 export interface AdminProject {
   id: string
+  /** Reference code the customer can quote, e.g. "PRJ-2026-1A2B3C4D" (derived from the id by the backend). */
+  projectCode: string
   customerId: string
   moderatorId: string | null
   ownerId: string | null

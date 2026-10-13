@@ -12,7 +12,8 @@ Authority: `web/src/admin/admin-preview-capabilities.ts` and the rendered previe
 | View management Products | No | Yes | Yes, read-only |
 | Create/edit products and local images | No | Yes | No |
 | Add/edit/delete inventory and installers | No | Yes | Yes |
-| Update orders and linked projects | No | Yes | Yes |
+| Update orders | No | Yes | Yes |
+| Customer projects (Admin → Projects: customer directory, a customer's projects, project details, find by `PRJ-YYYY-XXXXXXXX` code) | Own projects: create/delete in the mobile app, see their code | View only | View only |
 | Customer support messages | Own sample conversation | Replies/status | No Support workspace |
 | Submit eligible product reviews | Yes | No | No |
 | View public preview rating summaries | Yes | Yes | Yes |

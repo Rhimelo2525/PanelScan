@@ -5,6 +5,8 @@ export type WebPreviewStatus = "AVAILABLE" | "PROCESSING" | "NOT_AVAILABLE"
 
 export interface CustomerMeasurementProject {
   id: string
+  /** Reference code to quote to the PanelScan team, e.g. "PRJ-2026-1A2B3C4D". */
+  projectCode: string
   name: string
   roomName: string
   surfaceType: ProjectSurfaceType

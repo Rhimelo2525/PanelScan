@@ -24,8 +24,8 @@ import type {
   OrdersReport,
   Pagination,
   ProductStats,
+  ProjectCustomer,
   ProjectStats,
-  ProjectStatus,
   SalesReport,
   SalesStats,
 } from "@/types/admin"
@@ -198,7 +198,8 @@ export function adjustStock(productId: string, targetQuantity: number) {
 
 // ----------------------------------------------------------------- projects
 
-export function getProjects(query: AdminListQuery & { moderatorId?: string; customerId?: string; source?: ProjectSource; externalProjectId?: string } = {}, signal?: AbortSignal) {
+/** Customer projects are view-only for staff: the backend has no staff route that changes one. ?code= finds one by its reference code. */
+export function getProjects(query: AdminListQuery & { moderatorId?: string; customerId?: string; source?: ProjectSource; externalProjectId?: string; code?: string } = {}, signal?: AbortSignal) {
   return apiRequest<{ projects: AdminProject[]; pagination: Pagination }>(`/projects${toQuery({ ...query })}`, { authenticated: true, signal })
 }
 
@@ -206,23 +207,9 @@ export function getProjectById(id: string, signal?: AbortSignal) {
   return apiRequest<{ project: AdminProject }>(`/projects/${id}`, { authenticated: true, signal })
 }
 
-export function updateProjectStatus(id: string, status: ProjectStatus) {
-  return apiRequest<{ project: AdminProject }>(`/projects/${id}/status`, { method: "PATCH", authenticated: true, body: { status } })
-}
-
-/** OWNER may edit every field; MODERATOR is restricted by the backend to notes/schedule on assigned projects. */
-export function updateProject(id: string, body: { notes?: string; startDate?: string; endDate?: string; name?: string; description?: string; budget?: number }) {
-  return apiRequest<{ project: AdminProject }>(`/projects/${id}`, { method: "PATCH", authenticated: true, body })
-}
-
-/** OWNER only. */
-export function assignProject(id: string, body: { moderatorId?: string; ownerId?: string; customerId?: string }) {
-  return apiRequest<{ project: AdminProject }>(`/projects/${id}/assign`, { method: "PATCH", authenticated: true, body })
-}
-
-/** OWNER only. */
-export function createProject(body: { customerId: string; name: string; description?: string; moderatorId?: string; budget?: number; startDate?: string; endDate?: string }) {
-  return apiRequest<{ project: AdminProject }>("/projects", { method: "POST", authenticated: true, body })
+/** OWNER/MODERATOR: customers who have projects, most recently active first. */
+export function getProjectCustomers(query: { page?: number; limit?: number; search?: string; source?: ProjectSource } = {}, signal?: AbortSignal) {
+  return apiRequest<{ customers: ProjectCustomer[]; pagination: Pagination }>(`/projects/customers${toQuery({ ...query })}`, { authenticated: true, signal })
 }
 
 // ------------------------------------------------------------------- orders

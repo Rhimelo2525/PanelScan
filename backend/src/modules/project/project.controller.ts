@@ -1,4 +1,4 @@
-import { UserRole } from '@prisma/client';
+import { ProjectSource, UserRole } from '@prisma/client';
 import type { Request, Response } from 'express';
 
 import { AppError } from '../../utils/AppError';
@@ -43,6 +43,7 @@ const parseProjectFilters = (query: Request['query']): ProjectFilters => {
     dateFrom: typeof query.dateFrom === 'string' ? new Date(`${query.dateFrom}T00:00:00.000Z`) : undefined,
     dateTo: typeof query.dateTo === 'string' ? new Date(`${query.dateTo}T23:59:59.999Z`) : undefined,
     search: typeof query.search === 'string' ? query.search : undefined,
+    code: typeof query.code === 'string' ? query.code : undefined,
     sortBy,
     sortOrder,
   };
@@ -50,12 +51,6 @@ const parseProjectFilters = (query: Request['query']): ProjectFilters => {
 
 export class ProjectController {
   constructor(private readonly projectService: ProjectService) {}
-
-  create = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const project = await this.projectService.createProject(requester.id, requester.role, req.body);
-    sendSuccess(res, 201, 'Project created successfully.', { project });
-  });
 
   /** CUSTOMER: saves (or updates) a project from the mobile app. */
   syncMobile = catchAsync(async (req: Request, res: Response): Promise<void> => {
@@ -71,51 +66,33 @@ export class ProjectController {
     sendSuccess(res, 200, 'Project deleted successfully.');
   });
 
-  /** OWNER: every project. MODERATOR: assigned projects only. CUSTOMER: own projects only. */
+  /** OWNER and MODERATOR: every project (view-only). CUSTOMER: own projects only. */
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const filters = parseProjectFilters(req.query);
     const result =
-      requester.role === UserRole.OWNER
+      requester.role === UserRole.OWNER || requester.role === UserRole.MODERATOR
         ? await this.projectService.getAllProjects(filters)
-        : requester.role === UserRole.MODERATOR
-          ? await this.projectService.getAssignedProjects(requester.id, filters)
-          : await this.projectService.getMyProjects(requester.id, filters);
+        : await this.projectService.getMyProjects(requester.id, filters);
     sendSuccess(res, 200, 'Projects retrieved successfully.', result);
+  });
+
+  /** OWNER and MODERATOR: customers with projects, for the Projects page's customer directory. */
+  getCustomers = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const query = req.query;
+    const result = await this.projectService.listProjectCustomers({
+      page: typeof query.page === 'string' ? Number(query.page) : undefined,
+      limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
+      source: typeof query.source === 'string' ? (query.source as ProjectSource) : undefined,
+      search: typeof query.search === 'string' ? query.search : undefined,
+    });
+    sendSuccess(res, 200, 'Customers retrieved successfully.', result);
   });
 
   getById = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const project = await this.projectService.getProjectById(req.params.id as string, requester.id, requester.role);
     sendSuccess(res, 200, 'Project retrieved successfully.', { project });
-  });
-
-  update = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const project = await this.projectService.updateProject(req.params.id as string, requester.id, requester.role, req.body);
-    sendSuccess(res, 200, 'Project updated successfully.', { project });
-  });
-
-  updateStatus = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    const project = await this.projectService.updateProjectStatus(
-      req.params.id as string,
-      requester.id,
-      requester.role,
-      req.body.status,
-    );
-    sendSuccess(res, 200, 'Project status updated successfully.', { project });
-  });
-
-  assign = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const project = await this.projectService.assignProject(req.params.id as string, req.body);
-    sendSuccess(res, 200, 'Project assignment updated successfully.', { project });
-  });
-
-  remove = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const requester = getRequester(req);
-    await this.projectService.deleteProject(req.params.id as string, requester.id, requester.role);
-    sendSuccess(res, 200, 'Project deleted successfully.');
   });
 }
 
