@@ -1,4 +1,4 @@
-import { ArrowLeft, Box, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, PanelsTopLeft, Ruler, Smartphone, Sparkles } from "lucide-react"
+import { ArrowLeft, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, PanelsTopLeft, Ruler, Smartphone } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
@@ -42,7 +42,7 @@ export function CustomerProjectsPage() {
             </div>
             <div className="surface-card p-5">
               <div className="flex items-center gap-2 text-sm font-semibold"><Smartphone className="size-4 text-primary" aria-hidden="true" />Mobile measurement, web review</div>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">The web portal does not request camera access or run AR. Compatible 3D files may be viewable here after mobile and backend integration is available.</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">Measure in the PanelScan app. The website shows the measurements and panel estimates saved to your account. It does not use your camera or run AR.</p>
             </div>
           </div>
         </Container>
@@ -103,45 +103,51 @@ function ProjectListCard({ project }: { project: CustomerMeasurementProject }) {
   )
 }
 
+/** A project's full details: measurement, panels, and material estimate. */
 function ProjectResultCard({ project }: { project: CustomerMeasurementProject }) {
+  const panel = project.selectedPanel
+  const cost = project.estimatedMaterialCost
   return (
-    <article className="surface-panel overflow-hidden">
-      <div className="grid lg:grid-cols-[minmax(17rem,0.78fr)_minmax(0,1.22fr)]">
-        <div className="relative min-h-64 overflow-hidden bg-secondary lg:min-h-full">
-          {project.previewImageUrl ? <img src={project.previewImageUrl} alt={`Representative preview for ${project.name}`} className="absolute inset-0 size-full object-cover" /> : <div className="absolute inset-0 grid place-items-center"><PanelsTopLeft className="size-10 text-muted-foreground" aria-hidden="true" /></div>}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-5 pt-14 pb-5 text-white"><p className="text-xs font-medium text-white/72">Representative project thumbnail</p><p className="mt-1 font-semibold">{project.roomName}</p></div>
-        </div>
-
-        <div className="p-5 sm:p-7 lg:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div><div className="flex flex-wrap items-center gap-2"><StatusBadge status={project.status} /><span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium"><Smartphone className="size-3" aria-hidden="true" />Measured with Mobile AR</span></div><h2 className="mt-4 text-2xl font-semibold tracking-[-0.035em]">{project.name}</h2><p className="mt-1.5 text-sm text-muted-foreground">{project.roomName} · {project.surfaceType === "WALL" ? "Wall surface" : "Ceiling surface"}</p></div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" aria-hidden="true" />{date.format(new Date(project.measuredAt))}</div>
-              <ProjectCode code={project.projectCode} />
-            </div>
+    <article className="surface-panel mx-auto max-w-4xl p-5 sm:p-7">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="relative grid size-14 shrink-0 place-items-center overflow-hidden rounded-lg bg-secondary">
+            {project.previewImageUrl ? <img src={project.previewImageUrl} alt="" className="absolute inset-0 size-full object-cover" /> : <PanelsTopLeft className="size-6 text-muted-foreground" aria-hidden="true" />}
           </div>
-
-          <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MeasurementStat icon={Ruler} label="Width" value={`${project.widthMeters.toFixed(2)} m`} />
-            <MeasurementStat icon={Ruler} label="Height" value={`${project.heightMeters.toFixed(2)} m`} />
-            <MeasurementStat icon={Maximize2} label="Calculated area" value={`${project.areaSquareMeters.toFixed(2)} m²`} />
-            <MeasurementStat icon={Calculator} label="Required panels" value={project.requiredPanelQuantity === null ? "Not estimated" : String(project.requiredPanelQuantity)} />
-          </div>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <section className="rounded-lg border border-border bg-secondary/35 p-5" aria-label="Material estimate">
-              <div className="flex items-center gap-2"><Calculator className="size-4 text-primary" aria-hidden="true" /><h3 className="font-semibold">Estimation summary</h3></div>
-              <dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-muted-foreground">Selected PVC panel</dt><dd className="mt-1 font-medium">{project.selectedPanel?.name ?? "Not selected"}</dd>{project.selectedPanel && <dd className="mt-0.5 text-xs text-muted-foreground">{project.selectedPanel.sku}</dd>}</div><div><dt className="text-xs text-muted-foreground">Estimated material cost</dt><dd className="mt-1 text-xl font-semibold tabular-nums">{project.estimatedMaterialCost === null ? "Not estimated" : formatPesos(project.estimatedMaterialCost, true)}</dd></div></dl>
-              <p className="mt-4 text-xs leading-5 text-muted-foreground">{project.estimationSummary}</p>
-            </section>
-
-            <section className="rounded-lg border border-border bg-card p-5" aria-label="3D preview result">
-              <div className="flex items-center gap-2"><Box className="size-4 text-primary" aria-hidden="true" /><h3 className="font-semibold">3D preview result</h3></div>
-              {project.webPreviewStatus === "AVAILABLE" && project.webPreviewAssetUrl ? <p className="mt-4 text-sm leading-6 text-muted-foreground">A compatible web-viewable project asset is available.</p> : <div className="mt-4"><div className="grid size-12 place-items-center rounded-lg bg-secondary"><Sparkles className="size-5 text-primary" aria-hidden="true" /></div><p className="mt-3 text-sm font-medium">{project.webPreviewStatus === "PROCESSING" ? "Preview asset is being prepared" : "No web-viewable asset yet"}</p><p className="mt-1.5 text-xs leading-5 text-muted-foreground">The mobile app will create and save project results. This portal will display a 3D preview only when the backend provides a compatible asset.</p></div>}
-            </section>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2"><StatusBadge status={project.status} /><span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium"><Smartphone className="size-3" aria-hidden="true" />Measured with Mobile AR</span></div>
+            <h2 className="mt-2.5 text-2xl font-semibold tracking-[-0.035em]">{project.name}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{project.roomName} · {project.surfaceType === "WALL" ? "Wall surface" : "Ceiling surface"}</p>
           </div>
         </div>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <ProjectCode code={project.projectCode} />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="size-3.5" aria-hidden="true" />Saved {date.format(new Date(project.measuredAt))}</div>
+        </div>
+      </header>
+
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MeasurementStat icon={Ruler} label="Width" value={`${project.widthMeters.toFixed(2)} m`} />
+        <MeasurementStat icon={Ruler} label="Height" value={`${project.heightMeters.toFixed(2)} m`} />
+        <MeasurementStat icon={Maximize2} label="Area" value={`${project.areaSquareMeters.toFixed(2)} m²`} />
+        <MeasurementStat icon={Calculator} label="Panels needed" value={project.requiredPanelQuantity === null ? "—" : String(project.requiredPanelQuantity)} />
       </div>
+
+      <section className="mt-4 rounded-lg border border-border bg-secondary/35 p-5" aria-labelledby={`estimate-${project.id}`}>
+        <div className="flex items-center gap-2"><Calculator className="size-4 text-primary" aria-hidden="true" /><h3 id={`estimate-${project.id}`} className="font-semibold">Estimation summary</h3></div>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-xs text-muted-foreground">Selected PVC panel</dt>
+            <dd className="mt-1 font-medium">{panel?.name ?? "Not selected"}</dd>
+            {panel?.sku && <dd className="mt-0.5 font-mono text-xs text-muted-foreground">{panel.sku}</dd>}
+          </div>
+          <div className="sm:text-right">
+            <dt className="text-xs text-muted-foreground">Estimated material cost</dt>
+            <dd className="mt-1 text-2xl font-semibold tracking-[-0.02em] tabular-nums">{cost === null ? "Not estimated" : formatPesos(cost, true)}</dd>
+          </div>
+        </dl>
+        <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">{project.estimationSummary} Estimates are for planning; confirm with PanelScan before ordering.</p>
+      </section>
     </article>
   )
 }
