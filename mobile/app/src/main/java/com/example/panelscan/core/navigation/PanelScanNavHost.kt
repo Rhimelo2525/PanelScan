@@ -254,7 +254,7 @@ fun PanelScanNavHost(
             composable(Screen.Home.route) {
                 HomeScreen(
                     recentProjects = projects.take(6),
-                    onStartMeasurement = { navController.navigateToTab(Screen.Measure) },
+                    onStartMeasurement = { navController.navigateToTab(Screen.Measure, restoreTab = false) },
                     onOpenCategory = { surfaceType ->
                         navController.navigate(
                             Screen.Products.createRoute(surfaceType.name)
@@ -263,8 +263,8 @@ fun PanelScanNavHost(
                     onOpenProject = { project ->
                         navController.navigate(Screen.ProjectDetail.createRoute(project.id))
                     },
-                    onOpenAccount = { navController.navigateToTab(Screen.Account) },
-                    onSeeAllProjects = { navController.navigateToTab(Screen.Projects) },
+                    onOpenAccount = { navController.navigateToTab(Screen.Account, restoreTab = false) },
+                    onSeeAllProjects = { navController.navigateToTab(Screen.Projects, restoreTab = false) },
                     onOpenCart = { navController.navigate(Screen.Cart.route) },
                     onOpenInstallation = { navController.navigate(Screen.Installation.navigationRoute) },
                     onOpenOrders = { navController.navigate(Screen.Orders.route) },
@@ -356,7 +356,7 @@ fun PanelScanNavHost(
                         onUseInMeasurement = { selected ->
                             measurementViewModel.setPreselectedPanel(selected.id)
                             measurementViewModel.setSurfaceType(selected.surfaceType)
-                            navController.navigateToTab(Screen.Measure)
+                            navController.navigateToTab(Screen.Measure, restoreTab = false)
                         }
                     )
                 }
@@ -434,7 +434,7 @@ fun PanelScanNavHost(
                     onOpenProject = { project ->
                         navController.navigate(Screen.ProjectDetail.createRoute(project.id))
                     },
-                    onStartMeasurement = { navController.navigateToTab(Screen.Measure) },
+                    onStartMeasurement = { navController.navigateToTab(Screen.Measure, restoreTab = false) },
                     bottomPadding = contentBottomPadding
                 )
             }
@@ -646,7 +646,7 @@ fun PanelScanNavHost(
                             navController.navigate(Screen.Login.route)
                         }
                     },
-                    onBrowseCatalog = { navController.navigateToTab(Screen.Products) },
+                    onBrowseCatalog = { navController.navigateToTab(Screen.Products, restoreTab = false) },
                     showPrice = pricesVisible,
                     bottomPadding = contentBottomPadding
                 )
@@ -747,7 +747,7 @@ fun PanelScanNavHost(
                             navController.navigate(Screen.OrderDetail.createRoute(orderId))
                         },
                         onFeedback = { orderId -> navController.navigate(Screen.Feedback.createRoute(orderId)) },
-                        onBrowseCatalog = { navController.navigateToTab(Screen.Products) },
+                        onBrowseCatalog = { navController.navigateToTab(Screen.Products, restoreTab = false) },
                         bottomPadding = contentBottomPadding
                     )
                 }
@@ -857,7 +857,7 @@ fun PanelScanNavHost(
             composable(Screen.About.route) {
                 AboutScreen(
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToProducts = { navController.navigateToTab(Screen.Products) }
+                    onNavigateToProducts = { navController.navigateToTab(Screen.Products, restoreTab = false) }
                 )
             }
 
@@ -897,7 +897,7 @@ fun PanelScanNavHost(
             ) {
                 PanelScanBottomNav(
                     currentRoute = currentRoute,
-                    onDestinationSelected = navController::navigateToTab
+                    onDestinationSelected = { navController.navigateToTab(it) }
                 )
             }
         }
@@ -935,7 +935,13 @@ private fun rememberProject(
  * Reliable tab navigation preventing duplicate instances and ensuring
  * clicking Home cleanly pops back to root Home.
  */
-private fun NavHostController.navigateToTab(screen: Screen) {
+/**
+ * Opens a tab. From the bottom bar ([restoreTab]) the tab comes back as it was
+ * left. From a button inside a screen ("Browse Panels" in the cart) it opens on
+ * the tab's first screen instead: that tab's saved stack can hold the very
+ * screen the button is on (Products › Cart), and restoring it would go nowhere.
+ */
+private fun NavHostController.navigateToTab(screen: Screen, restoreTab: Boolean = true) {
     if (screen == Screen.Home) {
         val popped = popBackStack(Screen.Home.route, inclusive = false)
         if (!popped) {
@@ -945,10 +951,12 @@ private fun NavHostController.navigateToTab(screen: Screen) {
             }
         }
     } else {
+        // Already inside this tab (Products › Cart): back to its first screen.
+        if (!restoreTab && popBackStack(screen.route, inclusive = false)) return
         navigate(screen.navigationRoute) {
-            popUpTo(Screen.Home.route) { saveState = true }
+            popUpTo(Screen.Home.route) { saveState = restoreTab }
             launchSingleTop = true
-            restoreState = true
+            restoreState = restoreTab
         }
     }
 }
