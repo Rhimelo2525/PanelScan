@@ -106,6 +106,7 @@ import com.example.panelscan.feature.preview3d.Preview3DScreen
 import com.example.panelscan.feature.products.CatalogFilter
 import com.example.panelscan.feature.products.ProductDetailScreen
 import com.example.panelscan.feature.products.ProductsScreen
+import com.example.panelscan.feature.projects.projectShareMessage
 import com.example.panelscan.feature.projects.ProjectDetailScreen
 import com.example.panelscan.feature.projects.ProjectsScreen
 import com.example.panelscan.feature.projects.ProjectsViewModel
@@ -449,6 +450,20 @@ fun PanelScanNavHost(
                         project = project,
                         reference = projectReferences[project.id],
                         onBack = { navController.popBackStack() },
+                        onSendToTeam = projectReferences[project.id]?.let { reference ->
+                            { note, onDone ->
+                                appScope.launch {
+                                    val result = chatRepository.sendToSupport(projectShareMessage(reference.code, project, note))
+                                    onDone(result.isSuccess)
+                                    result.onSuccess { conversationId ->
+                                        Toast.makeText(context, "Project sent to PanelScan", Toast.LENGTH_SHORT).show()
+                                        navController.navigate(Screen.Chat.createRoute(conversationId))
+                                    }.onFailure { error ->
+                                        Toast.makeText(context, error.message ?: "The project was not sent. Please try again.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                        },
                         showPrice = pricesVisible,
                         onOpen3DPreview = {
                             navController.navigate(Screen.Preview3D.createRoute(project.id))
@@ -604,7 +619,17 @@ fun PanelScanNavHost(
                     viewModel = chatViewModel,
                     onBack = { navController.popBackStack() },
                     onNavigateToSignIn = { navController.navigate(Screen.Login.route) },
-                    bottomPadding = contentBottomPadding
+                    bottomPadding = contentBottomPadding,
+                    onOpenProjectCode = { code ->
+                        appScope.launch {
+                            fun localIdFor() = repository.references.value.entries
+                                .firstOrNull { it.value.code.equals(code, ignoreCase = true) }?.key
+                            // The codes load with the Projects screens; fetch them if this one is not known yet.
+                            val localId = localIdFor() ?: run { repository.refreshReferences(); localIdFor() }
+                            if (localId != null) navController.navigate(Screen.ProjectDetail.createRoute(localId))
+                            else Toast.makeText(context, "Project $code is not in your projects.", Toast.LENGTH_LONG).show()
+                        }
+                    }
                 )
             }
 

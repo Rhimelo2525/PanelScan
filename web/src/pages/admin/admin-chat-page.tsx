@@ -2,6 +2,7 @@ import { MessageSquare, Send } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { MessageContent } from "@/components/chat/message-content"
 import { getConversations, getMessages, sendMessage } from "@/api/admin"
 import { formatDateTime } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
@@ -156,7 +157,7 @@ export function AdminChatPage() {
                   return (
                     <div key={message.id} className={cn("max-w-[85%] rounded-lg border border-border px-3 py-2 text-sm", isMine ? "ml-auto bg-secondary" : "bg-background")}>
                       <p className="text-xs text-muted-foreground">{message.sender ? `${message.sender.firstName} ${message.sender.lastName}` : message.senderId === null ? "PanelScan Support · Auto-reply" : "Unknown"} · {formatDateTime(message.createdAt)}</p>
-                      <p className="mt-1 leading-6 whitespace-pre-wrap">{message.content}</p>
+                      <p className="mt-1 leading-6 whitespace-pre-wrap"><MessageContent content={message.content} projectLink={(code) => `/admin/projects?code=${code}`} /></p>
                     </div>
                   )
                 })

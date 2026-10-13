@@ -88,6 +88,15 @@ class ChatRepository(
         }
     }
 
+    /**
+     * Posts [content] in the customer's support conversation, opening one if
+     * they have none (as the website does). The conversation's id on success.
+     */
+    suspend fun sendToSupport(content: String): Result<String> {
+        val conversation = createConversation(null).getOrElse { return Result.failure(it) }
+        return sendMessage(conversation.id, content).map { conversation.id }
+    }
+
     suspend fun retryMessage(conversationId: String, failedMessage: ChatMessage): Result<ChatMessage> =
         sendMessage(conversationId, failedMessage.content)
 

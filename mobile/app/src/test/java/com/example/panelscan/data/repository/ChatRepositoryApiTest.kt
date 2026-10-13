@@ -95,4 +95,14 @@ class ChatRepositoryApiTest {
         assertTrue(result is Resource.Error)
         assertTrue(calls.isEmpty())
     }
+
+    @Test
+    fun `sending to support opens the ongoing conversation and posts the message there`() = runBlocking {
+        val result = repository().sendToSupport("Project shared: PRJ-2026-1A2B3C4D")
+
+        assertEquals(room, result.getOrNull())
+        assertEquals(2, calls.size)
+        assertTrue(calls[0].startsWith("POST /api/chat "))
+        assertEquals("""POST /api/chat/$room/messages {"content":"Project shared: PRJ-2026-1A2B3C4D"}""", calls[1])
+    }
 }

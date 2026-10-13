@@ -52,6 +52,8 @@ import com.example.panelscan.core.ui.label
 import com.example.panelscan.core.model.ProjectReference
 import android.widget.Toast
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.automirrored.rounded.Send
+import com.example.panelscan.core.ui.PanelScanTextField
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -67,10 +69,19 @@ fun ProjectDetailScreen(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     showPrice: Boolean = false,
-    bottomPadding: Dp = 0.dp
+    bottomPadding: Dp = 0.dp,
+    /**
+     * Sends the project, with the customer's optional note, to the PanelScan
+     * team in the support chat; reports whether it was sent. Only for a
+     * project saved to the account (one with a [reference]).
+     */
+    onSendToTeam: ((note: String, onDone: (sent: Boolean) -> Unit) -> Unit)? = null
 ) {
     val colors = PanelScan.colors
     var confirmDelete by remember { mutableStateOf(false) }
+    var showSend by remember { mutableStateOf(false) }
+    var sendNote by remember { mutableStateOf("") }
+    var isSending by remember { mutableStateOf(false) }
 
     ScreenScaffold(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -189,6 +200,26 @@ fun ProjectDetailScreen(
 
                 reference?.let { CodeSection(it) }
 
+                if (reference != null && onSendToTeam != null) {
+                    SectionCard(title = "Questions about this project?") {
+                        Column(
+                            modifier = Modifier.padding(top = Spacing.xs),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                        ) {
+                            Text(
+                                "Send it to the PanelScan team. They can open it straight from your chat and reply there.",
+                                style = PanelScan.type.supporting,
+                                color = colors.textSecondary
+                            )
+                            SecondaryButton(
+                                text = "Send to PanelScan",
+                                icon = Icons.AutoMirrored.Rounded.Send,
+                                onClick = { showSend = true }
+                            )
+                        }
+                    }
+                }
+
                 SecondaryButton(
                     text = "Delete project",
                     icon = Icons.Rounded.Delete,
@@ -211,6 +242,55 @@ fun ProjectDetailScreen(
                 )
             }
         }
+    }
+
+    if (showSend && reference != null && onSendToTeam != null) {
+        AlertDialog(
+            onDismissRequest = { if (!isSending) showSend = false },
+            containerColor = colors.surface,
+            shape = PanelScan.shapes.card,
+            title = { Text("Send to PanelScan", style = PanelScan.type.sectionTitle) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    Text(
+                        "The team will see ${project.name} (${reference.code}) in your support chat.",
+                        style = PanelScan.type.body,
+                        color = colors.textSecondary
+                    )
+                    PanelScanTextField(
+                        value = sendNote,
+                        onValueChange = { sendNote = it.take(SHARE_NOTE_MAX_LENGTH) },
+                        label = "Message (optional)",
+                        placeholder = "e.g. Can you check if these panels fit my wall?",
+                        singleLine = false,
+                        maxLines = 5,
+                        enabled = !isSending
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isSending,
+                    onClick = {
+                        isSending = true
+                        onSendToTeam(sendNote) { sent ->
+                            isSending = false
+                            if (sent) {
+                                showSend = false
+                                sendNote = ""
+                            }
+                        }
+                    }
+                ) {
+                    Text(if (isSending) "Sending…" else "Send", style = PanelScan.type.button, color = colors.accent)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !isSending, onClick = { showSend = false }) {
+                    Text("Cancel", style = PanelScan.type.button, color = colors.textSecondary)
+                }
+            }
+        )
     }
 
     if (confirmDelete) {

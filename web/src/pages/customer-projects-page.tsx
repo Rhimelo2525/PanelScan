@@ -1,17 +1,21 @@
-import { ArrowLeft, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, Ruler, Smartphone } from "lucide-react"
+import { ArrowLeft, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, MessageSquareShare, Ruler, Send, Smartphone } from "lucide-react"
 import { useEffect, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { StatusBadge } from "@/components/admin/status-badge"
 import { ProductImage } from "@/components/products/product-image"
 import { Container } from "@/components/layout/container"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPesos } from "@/lib/format-price"
 import { cn } from "@/lib/utils"
 import { listCustomerProjectResults } from "@/projects/project-results-repository"
+import { SHARE_NOTE_MAX_LENGTH, shareProjectWithTeam } from "@/projects/project-share"
 import type { CustomerMeasurementProject, CustomerProjectResultSet } from "@/types/customer-project"
 
 const date = new Intl.DateTimeFormat("en-PH", { year: "numeric", month: "short", day: "numeric" })
@@ -20,15 +24,17 @@ export function CustomerProjectsPage() {
   useDocumentTitle("Your projects | PanelScan")
   const [result, setResult] = useState<CustomerProjectResultSet | null>(null)
   // The open project lives in the URL (?project=<id>) so Back returns to the list.
+  // A project code linked from Messages (?code=PRJ-...) opens the same way.
   const [searchParams, setSearchParams] = useSearchParams()
   const openId = searchParams.get("project")
-  const openProject = openId ? result?.projects.find((project) => project.id === openId) ?? null : null
+  const openCode = searchParams.get("code")?.trim().toUpperCase() ?? null
+  const openProject = result?.projects.find((project) => (openId ? project.id === openId : openCode !== null && project.projectCode === openCode)) ?? null
 
   useEffect(() => { void listCustomerProjectResults().then(setResult) }, [])
-  useEffect(() => { if (openId) window.scrollTo({ top: 0 }) }, [openId])
+  useEffect(() => { if (openId || openCode) window.scrollTo({ top: 0 }) }, [openId, openCode])
 
   function closeProject() {
-    setSearchParams((params) => { params.delete("project"); return params })
+    setSearchParams((params) => { params.delete("project"); params.delete("code"); return params })
   }
 
   return (
@@ -58,7 +64,7 @@ export function CustomerProjectsPage() {
           </div>
         ) : result.projects.length === 0 ? <ProjectEmptyState /> : (
           <>
-            {openId && <p className="mb-5 rounded-lg border border-border bg-secondary/35 px-4 py-3 text-sm text-muted-foreground" role="status">That project could not be found. It may have been deleted in the app.</p>}
+            {(openId || openCode) && <p className="mb-5 rounded-lg border border-border bg-secondary/35 px-4 py-3 text-sm text-muted-foreground" role="status">That project could not be found. It may have been deleted in the app.</p>}
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Your projects">
               {result.projects.map((project) => <li key={project.id}><ProjectListCard project={project} /></li>)}
             </ul>
@@ -155,6 +161,8 @@ function ProjectResultCard({ project }: { project: CustomerMeasurementProject })
           </dl>
           <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">{project.estimationSummary} Estimates are for planning; confirm with PanelScan before ordering.</p>
         </section>
+
+        <SendProjectSection project={project} />
       </div>
     </article>
   )
@@ -202,5 +210,62 @@ function PanelThumbnail({ project, className, small = false }: { project: Custom
       className={cn("shrink-0", className)}
       hideRepresentativeLabel={small}
     />
+  )
+}
+
+/** "Send to PanelScan": shares the project in the customer's support chat, where the team can open it. */
+function SendProjectSection({ project }: { project: CustomerMeasurementProject }) {
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState("")
+  const [isSending, setIsSending] = useState(false)
+
+  async function send() {
+    if (isSending) return
+    setIsSending(true)
+    try {
+      await shareProjectWithTeam(project, note)
+      setOpen(false)
+      setNote("")
+      toast.success("Project sent to PanelScan", {
+        description: "The team can open it from your conversation. Their reply will appear in Messages.",
+        action: { label: "Open messages", onClick: () => navigate("/messages") },
+      })
+    } catch {
+      toast.error("The project was not sent", { description: "Please try again in a moment." })
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  return (
+    <section className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border p-5" aria-labelledby={`send-${project.id}`}>
+      <div className="flex min-w-0 items-start gap-3">
+        <MessageSquareShare className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+        <div>
+          <h3 id={`send-${project.id}`} className="font-semibold">Questions about this project?</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">Send it to the PanelScan team. They can open it straight from your conversation and reply in Messages.</p>
+        </div>
+      </div>
+      <Button onClick={() => setOpen(true)}><Send data-icon="inline-start" aria-hidden="true" />Send to PanelScan</Button>
+
+      <Dialog open={open} onOpenChange={(next) => { if (!isSending) setOpen(next) }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Send this project to PanelScan</DialogTitle>
+            <DialogDescription>The team will see {project.name} ({project.projectCode}) in your support conversation.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor={`send-note-${project.id}`}>Message (optional)</Label>
+            <Textarea id={`send-note-${project.id}`} rows={4} value={note} onChange={(event) => setNote(event.target.value)} maxLength={SHARE_NOTE_MAX_LENGTH} placeholder="e.g. Can you check if these panels fit my wall? I'd like to order." />
+            <p className="text-right text-xs text-muted-foreground tabular-nums">{note.length}/{SHARE_NOTE_MAX_LENGTH}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={isSending}>Cancel</Button>
+            <Button onClick={() => void send()} disabled={isSending}><Send data-icon="inline-start" aria-hidden="true" />{isSending ? "Sending…" : "Send project"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
   )
 }

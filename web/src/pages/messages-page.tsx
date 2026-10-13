@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { createConversation, getConversationMessages, getMyConversations, postMessage } from "@/api/support"
 import { useAuth } from "@/auth/use-auth"
+import { MessageContent } from "@/components/chat/message-content"
 import { Container } from "@/components/layout/container"
 import { useSilentPolling } from "@/hooks/use-silent-polling"
 import { Button } from "@/components/ui/button"
@@ -138,7 +139,7 @@ export function MessagesPage() {
                 return (
                   <article key={message.id} className={cn("motion-item max-w-[85%] rounded-lg border border-border px-3.5 py-2.5", isMine ? "ml-auto bg-secondary/70" : "bg-background")}>
                     <p className="text-xs text-muted-foreground">{author} · {formatOrderDate(message.createdAt)}</p>
-                    <p className="mt-1.5 text-sm leading-6 whitespace-pre-wrap">{message.content}</p>
+                    <p className="mt-1.5 text-sm leading-6 whitespace-pre-wrap"><MessageContent content={message.content} projectLink={(code) => `/projects?code=${code}`} /></p>
                   </article>
                 )
               })

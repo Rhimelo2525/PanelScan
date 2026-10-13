@@ -1,5 +1,5 @@
 import { ArrowLeft, ClipboardList, Copy, Eye, Search, Users } from "lucide-react"
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -32,8 +32,10 @@ export function AdminProjectsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const customerId = searchParams.get("customer")
   const projectId = searchParams.get("project")
+  // A project code linked from the support chat (?code=PRJ-...), resolved to its project below.
+  const linkedCode = searchParams.get("code")
 
-  function navigate(next: { customer?: string | null; project?: string | null }) {
+  function navigate(next: { customer?: string | null; project?: string | null; code?: string | null }, options?: { replace?: boolean }) {
     setSearchParams((current) => {
       const params = new URLSearchParams(current)
       for (const [key, value] of Object.entries(next)) {
@@ -41,8 +43,42 @@ export function AdminProjectsPage() {
         else params.delete(key)
       }
       return params
-    })
+    }, options)
   }
+
+  useEffect(() => {
+    if (!linkedCode) return
+    const code = linkedCode.trim().toUpperCase()
+    let cancelled = false
+    const open = (next: { customer?: string | null; project?: string | null }) => setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      params.delete("code")
+      for (const [key, value] of Object.entries(next)) if (value) params.set(key, value)
+      return params
+    }, { replace: true })
+
+    if (!PROJECT_CODE_PATTERN.test(code)) {
+      toast.error("That is not a project code", { description: linkedCode })
+      open({})
+      return
+    }
+    getProjects({ code, limit: 1 })
+      .then((result) => {
+        if (cancelled) return
+        const project = result.projects[0]
+        if (project) open({ customer: project.customerId, project: project.id })
+        else {
+          toast.error(`No project has the code ${code}`, { description: "The customer may have deleted it in the app." })
+          open({})
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
+        toast.error("The project could not be opened", { description: "Please try again." })
+        open({})
+      })
+    return () => { cancelled = true }
+  }, [linkedCode, setSearchParams])
 
   return (
     <div className="space-y-6">

@@ -53,7 +53,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import com.example.panelscan.feature.projects.PROJECT_CODE_IN_TEXT
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.panelscan.R
@@ -78,7 +87,9 @@ fun ChatScreen(
     onBack: () -> Unit,
     onNavigateToSignIn: () -> Unit,
     modifier: Modifier = Modifier,
-    bottomPadding: Dp = 0.dp
+    bottomPadding: Dp = 0.dp,
+    /** Opens the project whose code was tapped in a message. */
+    onOpenProjectCode: (String) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
@@ -268,7 +279,8 @@ fun ChatScreen(
                                 items(state.messages, key = { it.id }) { msg ->
                                     ChatMessageBubble(
                                         message = msg,
-                                        onRetry = { viewModel.retryMessage(msg) }
+                                        onRetry = { viewModel.retryMessage(msg) },
+                                        onOpenProjectCode = onOpenProjectCode
                                     )
                                 }
                             }
@@ -352,7 +364,8 @@ fun ChatScreen(
 @Composable
 private fun ChatMessageBubble(
     message: ChatMessage,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onOpenProjectCode: (String) -> Unit
 ) {
     val colors = PanelScan.colors
     val isMine = message.isCustomer
@@ -408,7 +421,9 @@ private fun ChatMessageBubble(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = message.content,
+                        text = remember(message.content, textColor) {
+                            linkProjectCodes(message.content, textColor, onOpenProjectCode)
+                        },
                         style = PanelScan.type.body,
                         color = textColor
                     )
@@ -472,4 +487,29 @@ private fun ChatMessageBubble(
         }
     }
 }
+}
+
+/** The message text with each project code ("PRJ-2026-1A2B3C4D") as a link that opens that project. */
+private fun linkProjectCodes(content: String, color: Color, onOpen: (String) -> Unit) = buildAnnotatedString {
+    var last = 0
+    for (match in PROJECT_CODE_IN_TEXT.findAll(content)) {
+        append(content.substring(last, match.range.first))
+        val code = match.value.uppercase()
+        withLink(
+            LinkAnnotation.Clickable(
+                tag = code,
+                styles = TextLinkStyles(
+                    SpanStyle(
+                        color = color,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        textDecoration = TextDecoration.Underline
+                    )
+                ),
+                linkInteractionListener = { onOpen(code) }
+            )
+        ) { append(code) }
+        last = match.range.last + 1
+    }
+    append(content.substring(last))
 }
