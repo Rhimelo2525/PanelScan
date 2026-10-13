@@ -1,21 +1,18 @@
 import { AlertCircle, RefreshCcw, Send } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
+import { useEffect, useRef, useState } from "react"
 
-import { createConversation, getConversationMessages, getMyConversations, postMessage } from "@/api/support"
 import { useAuth } from "@/auth/use-auth"
 import { MessageContent } from "@/components/chat/message-content"
 import { Container } from "@/components/layout/container"
-import { useSilentPolling } from "@/hooks/use-silent-polling"
+import { useSupportConversation } from "@/hooks/use-support-conversation"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatOrderDate } from "@/orders/order-format"
-import { handleComposerKeyDown, sortConversationsByActivity } from "@/lib/chat"
+import { handleComposerKeyDown } from "@/lib/chat"
 import { cn } from "@/lib/utils"
-import type { ChatMessage } from "@/types/admin"
 
 /**
  * Support messaging between the customer and the PanelScan team. Each
@@ -30,83 +27,22 @@ import type { ChatMessage } from "@/types/admin"
 export function MessagesPage() {
   useDocumentTitle("Messages | PanelScan")
   const { user } = useAuth()
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isLoadingThread, setIsLoadingThread] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const { conversationId, messages, isLoading, isLoadingThread, loadError, isSending, refresh, send } = useSupportConversation()
   const [draft, setDraft] = useState("")
-  const [isSending, setIsSending] = useState(false)
-  const [threadKey, setThreadKey] = useState(0)
   // The thread scrolls inside its panel; it follows new messages only while
   // the customer is already at the bottom, so reading older ones isn't interrupted.
   const threadRef = useRef<HTMLDivElement>(null)
   const wasAtBottomRef = useRef(true)
-  // Guards against a second send before the first finishes (e.g. Enter pressed twice quickly).
-  const sendingRef = useRef(false)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    getMyConversations(controller.signal)
-      .then((result) => setConversationId(sortConversationsByActivity(result)[0]?.id ?? null))
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return
-        setLoadError("Your messages could not be loaded. Please try again.")
-      })
-      .finally(() => { if (!controller.signal.aborted) setIsLoading(false) })
-    return () => controller.abort()
-  }, [])
-
-  useEffect(() => {
-    if (!conversationId) return
-    const controller = new AbortController()
-    setIsLoadingThread(true)
-    getConversationMessages(conversationId, controller.signal)
-      .then(setMessages)
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return
-        toast.error("Messages could not be loaded")
-      })
-      .finally(() => { if (!controller.signal.aborted) setIsLoadingThread(false) })
-    return () => controller.abort()
-  }, [conversationId, threadKey])
 
   useEffect(() => {
     const thread = threadRef.current
     if (thread && wasAtBottomRef.current) thread.scrollTop = thread.scrollHeight
   }, [messages])
 
-  // A moderator's reply should appear without a manual refresh. Only a
-  // successful response is applied - a transient failure leaves the thread
-  // as it is, matching the manual "Refresh" button.
-  useSilentPolling(
-    useCallback(() => {
-      if (!conversationId) return Promise.resolve()
-      return getConversationMessages(conversationId).then(setMessages).catch(() => {})
-    }, [conversationId]),
-    conversationId ? 8_000 : false,
-  )
-
   async function handleSend() {
-    const content = draft.trim()
-    if (content.length === 0 || sendingRef.current) return
-    sendingRef.current = true
-    setIsSending(true)
-    try {
-      // The first message opens the conversation (or finds the one already
-      // open in another tab). The thread only starts loading once the message
-      // is in, so the load never races the send.
-      const id = conversationId ?? (await createConversation()).id
-      await postMessage(id, content)
+    if (await send(draft)) {
       setDraft("")
       wasAtBottomRef.current = true
-      if (conversationId) setThreadKey((value) => value + 1)
-      else setConversationId(id)
-    } catch {
-      toast.error("Message not sent", { description: "Please try again in a moment." })
-    } finally {
-      sendingRef.current = false
-      setIsSending(false)
     }
   }
 
@@ -130,7 +66,7 @@ export function MessagesPage() {
           <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
             <h2 className="truncate text-sm font-semibold">PanelScan Support</h2>
             {conversationId && (
-              <Button variant="ghost" size="sm" onClick={() => setThreadKey((value) => value + 1)} disabled={isLoadingThread}>
+              <Button variant="ghost" size="sm" onClick={refresh} disabled={isLoadingThread}>
                 <RefreshCcw data-icon="inline-start" aria-hidden="true" />Refresh
               </Button>
             )}
