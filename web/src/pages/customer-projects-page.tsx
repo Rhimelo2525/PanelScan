@@ -43,15 +43,11 @@ export function CustomerProjectsPage() {
       <section className="border-b border-border bg-secondary/35 py-12 sm:py-16">
         <Container>
           <Button variant="ghost" size="sm" className="-ml-2.5 mb-6" asChild><Link to="/dashboard"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Back to dashboard</Link></Button>
-          <div className="grid items-end gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.48fr)]">
+          <div>
             <div>
               <p className="section-eyebrow">Projects and measurements</p>
               <h1 className="type-h1 mt-4">Your saved AR &amp; 3D project results.</h1>
               <p className="type-lead mt-5 max-w-3xl">Review measurements, panel estimates, and mobile-generated project summaries in one place. Measurement happens in the PanelScan mobile app—the website only displays results saved to your account.</p>
-            </div>
-            <div className="surface-card p-5">
-              <div className="flex items-center gap-2 text-sm font-semibold"><Smartphone className="size-4 text-primary" aria-hidden="true" />Mobile measurement, web review</div>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">Measure in the PanelScan app. The website shows the measurements and panel estimates saved to your account. It does not use your camera or run AR.</p>
             </div>
           </div>
         </Container>
