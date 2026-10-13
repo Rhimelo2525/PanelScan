@@ -1,6 +1,6 @@
-import { ArrowLeft, Box, CalendarDays, Calculator, Copy, Maximize2, PanelsTopLeft, Ruler, Smartphone, Sparkles } from "lucide-react"
+import { ArrowLeft, Box, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, PanelsTopLeft, Ruler, Smartphone, Sparkles } from "lucide-react"
 import { useEffect, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { StatusBadge } from "@/components/admin/status-badge"
@@ -17,8 +17,17 @@ const date = new Intl.DateTimeFormat("en-PH", { year: "numeric", month: "short",
 export function CustomerProjectsPage() {
   useDocumentTitle("Your projects | PanelScan")
   const [result, setResult] = useState<CustomerProjectResultSet | null>(null)
+  // The open project lives in the URL (?project=<id>) so Back returns to the list.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openId = searchParams.get("project")
+  const openProject = openId ? result?.projects.find((project) => project.id === openId) ?? null : null
 
   useEffect(() => { void listCustomerProjectResults().then(setResult) }, [])
+  useEffect(() => { if (openId) window.scrollTo({ top: 0 }) }, [openId])
+
+  function closeProject() {
+    setSearchParams((params) => { params.delete("project"); return params })
+  }
 
   return (
     <>
@@ -40,10 +49,18 @@ export function CustomerProjectsPage() {
       </section>
 
       <Container className="py-10 sm:py-14">
-        {!result ? <ProjectListSkeleton /> : result.projects.length === 0 ? <ProjectEmptyState /> : (
-          <div className="space-y-7">
-            {result.projects.map((project) => <ProjectResultCard key={project.id} project={project} />)}
+        {!result ? <ProjectListSkeleton /> : openProject ? (
+          <div className="space-y-5">
+            <Button variant="ghost" size="sm" className="-ml-2.5" onClick={closeProject}><ArrowLeft data-icon="inline-start" aria-hidden="true" />All projects</Button>
+            <ProjectResultCard project={openProject} />
           </div>
+        ) : result.projects.length === 0 ? <ProjectEmptyState /> : (
+          <>
+            {openId && <p className="mb-5 rounded-lg border border-border bg-secondary/35 px-4 py-3 text-sm text-muted-foreground" role="status">That project could not be found. It may have been deleted in the app.</p>}
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Your projects">
+              {result.projects.map((project) => <li key={project.id}><ProjectListCard project={project} /></li>)}
+            </ul>
+          </>
         )}
 
         <section className="mt-10 rounded-xl bg-primary p-6 text-primary-foreground sm:p-8" aria-labelledby="measurement-guidance-title">
@@ -54,6 +71,35 @@ export function CustomerProjectsPage() {
         </section>
       </Container>
     </>
+  )
+}
+
+/** Compact, clickable project summary for the list, as on the app's Projects tab. */
+function ProjectListCard({ project }: { project: CustomerMeasurementProject }) {
+  const panels = project.requiredPanelQuantity
+  return (
+    <Link to={`?project=${encodeURIComponent(project.id)}`} className="surface-panel group block h-full p-4 transition-colors hover:border-primary/40 hover:bg-secondary/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Open ${project.name}, ${project.projectCode}`}>
+      <div className="flex items-center gap-3.5">
+        <div className="relative grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-secondary">
+          {project.previewImageUrl ? <img src={project.previewImageUrl} alt="" className="absolute inset-0 size-full object-cover" /> : <PanelsTopLeft className="size-6 text-muted-foreground" aria-hidden="true" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate font-semibold">{project.name}</h2>
+          <p className="mt-0.5 truncate text-sm text-muted-foreground">{project.selectedPanel?.name ?? "No panel selected"}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{project.surfaceType === "WALL" ? "Wall" : "Ceiling"}</span>
+            {panels !== null && <span className="rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium">{panels} {panels === 1 ? "panel" : "panels"}</span>}
+          </div>
+          <p className="mt-1.5 font-mono text-xs font-semibold tracking-wide text-muted-foreground">{project.projectCode}</p>
+        </div>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+      </div>
+      <dl className="mt-4 grid grid-cols-3 gap-2 border-t border-border pt-3 text-xs">
+        <div><dt className="text-muted-foreground">Size</dt><dd className="mt-0.5 font-semibold tabular-nums">{project.widthMeters.toFixed(2)} × {project.heightMeters.toFixed(2)} m</dd></div>
+        <div><dt className="text-muted-foreground">Area</dt><dd className="mt-0.5 font-semibold tabular-nums">{project.areaSquareMeters.toFixed(2)} m²</dd></div>
+        <div><dt className="text-muted-foreground">Saved</dt><dd className="mt-0.5 font-semibold">{date.format(new Date(project.measuredAt))}</dd></div>
+      </dl>
+    </Link>
   )
 }
 
@@ -105,7 +151,7 @@ function MeasurementStat({ icon: Icon, label, value }: { icon: typeof Ruler; lab
 }
 
 function ProjectListSkeleton() {
-  return <div className="space-y-7" aria-label="Loading project results" aria-busy="true">{Array.from({ length: 2 }).map((_, index) => <div key={index} className="surface-panel grid gap-6 p-6 lg:grid-cols-[20rem_1fr]"><Skeleton className="h-64 w-full" /><div className="space-y-4"><Skeleton className="h-6 w-48" /><Skeleton className="h-10 w-72 max-w-full" /><Skeleton className="h-24 w-full" /><Skeleton className="h-40 w-full" /></div></div>)}</div>
+  return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading project results" aria-busy="true">{Array.from({ length: 3 }).map((_, index) => <div key={index} className="surface-panel p-4"><div className="flex items-center gap-3.5"><Skeleton className="size-16 shrink-0" /><div className="flex-1 space-y-2"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-24" /><Skeleton className="h-3 w-28" /></div></div><Skeleton className="mt-4 h-8 w-full" /></div>)}</div>
 }
 
 function ProjectEmptyState() {
