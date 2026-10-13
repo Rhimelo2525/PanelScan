@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { handleComposerKeyDown } from "@/lib/chat"
 import { formatPesos } from "@/lib/format-price"
 import { cn } from "@/lib/utils"
 import { listCustomerProjectResults } from "@/projects/project-results-repository"
@@ -257,8 +258,8 @@ function SendProjectSection({ project }: { project: CustomerMeasurementProject }
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor={`send-note-${project.id}`}>Message (optional)</Label>
-            <Textarea id={`send-note-${project.id}`} rows={4} value={note} onChange={(event) => setNote(event.target.value)} maxLength={SHARE_NOTE_MAX_LENGTH} placeholder="e.g. Can you check if these panels fit my wall? I'd like to order." />
-            <p className="text-right text-xs text-muted-foreground tabular-nums">{note.length}/{SHARE_NOTE_MAX_LENGTH}</p>
+            <Textarea id={`send-note-${project.id}`} rows={4} value={note} onChange={(event) => setNote(event.target.value)} onKeyDown={(event) => handleComposerKeyDown(event, () => void send())} maxLength={SHARE_NOTE_MAX_LENGTH} placeholder="e.g. Can you check if these panels fit my wall? I'd like to order." />
+            <p className="flex justify-between gap-3 text-xs text-muted-foreground"><span>Enter to send · Shift+Enter for a new line</span><span className="tabular-nums">{note.length}/{SHARE_NOTE_MAX_LENGTH}</span></p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={isSending}>Cancel</Button>
