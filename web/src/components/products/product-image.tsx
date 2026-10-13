@@ -13,9 +13,11 @@ interface ProductImageProps {
   categorySlug: string
   className?: string
   imageClassName?: string
+  /** Hides the "Representative" tag on the category photo, for thumbnails too small for it. */
+  hideRepresentativeLabel?: boolean
 }
 
-export function ProductImage({ image, productName, categorySlug, className, imageClassName }: ProductImageProps) {
+export function ProductImage({ image, productName, categorySlug, className, imageClassName, hideRepresentativeLabel = false }: ProductImageProps) {
   const [failed, setFailed] = useState(false)
   const [representativeFailed, setRepresentativeFailed] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -25,7 +27,7 @@ export function ProductImage({ image, productName, categorySlug, className, imag
   useEffect(() => setRepresentativeFailed(false), [categorySlug])
 
   if ((!image || failed) && representativeImage && !representativeFailed) {
-    return <div className={cn("relative overflow-hidden rounded-xl bg-muted", className)}><img src={representativeImage.src} alt={`${representativeImage.alt}; representative category visualization for ${productName}`} className={cn("media-fade size-full object-cover", imageClassName)} data-loaded={isLoaded} ref={(node) => { if (node?.complete) setIsLoaded(true) }} loading="lazy" onLoad={() => setIsLoaded(true)} onError={() => setRepresentativeFailed(true)} /><span className="absolute right-3 bottom-3 bg-background/88 px-2 py-1 text-[0.6rem] font-semibold backdrop-blur-sm">Representative</span></div>
+    return <div className={cn("relative overflow-hidden rounded-xl bg-muted", className)}><img src={representativeImage.src} alt={`${representativeImage.alt}; representative category visualization for ${productName}`} className={cn("media-fade size-full object-cover", imageClassName)} data-loaded={isLoaded} ref={(node) => { if (node?.complete) setIsLoaded(true) }} loading="lazy" onLoad={() => setIsLoaded(true)} onError={() => setRepresentativeFailed(true)} />{!hideRepresentativeLabel && <span className="absolute right-3 bottom-3 bg-background/88 px-2 py-1 text-[0.6rem] font-semibold backdrop-blur-sm">Representative</span>}</div>
   }
 
   if (!image || failed) {

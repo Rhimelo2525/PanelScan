@@ -1,14 +1,16 @@
-import { ArrowLeft, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, PanelsTopLeft, Ruler, Smartphone } from "lucide-react"
+import { ArrowLeft, CalendarDays, Calculator, ChevronRight, Copy, Maximize2, Ruler, Smartphone } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { StatusBadge } from "@/components/admin/status-badge"
+import { ProductImage } from "@/components/products/product-image"
 import { Container } from "@/components/layout/container"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPesos } from "@/lib/format-price"
+import { cn } from "@/lib/utils"
 import { listCustomerProjectResults } from "@/projects/project-results-repository"
 import type { CustomerMeasurementProject, CustomerProjectResultSet } from "@/types/customer-project"
 
@@ -80,7 +82,7 @@ function ProjectListCard({ project }: { project: CustomerMeasurementProject }) {
   return (
     <Link to={`?project=${encodeURIComponent(project.id)}`} className="surface-panel group block h-full p-4 transition-colors hover:border-primary/40 hover:bg-secondary/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Open ${project.name}, ${project.projectCode}`}>
       <div className="flex items-center gap-3.5">
-        <PanelThumbnail url={project.previewImageUrl} className="size-16 rounded-lg" />
+        <PanelThumbnail project={project} className="size-16 rounded-lg" small />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold">{project.name}</h2>
           <p className="mt-0.5 truncate text-sm text-muted-foreground">{project.selectedPanel?.name ?? "No panel selected"}</p>
@@ -109,7 +111,7 @@ function ProjectResultCard({ project }: { project: CustomerMeasurementProject })
     <article className="surface-panel mx-auto max-w-4xl overflow-hidden">
       {/* The selected panel's photo, large across the top, as in the app. */}
       <div className="relative">
-        <PanelThumbnail url={project.previewImageUrl} className="aspect-[16/9] w-full sm:aspect-[21/9]" iconClassName="size-12" />
+        <PanelThumbnail project={project} className="aspect-[16/9] w-full rounded-none sm:aspect-[21/9]" />
         <div className="absolute top-4 left-4 flex flex-wrap gap-2">
           <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground shadow-sm">{project.surfaceType === "WALL" ? "Wall" : "Ceiling"}</span>
           {project.requiredPanelQuantity !== null && <span className="rounded-full bg-background/90 px-2.5 py-1 text-xs font-semibold shadow-sm backdrop-blur">{project.requiredPanelQuantity} {project.requiredPanelQuantity === 1 ? "panel" : "panels"}</span>}
@@ -187,12 +189,18 @@ function ProjectCode({ code }: { code: string }) {
   )
 }
 
-/** The selected panel's photo, or the panel icon when there is none or it fails to load. */
-function PanelThumbnail({ url, className, iconClassName = "size-6" }: { url: string | null; className: string; iconClassName?: string }) {
-  const [failed, setFailed] = useState(false)
+/**
+ * The selected panel's photo. Like the store, a panel without one shows its
+ * category's representative photo, and the material pattern if that fails.
+ */
+function PanelThumbnail({ project, className, small = false }: { project: CustomerMeasurementProject; className: string; small?: boolean }) {
   return (
-    <div className={`relative grid shrink-0 place-items-center overflow-hidden bg-secondary ${className}`}>
-      {url && !failed ? <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} className="absolute inset-0 size-full object-cover" /> : <PanelsTopLeft className={`${iconClassName} text-muted-foreground`} aria-hidden="true" />}
-    </div>
+    <ProductImage
+      image={project.previewImageUrl ? { url: project.previewImageUrl } : null}
+      productName={project.selectedPanel?.name ?? project.name}
+      categorySlug={project.panelCategorySlug}
+      className={cn("shrink-0", className)}
+      hideRepresentativeLabel={small}
+    />
   )
 }

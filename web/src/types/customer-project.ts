@@ -24,6 +24,8 @@ export interface CustomerMeasurementProject {
   status: CustomerProjectStatus
   measurementSource: ProjectMeasurementSource
   previewImageUrl: string | null
+  /** Category of the selected panel, for the store's representative photo when the panel has none. */
+  panelCategorySlug: string
   webPreviewStatus: WebPreviewStatus
   webPreviewAssetUrl: string | null
   estimationSummary: string

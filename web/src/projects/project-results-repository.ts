@@ -38,6 +38,7 @@ function toCustomerProject(p: AdminProject): CustomerMeasurementProject {
 
     measurementSource: "MANUAL" as const,
     previewImageUrl: null,
+    panelCategorySlug: meta.surfaceType === "CEILING" ? "ceiling-panels" : "wall-panels",
     webPreviewStatus: "NOT_AVAILABLE" as const,
     webPreviewAssetUrl: null,
     estimationSummary: p.notes ?? estimate ?? p.description ?? "Saved project.",
@@ -75,14 +76,14 @@ async function withPanelDetails(projects: CustomerMeasurementProject[], signal?:
   const panelIds = [...new Set(projects.flatMap((p) => (p.selectedPanel ? [p.selectedPanel.id] : [])))]
   if (panelIds.length === 0) return projects
 
-  const panels = new Map<string, { price: number | null; imageUrl: string | null }>()
+  const panels = new Map<string, { price: number | null; imageUrl: string | null; categorySlug: string }>()
   await Promise.all(panelIds.map(async (id) => {
     try {
       const product = await getProductById(id, signal)
       if (!product) return
       const price = Number(product.price)
       const image = product.images.find((img) => img.isPrimary) ?? product.images[0]
-      panels.set(id, { price: Number.isFinite(price) && price > 0 ? price : null, imageUrl: image?.url ?? null })
+      panels.set(id, { price: Number.isFinite(price) && price > 0 ? price : null, imageUrl: image?.url ?? null, categorySlug: product.category.slug })
     } catch {
       // Leave this panel's projects as saved.
     }
@@ -92,6 +93,6 @@ async function withPanelDetails(projects: CustomerMeasurementProject[], signal?:
     const panel = p.selectedPanel ? panels.get(p.selectedPanel.id) : undefined
     if (!panel) return p
     const cost = p.estimatedMaterialCost ?? (p.requiredPanelQuantity !== null && panel.price !== null ? panel.price * p.requiredPanelQuantity : null)
-    return { ...p, estimatedMaterialCost: cost, previewImageUrl: p.previewImageUrl ?? panel.imageUrl }
+    return { ...p, estimatedMaterialCost: cost, previewImageUrl: p.previewImageUrl ?? panel.imageUrl, panelCategorySlug: panel.categorySlug }
   })
 }
