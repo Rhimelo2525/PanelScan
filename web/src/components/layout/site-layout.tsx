@@ -9,6 +9,7 @@ import { SiteHeader } from "@/components/layout/site-header"
 
 export function SiteLayout() {
   const location = useLocation()
+  const isMessagesPage = location.pathname.startsWith("/messages")
 
   useEffect(() => {
     if (location.hash) {
@@ -41,7 +42,10 @@ export function SiteLayout() {
           navigation is never held back waiting for an outgoing animation, and
           #main-content always exists for the skip link. */}
       <main id="main-content" key={location.pathname} className="motion-page"><Outlet /></main>
-      <aside className="border-t border-border bg-secondary/30 py-5" aria-label="Customer support"><Container className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Questions about your panels?</p><p className="mt-1 text-xs text-muted-foreground">Chat directly with our team for orders, specs, or installation advice.</p></div><Button variant="outline" asChild><Link to="/messages"><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Link></Button></Container></aside>
+      {/* Not on Messages itself: the customer is already chatting with support there. */}
+      {!isMessagesPage && (
+        <aside className="border-t border-border bg-secondary/30 py-5" aria-label="Customer support"><Container className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Questions about your panels?</p><p className="mt-1 text-xs text-muted-foreground">Chat directly with our team for orders, specs, or installation advice.</p></div><Button variant="outline" asChild><Link to="/messages"><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Link></Button></Container></aside>
+      )}
       <SiteFooter />
 
     </div>
