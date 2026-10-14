@@ -18,11 +18,22 @@ import { getBackupPrisma } from '../src/config/backupDatabase';
 import { upsertBackupRow } from '../src/utils/backupSync';
 import { SYNC_ORDER, checkGeneratedClient, checkLiveBackupSchema } from '../src/utils/backupSchema';
 
+/**
+ * Short-lived rows the app deletes all the time (a cart line removed, or
+ * cleared at checkout). Those deletes are not mirrored in real time, so the
+ * backup kept stale lines - and re-adding the same product then failed the
+ * (cart_id, product_id) unique key on every run. For these tables only, rows
+ * no longer in the primary are removed from the backup before the upsert.
+ * Every other table keeps rows the primary has lost, as a backup should.
+ */
+const MIRROR_DELETES = new Set(['cartItem']);
+
 interface TableReport {
   table: string;
   recordsRead: number;
   recordsWritten: number;
   failed: number;
+  pruned?: number;
   status: 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED';
   error?: string;
 }
@@ -40,6 +51,13 @@ const syncTable = async (
     let written = 0;
     let failed = 0;
 
+    let pruned: number | undefined;
+    if (MIRROR_DELETES.has(modelName)) {
+      const ids = rows.map((row) => row.id as string);
+      const result = (await backupDelegate.deleteMany({ where: { id: { notIn: ids } } })) as { count: number };
+      pruned = result.count;
+    }
+
     for (const row of rows) {
       const ok = await upsertBackupRow(backupDelegate, row);
       if (ok) written++;
@@ -48,7 +66,7 @@ const syncTable = async (
 
     const status: TableReport['status'] = failed === 0 ? 'SUCCESS' : written === 0 ? 'FAILED' : 'PARTIAL';
 
-    return { table: modelName, recordsRead: rows.length, recordsWritten: written, failed, status };
+    return { table: modelName, recordsRead: rows.length, recordsWritten: written, failed, pruned, status };
   } catch (err) {
     return {
       table: modelName,
@@ -96,7 +114,7 @@ const main = async () => {
     process.stdout.write(`[backup-sync] Syncing ${modelName}... `);
     const report = await syncTable(modelName, primaryClient, backupClient);
     reports.push(report);
-    console.log(`${report.status} (${report.recordsWritten}/${report.recordsRead} written${report.failed ? `, ${report.failed} failed` : ''})`);
+    console.log(`${report.status} (${report.recordsWritten}/${report.recordsRead} written${report.failed ? `, ${report.failed} failed` : ''}${report.pruned ? `, ${report.pruned} stale removed` : ''})`);
   }
 
   const finishedAt = new Date();
