@@ -30,6 +30,8 @@ data class PVCPanel(
     val inStock: Boolean = true,
     val sku: String = "",
     val imageUrl: String? = null,
+    /** Every product photo, main one first (up to four from the admin); [imageUrl] is the first. */
+    val imageUrls: List<String> = emptyList(),
     val material: String? = null,
     val inventoryQty: Int? = null,
     val imageResId: Int? = null,

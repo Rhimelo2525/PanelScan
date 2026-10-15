@@ -35,7 +35,7 @@ import com.example.panelscan.core.ui.BadgeTone
 import com.example.panelscan.core.ui.MetricCard
 import com.example.panelscan.core.ui.PanelCard
 import com.example.panelscan.core.ui.PanelScanTopBar
-import com.example.panelscan.core.ui.PanelImage
+import com.example.panelscan.core.ui.PanelGallery
 import com.example.panelscan.core.ui.PanelTexture
 import com.example.panelscan.core.ui.PrimaryButton
 import com.example.panelscan.core.ui.ScreenScaffold
@@ -117,7 +117,7 @@ fun ProductDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(Spacing.md)
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    PanelImage(panel = panel, modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f), shape = PanelScan.shapes.hero)
+                    PanelGallery(panel = panel, modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f), shape = PanelScan.shapes.hero)
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopStart)

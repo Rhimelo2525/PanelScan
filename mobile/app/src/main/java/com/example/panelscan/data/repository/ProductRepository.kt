@@ -82,7 +82,9 @@ class ProductRepository(private val api: ApiClient) {
         val isCeiling = categoryName.contains("ceiling", ignoreCase = true)
         // On hand minus reserved, as the cart and checkout check it; no inventory record means none.
         val available = inventory?.let { (it.quantity - it.reservedQty).coerceAtLeast(0) } ?: 0
-        val image = images.firstOrNull { it.isPrimary } ?: images.minByOrNull { it.sortOrder }
+        // Main photo first, then the rest in their order, as the website's gallery shows them.
+        val photos = images.sortedWith(compareByDescending<ApiImage> { it.isPrimary }.thenBy { it.sortOrder })
+            .map { absoluteUrl(it.url) }
         return PVCPanel(
             id = id,
             name = name,
@@ -96,7 +98,8 @@ class ProductRepository(private val api: ApiClient) {
             description = description.orEmpty(),
             inStock = available > 0,
             sku = sku,
-            imageUrl = image?.url?.let(::absoluteUrl),
+            imageUrl = photos.firstOrNull(),
+            imageUrls = photos,
             material = material,
             inventoryQty = available,
             thicknessMm = thickness?.toDoubleOrNull()?.let { (it * 10).roundToInt() } ?: 0

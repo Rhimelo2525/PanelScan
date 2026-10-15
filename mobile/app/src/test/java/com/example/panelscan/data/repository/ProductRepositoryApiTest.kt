@@ -73,6 +73,8 @@ class ProductRepositoryApiTest {
         assertTrue(oak.inStock)
         // The primary photo, made absolute against the backend's host.
         assertEquals("https://backend.test/uploads/w1.webp", oak.imageUrl)
+        // Every photo, main one first, for the swipe gallery on the detail screen.
+        assertEquals(listOf("https://backend.test/uploads/w1.webp", "https://backend.test/uploads/w1-2.webp"), oak.imageUrls)
         assertEquals(SurfaceType.CEILING, repo.getPanelById("c1")!!.surfaceType)
         // Signed out: no price.
         assertNull(repo.getPanelById("w2")!!.pricePerUnit)
