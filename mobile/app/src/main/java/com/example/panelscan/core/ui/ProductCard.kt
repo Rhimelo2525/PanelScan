@@ -217,7 +217,7 @@ fun ProductRowCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${panel.material ?: "PVC"} · ${formatAreaWithUnit(panel.coverageSquareMeters)} · " +
+                    text = "${panel.material ?: "PVC"} · ${formatPanelSizeCm(panel)} · " +
                         if (panel.inStock) "In stock" else "Out of stock",
                     style = PanelScan.type.label,
                     color = colors.textTertiary,

@@ -50,7 +50,8 @@ import com.example.panelscan.core.ui.PrimaryButton
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.SpecRow
 import com.example.panelscan.core.ui.StatusBadge
-import com.example.panelscan.core.ui.formatAreaWithUnit
+import com.example.panelscan.core.ui.formatCentimeters
+import com.example.panelscan.core.ui.formatPanelSizeCm
 import com.example.panelscan.core.ui.formatCurrency
 
 import androidx.compose.material.icons.rounded.Add
@@ -181,7 +182,7 @@ fun ProductDetailScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    QuickFact(label = "Size", value = panelSizeCm(panel), modifier = Modifier.weight(1f))
+                    QuickFact(label = "Size", value = formatPanelSizeCm(panel), modifier = Modifier.weight(1f))
                     QuickFact(label = "Color", value = panel.material ?: "—", modifier = Modifier.weight(1f))
                 }
 
@@ -218,13 +219,11 @@ fun ProductDetailScreen(
                         SpecDivider()
                     }
                     // In centimetres, as the admin enters them.
-                    SpecRow(label = "Width", value = "${cm(panel.widthMeters)} cm")
+                    SpecRow(label = "Width", value = "${formatCentimeters(panel.widthMeters)} cm")
                     SpecDivider()
-                    SpecRow(label = "Height", value = "${cm(panel.heightMeters)} cm")
+                    SpecRow(label = "Height", value = "${formatCentimeters(panel.heightMeters)} cm")
                     SpecDivider()
-                    SpecRow(label = "Thickness", value = "${cm(panel.thicknessMm / 1000.0)} cm")
-                    SpecDivider()
-                    SpecRow(label = "Coverage per panel", value = formatAreaWithUnit(panel.coverageSquareMeters))
+                    SpecRow(label = "Thickness", value = "${formatCentimeters(panel.thicknessMm / 1000.0)} cm")
                     SpecDivider()
                     panel.inventoryQty?.let {
                         SpecRow(
@@ -475,11 +474,4 @@ private fun QuickFact(label: String, value: String, modifier: Modifier = Modifie
     }
 }
 
-/** A length in metres as centimetres, without needless decimals: 0.2 → "20", 0.012 → "1.2". */
-private fun cm(meters: Double): String {
-    val value = Math.round(meters * 1000) / 10.0
-    return if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
-}
 
-/** The panel's face size in centimetres, as the admin enters it: "20 × 290 cm". */
-private fun panelSizeCm(panel: PVCPanel): String = "${cm(panel.widthMeters)} × ${cm(panel.heightMeters)} cm"

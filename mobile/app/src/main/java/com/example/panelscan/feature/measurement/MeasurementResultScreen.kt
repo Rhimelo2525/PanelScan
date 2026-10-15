@@ -174,7 +174,6 @@ fun MeasurementResultScreen(
                     HorizontalDivider(color = colors.border, modifier = Modifier.padding(vertical = Spacing.xs))
                     SpecRow(label = "Panel size", value = panelSizeLabel(panel))
                     SpecRow(label = "Panel thickness", value = "${panel.thicknessMm} mm")
-                    SpecRow(label = "Coverage per panel", value = formatAreaWithUnit(panel.coverageSquareMeters))
                     SpecRow(label = "Color", value = panel.material ?: "—")
                 }
 

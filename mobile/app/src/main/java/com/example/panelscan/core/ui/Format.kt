@@ -22,6 +22,16 @@ fun formatAreaWithUnit(value: Double): String = "${formatArea(value)} m²"
 fun formatCurrency(value: Double): String =
     String.format(Locale.getDefault(), "₱%,.2f", value)
 
+/** A length in metres as centimetres, without needless decimals: 0.2 → "20", 0.012 → "1.2". */
+fun formatCentimeters(meters: Double): String {
+    val value = Math.round(meters * 1000) / 10.0
+    return if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+}
+
+/** A panel's face size in centimetres, as the admin enters it: "20 × 290 cm". */
+fun formatPanelSizeCm(panel: PVCPanel): String =
+    "${formatCentimeters(panel.widthMeters)} × ${formatCentimeters(panel.heightMeters)} cm"
+
 fun formatDimensions(panel: PVCPanel): String =
     "${formatMeters(panel.widthMeters)} × ${formatMeters(panel.heightMeters)} m"
 

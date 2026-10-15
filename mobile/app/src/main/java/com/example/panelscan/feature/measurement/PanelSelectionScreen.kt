@@ -60,6 +60,7 @@ import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.SpecRow
 import com.example.panelscan.core.ui.StatusBadge
 import com.example.panelscan.core.ui.formatAreaWithUnit
+import com.example.panelscan.core.ui.formatPanelSizeCm
 import com.example.panelscan.core.ui.formatCurrency
 import com.example.panelscan.core.ui.formatDimensions
 import com.example.panelscan.core.ui.label
@@ -301,7 +302,7 @@ private fun EstimationSheet(
                     color = colors.textPrimary
                 )
                 Text(
-                    text = "${panel.finish} · ${formatAreaWithUnit(panel.coverageSquareMeters)} per panel",
+                    text = "${panel.finish} · ${formatPanelSizeCm(panel)}",
                     style = PanelScan.type.supporting,
                     color = colors.textSecondary
                 )
@@ -343,10 +344,6 @@ private fun EstimationSheet(
             SpecRow(
                 label = "Surface area",
                 value = formatAreaWithUnit(measurement.areaSquareMeters)
-            )
-            SpecRow(
-                label = "Coverage per panel",
-                value = formatAreaWithUnit(panel.coverageSquareMeters)
             )
             SpecRow(label = "Panels before waste", value = "$baseQuantity")
             SpecRow(label = "Waste allowance", value = "$wastePercent%")
