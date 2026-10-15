@@ -1,12 +1,12 @@
-import { Eye, ImagePlus, Package, PackageSearch, Pencil, Plus, Trash2, Upload, X } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
-import type { ChangeEvent, FormEvent } from "react"
+import { Eye, Package, PackageSearch, Pencil, Plus, Trash2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import type { FormEvent } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
 import { formatDate } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource } from "@/admin/use-admin-resource"
-import { createProduct, deleteProduct, updateProduct, uploadProductImage } from "@/api/admin"
+import { createProduct, deleteProduct, updateProduct } from "@/api/admin"
 import { getCategories } from "@/api/categories"
 import { getProducts } from "@/api/products"
 import { useAuth } from "@/auth/use-auth"
@@ -17,6 +17,8 @@ import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
+import { productImageItems, uploadProductImages, type ProductImageItem } from "@/admin/product-images"
+import { ProductImagesField } from "@/components/admin/product-images-field"
 import { ProductImage } from "@/components/products/product-image"
 import {
   AlertDialog,
@@ -429,14 +431,12 @@ function EditProductSheet({
 
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
-  const [imageUrl, setImageUrl] = useState<string | null>(product.images[0]?.url ?? null)
-  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [images, setImages] = useState(() => productImageItems(product.images))
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function handleDelete() {
     setIsDeleting(true)
@@ -460,22 +460,6 @@ function EditProductSheet({
     } finally {
       setIsDeleting(false)
     }
-  }
-
-  function handleImageSelect(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file (JPG, PNG, WebP).")
-      return
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setError("Image file size must be less than 5 MB.")
-      return
-    }
-    setError(null)
-    setImageFile(file)
-    setImageUrl(URL.createObjectURL(file))
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -512,11 +496,10 @@ function EditProductSheet({
     setError(null)
 
     try {
-      let finalImageUrl = imageUrl
-      if (imageFile) {
-        const uploadRes = await uploadProductImage(imageFile)
-        finalImageUrl = uploadRes.url
-      }
+      // Photos are sent only when changed: the backend replaces the whole set,
+      // and a moderator's request should not list photos it never touched.
+      const savedUrls = productImageItems(product.images).map((image) => image.url)
+      const photosChanged = images.some((image) => image.file) || images.length !== savedUrls.length || images.some((image, index) => image.url !== savedUrls[index])
 
       const payload = {
         name: name.trim(),
@@ -529,9 +512,7 @@ function EditProductSheet({
         thickness: thickness ? Number(thickness) : undefined,
         isActive,
         description: description.trim() || undefined,
-        images: finalImageUrl
-          ? [{ url: finalImageUrl, altText: name.trim(), isPrimary: true, sortOrder: 0 }]
-          : undefined,
+        images: photosChanged ? await uploadProductImages(images, name.trim()) : undefined,
       }
 
       await updateProduct(product.id, payload)
@@ -567,40 +548,7 @@ function EditProductSheet({
             </p>
           )}
 
-          {/* Product Image */}
-          <div>
-            <Label>Product image</Label>
-            <div className="mt-2 flex items-center gap-4">
-              <div className="relative size-20 shrink-0 overflow-hidden rounded-lg border border-border bg-secondary/30">
-                {imageUrl ? (
-                  <img src={imageUrl} alt="Product preview" className="size-full object-cover" />
-                ) : (
-                  <div className="flex size-full items-center justify-center text-muted-foreground">
-                    <ImagePlus className="size-6" aria-hidden="true" />
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleImageSelect}
-                  className="sr-only"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="size-3.5" data-icon="inline-start" aria-hidden="true" />
-                  {imageUrl ? "Replace image" : "Upload image"}
-                </Button>
-                <p className="text-xs text-muted-foreground">JPG, PNG, or WebP up to 5 MB</p>
-              </div>
-            </div>
-          </div>
+          <ProductImagesField items={images} onChange={setImages} onError={setError} disabled={isSaving} />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -765,12 +713,10 @@ function AddProductSheet({
   const [height, setHeight] = useState("")
   const [thickness, setThickness] = useState("")
   const [description, setDescription] = useState("")
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [images, setImages] = useState<ProductImageItem[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open && categories.length > 0 && !categoryId) {
@@ -787,25 +733,8 @@ function AddProductSheet({
     setHeight("")
     setThickness("")
     setDescription("")
-    setImageFile(null)
-    setImagePreview(null)
+    setImages([])
     setError(null)
-  }
-
-  function handleImageSelect(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith("image/")) {
-      setError("Please select a valid image file (JPG, PNG, WebP).")
-      return
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setError("Image file size must be less than 5 MB.")
-      return
-    }
-    setError(null)
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -842,11 +771,6 @@ function AddProductSheet({
     setError(null)
 
     try {
-      let uploadedImageUrl: string | undefined
-      if (imageFile) {
-        const uploadRes = await uploadProductImage(imageFile)
-        uploadedImageUrl = uploadRes.url
-      }
 
       await createProduct({
         name: name.trim(),
@@ -859,9 +783,7 @@ function AddProductSheet({
         height: height ? Number(height) : undefined,
         thickness: thickness ? Number(thickness) : undefined,
         description: description.trim() || undefined,
-        images: uploadedImageUrl
-          ? [{ url: uploadedImageUrl, altText: name.trim(), isPrimary: true, sortOrder: 0 }]
-          : undefined,
+        images: images.length > 0 ? await uploadProductImages(images, name.trim()) : undefined,
       })
 
       if (isModerator) {
@@ -899,54 +821,7 @@ function AddProductSheet({
             </p>
           )}
 
-          {/* Image upload */}
-          <div>
-            <Label>Product image</Label>
-            <div className="mt-2 flex items-center gap-4">
-              <div className="relative size-20 shrink-0 overflow-hidden rounded-lg border border-border bg-secondary/30">
-                {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="size-full object-cover" />
-                ) : (
-                  <div className="flex size-full items-center justify-center text-muted-foreground">
-                    <ImagePlus className="size-6" aria-hidden="true" />
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleImageSelect}
-                  className="sr-only"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="size-3.5" data-icon="inline-start" aria-hidden="true" />
-                  {imagePreview ? "Change image" : "Upload image"}
-                </Button>
-                {imagePreview && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setImageFile(null)
-                      setImagePreview(null)
-                    }}
-                  >
-                    <X className="size-3.5" data-icon="inline-start" aria-hidden="true" />
-                    Remove
-                  </Button>
-                )}
-                <p className="text-xs text-muted-foreground">JPG, PNG, or WebP up to 5 MB</p>
-              </div>
-            </div>
-          </div>
+          <ProductImagesField items={images} onChange={setImages} onError={setError} disabled={isSaving} />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
