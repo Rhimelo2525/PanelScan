@@ -485,6 +485,11 @@ function EditProductSheet({
       return
     }
 
+    if (images.length === 0 && product.images.length > 0) {
+      setError("Keep at least one product photo.")
+      return
+    }
+
     if (!(await confirm({
       title: `Save changes to ${product.name}?`,
       description: `The product listing will be updated for customers.${isModerator ? " It is sent to the owner for approval first." : ""}`,
@@ -548,7 +553,7 @@ function EditProductSheet({
             </p>
           )}
 
-          <ProductImagesField items={images} onChange={setImages} onError={setError} disabled={isSaving} />
+          <ProductImagesField items={images} onChange={setImages} onError={setError} disabled={isSaving} required />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -760,6 +765,11 @@ function AddProductSheet({
       return
     }
 
+    if (images.length === 0) {
+      setError("Add at least one product photo.")
+      return
+    }
+
     if (!(await confirm({
       title: `Add ${name.trim()} to the catalogue?`,
       description: `A new product will be created.${isModerator ? " It is sent to the owner for approval first." : ""}`,
@@ -783,7 +793,7 @@ function AddProductSheet({
         height: height ? Number(height) : undefined,
         thickness: thickness ? Number(thickness) : undefined,
         description: description.trim() || undefined,
-        images: images.length > 0 ? await uploadProductImages(images, name.trim()) : undefined,
+        images: await uploadProductImages(images, name.trim()),
       })
 
       if (isModerator) {
@@ -821,7 +831,7 @@ function AddProductSheet({
             </p>
           )}
 
-          <ProductImagesField items={images} onChange={setImages} onError={setError} disabled={isSaving} />
+          <ProductImagesField items={images} onChange={setImages} onError={setError} disabled={isSaving} required />
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>

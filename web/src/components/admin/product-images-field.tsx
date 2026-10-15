@@ -10,10 +10,12 @@ interface ProductImagesFieldProps {
   onChange: (items: ProductImageItem[]) => void
   onError: (message: string | null) => void
   disabled?: boolean
+  /** At least one photo is needed (marked like the other required fields). */
+  required?: boolean
 }
 
 /** Up to four product photos: add several at once, remove one, or make one the main photo. */
-export function ProductImagesField({ items, onChange, onError, disabled = false }: ProductImagesFieldProps) {
+export function ProductImagesField({ items, onChange, onError, disabled = false, required = false }: ProductImagesFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const slotsLeft = MAX_PRODUCT_IMAGES - items.length
 
@@ -43,7 +45,7 @@ export function ProductImagesField({ items, onChange, onError, disabled = false 
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <Label>Product photos</Label>
+        <Label>Product photos{required && " *"}</Label>
         <span className="text-xs text-muted-foreground tabular-nums">{items.length}/{MAX_PRODUCT_IMAGES}</span>
       </div>
       <ul className="mt-2 grid grid-cols-4 gap-2.5" aria-label="Product photos">
@@ -71,7 +73,7 @@ export function ProductImagesField({ items, onChange, onError, disabled = false 
         )}
       </ul>
       <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleSelect} className="sr-only" tabIndex={-1} />
-      <p className="mt-1.5 text-xs text-muted-foreground">Up to {MAX_PRODUCT_IMAGES} photos, JPG, PNG, or WebP up to 5 MB each. The main photo shows first in the store.</p>
+      <p className="mt-1.5 text-xs text-muted-foreground">{required ? `1 to ${MAX_PRODUCT_IMAGES} photos` : `Up to ${MAX_PRODUCT_IMAGES} photos`}, JPG, PNG, or WebP up to 5 MB each. The main photo shows first in the store.</p>
     </div>
   )
 }
