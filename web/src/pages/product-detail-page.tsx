@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { formatDimension, formatThickness } from "@/lib/dimensions"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { Product } from "@/types/product"
 
@@ -107,13 +108,13 @@ export function ProductDetailPage() {
   }
 
   // Specs relevant to a panel: what it is, how big it is, and how it is sold.
-  // Values are shown exactly as the catalog stores them; dimensions carry no unit label.
+  // Values are shown as the catalog stores them, in centimetres; thickness also in millimetres.
   const specifications = [
     { label: "Panel type", value: panelTypeLabel(product) },
     { label: "Finish / material", value: product.material },
-    { label: "Width", value: product.width },
-    { label: "Length / height", value: product.height },
-    { label: "Thickness", value: product.thickness },
+    { label: "Width", value: product.width && formatDimension(product.width) },
+    { label: "Length / height", value: product.height && formatDimension(product.height) },
+    { label: "Thickness", value: product.thickness && formatThickness(product.thickness) },
     { label: "Sold per", value: product.unit },
     { label: "SKU", value: product.sku },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value))

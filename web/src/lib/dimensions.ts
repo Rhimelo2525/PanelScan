@@ -43,7 +43,20 @@ export function dimensionError(field: DimensionField, value: string): string | n
 }
 
 /** Product size for display, without units: "2.9 × 25 × 8". */
+/** Panel dimensions are stored in centimetres (the app converts them to metres and millimetres). */
+export const DIMENSION_UNIT = "cm"
+
+/** "60" → "60 cm". */
+export const formatDimension = (value: string) => `${value} ${DIMENSION_UNIT}`
+
+/** Thickness with millimetres too, the usual unit for panel thickness: "1.2" → "1.2 cm (12 mm)". */
+export function formatThickness(value: string): string {
+  const millimetres = Number((Number(value) * 10).toFixed(2))
+  return Number.isFinite(millimetres) ? `${formatDimension(value)} (${millimetres} mm)` : formatDimension(value)
+}
+
+/** "60 × 240 × 1.2 cm" (width × height × thickness). */
 export function formatDimensions(width: string | null, height: string | null, thickness?: string | null): string | null {
   if (!width || !height) return null
-  return [width, height, thickness].filter(Boolean).join(" × ")
+  return `${[width, height, thickness].filter(Boolean).join(" × ")} ${DIMENSION_UNIT}`
 }

@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { dimensionError, dimensionInputRejection, formatDimensions } from "@/lib/dimensions"
+import { DIMENSION_UNIT, dimensionError, dimensionInputRejection, formatDimensions } from "@/lib/dimensions"
 import type { DimensionField } from "@/lib/dimensions"
 import { formatProductPrice } from "@/lib/format-price"
 import { useConfirm } from "@/components/confirm/use-confirm"
@@ -984,25 +984,28 @@ function DimensionInput({ id, field, label, value, onChange, placeholder }: { id
 
   return (
     <div>
-      <Label htmlFor={id} className="text-xs">{label}</Label>
-      <Input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        value={value}
-        onChange={(e) => {
-          const next = e.target.value.trim()
-          const rejection = dimensionInputRejection(field, next)
-          setNotice(rejection)
-          if (!rejection) onChange(next)
-        }}
-        onBlur={() => setNotice(null)}
-        placeholder={placeholder}
-        aria-invalid={Boolean(notice)}
-        aria-describedby={notice ? noticeId : undefined}
-        className="mt-1"
-      />
+      <Label htmlFor={id} className="text-xs">{label} ({DIMENSION_UNIT})</Label>
+      <div className="relative mt-1">
+        <Input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={value}
+          onChange={(e) => {
+            const next = e.target.value.trim()
+            const rejection = dimensionInputRejection(field, next)
+            setNotice(rejection)
+            if (!rejection) onChange(next)
+          }}
+          onBlur={() => setNotice(null)}
+          placeholder={placeholder}
+          aria-invalid={Boolean(notice)}
+          aria-describedby={notice ? noticeId : undefined}
+          className="pr-10"
+        />
+        <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground" aria-hidden="true">{DIMENSION_UNIT}</span>
+      </div>
       {notice && <p id={noticeId} className="mt-1 text-xs text-destructive">{notice}</p>}
     </div>
   )
