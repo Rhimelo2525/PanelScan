@@ -52,6 +52,8 @@ import com.example.panelscan.core.model.MeasurementResult
 import com.example.panelscan.core.model.PVCPanel
 import com.example.panelscan.core.model.SavedProject
 import com.example.panelscan.core.model.SurfaceType
+import com.example.panelscan.core.ui.formatCentimeters
+import com.example.panelscan.core.ui.formatThicknessCm
 import com.example.panelscan.core.ui.BadgeTone
 import com.example.panelscan.core.ui.PanelImage
 import com.example.panelscan.core.ui.PanelCard
@@ -173,7 +175,7 @@ fun MeasurementResultScreen(
                     }
                     HorizontalDivider(color = colors.border, modifier = Modifier.padding(vertical = Spacing.xs))
                     SpecRow(label = "Panel size", value = panelSizeLabel(panel))
-                    SpecRow(label = "Panel thickness", value = "${panel.thicknessMm} mm")
+                    SpecRow(label = "Panel thickness", value = formatThicknessCm(panel))
                     SpecRow(label = "Color", value = panel.material ?: "—")
                 }
 
@@ -323,8 +325,9 @@ fun MeasurementResultScreen(
 }
 
 /** "1200 × 600 × 10 mm": width × length × thickness from the catalogue. */
+/** Width × height × thickness in centimetres, as the admin enters them: "15 × 290 × 0.8 cm". */
 internal fun panelSizeLabel(panel: PVCPanel): String =
-    "${(panel.widthMeters * 1000).toInt()} × ${(panel.heightMeters * 1000).toInt()} × ${panel.thicknessMm} mm"
+    "${formatCentimeters(panel.widthMeters)} × ${formatCentimeters(panel.heightMeters)} × ${formatCentimeters(panel.thicknessMm / 1000.0)} cm"
 
 @Composable
 private fun SectionTitle(text: String) {

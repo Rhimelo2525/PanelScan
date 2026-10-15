@@ -32,6 +32,9 @@ fun formatCentimeters(meters: Double): String {
 fun formatPanelSizeCm(panel: PVCPanel): String =
     "${formatCentimeters(panel.widthMeters)} × ${formatCentimeters(panel.heightMeters)} cm"
 
+/** A panel's thickness in centimetres: 8 mm → "0.8 cm". */
+fun formatThicknessCm(panel: PVCPanel): String = "${formatCentimeters(panel.thicknessMm / 1000.0)} cm"
+
 fun formatDimensions(panel: PVCPanel): String =
     "${formatMeters(panel.widthMeters)} × ${formatMeters(panel.heightMeters)} m"
 

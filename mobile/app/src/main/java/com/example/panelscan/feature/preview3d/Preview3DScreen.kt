@@ -49,6 +49,8 @@ import com.example.panelscan.core.design.PanelScanMotion
 import com.example.panelscan.core.design.Spacing
 import com.example.panelscan.core.model.PVCPanel
 import com.example.panelscan.core.model.SavedProject
+import com.example.panelscan.core.ui.formatPanelSizeCm
+import com.example.panelscan.core.ui.formatThicknessCm
 import com.example.panelscan.core.ui.OverlayBadge
 import com.example.panelscan.core.ui.OverlayIconButton
 import com.example.panelscan.core.ui.OverlayPrimaryButton
@@ -365,7 +367,7 @@ fun Preview3DScreen(
                 )
                 SpecRow(
                     label = "Panel size",
-                    value = "${(selectedPanel.widthMeters * 1000).toInt()} × ${(selectedPanel.heightMeters * 1000).toInt()} mm · ${selectedPanel.thicknessMm} mm thick"
+                    value = "${formatPanelSizeCm(selectedPanel)} · ${formatThicknessCm(selectedPanel)} thick"
                 )
                 SpecRow(
                     label = "Measured surface",
