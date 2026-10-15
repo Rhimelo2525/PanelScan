@@ -136,12 +136,13 @@ export function ProductDetailPage() {
           <ProductGallery product={product} />
 
           <div className="lg:pt-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{panelTypeLabel(product) ?? product.category.name}</Badge>
-              {product.isFeatured && <Badge>Featured</Badge>}
+            <h1 className="type-h1">{product.name}</h1>
+            {/* Panel type and stock side by side under the name. */}
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="h-auto rounded-full px-3 py-1 text-sm font-medium">{panelTypeLabel(product) ?? product.category.name}</Badge>
+              {product.isFeatured && <Badge className="h-auto rounded-full px-3 py-1 text-sm font-medium">Featured</Badge>}
+              <StockStatus inventory={product.inventory} />
             </div>
-            <h1 className="type-h1 mt-5">{product.name}</h1>
-            <div className="mt-5"><StockStatus inventory={product.inventory} /></div>
             {product.description && <p className="mt-7 whitespace-pre-line text-base leading-7 text-muted-foreground">{product.description}</p>}
 
             {/* Price first, then the panel details. */}
