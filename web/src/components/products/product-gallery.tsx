@@ -26,10 +26,10 @@ export function ProductGallery({ product }: ProductGalleryProps) {
     <div className="relative">
       {activeImage && canZoom && imageLoads ? (
         <HoverZoomImage url={activeImage.url} alt={activeImage.altText?.trim() || `${product.name} product image`}>
-          <ProductImage image={activeImage} productName={product.name} categorySlug={product.category.slug} className="aspect-[4/3] rounded-xl border border-border" />
+          <ProductImage image={activeImage} productName={product.name} categorySlug={product.category.slug} className="aspect-[4/3] rounded-xl border border-border bg-white" imageClassName="object-contain" />
         </HoverZoomImage>
       ) : (
-        <ProductImage image={activeImage} productName={product.name} categorySlug={product.category.slug} className="aspect-[4/3] rounded-xl border border-border" />
+        <ProductImage image={activeImage} productName={product.name} categorySlug={product.category.slug} className="aspect-[4/3] rounded-xl border border-border bg-white" imageClassName="object-contain" />
       )}
       {sortedImages.length > 1 && (
         <div className="mt-3 flex gap-3 overflow-x-auto pb-2" aria-label="Product image thumbnails">
@@ -84,14 +84,14 @@ function HoverZoomImage({ url, alt, children }: { url: string; alt: string; chil
             aria-hidden="true"
           />
           <div
-            className="pointer-events-none absolute top-0 left-[calc(100%+2rem)] z-30 hidden aspect-[4/3] w-full overflow-hidden rounded-xl border border-border bg-card shadow-2xl lg:block"
+            className="pointer-events-none absolute top-0 left-[calc(100%+2rem)] z-30 hidden aspect-[4/3] w-full overflow-hidden rounded-xl border border-border bg-white shadow-2xl lg:block"
             aria-hidden="true"
           >
-            {/* The same photo at ZOOM× size, cropped like the main one, moved so the lens area fills the view. */}
+            {/* The same photo at ZOOM× size, fitted like the main one (whole photo, never cropped), moved so the lens area fills the view. */}
             <img
               src={url}
               alt={alt}
-              className="absolute max-w-none object-cover"
+              className="absolute max-w-none object-contain"
               style={{
                 width: `${ZOOM * 100}%`,
                 height: `${ZOOM * 100}%`,

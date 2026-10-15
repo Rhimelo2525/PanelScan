@@ -7,7 +7,7 @@ import { ProductRatings } from "@/components/products/product-ratings"
 import { StockStatus } from "@/components/products/stock-status"
 import { Badge } from "@/components/ui/badge"
 import { formatDimensions } from "@/lib/dimensions"
-import { isPvcProduct, panelTypeLabel } from "@/products/panel-types"
+import { panelTypeLabel } from "@/products/panel-types"
 import type { Product } from "@/types/product"
 
 interface ProductCardProps {
@@ -27,7 +27,6 @@ function getPrimaryImage(product: Product) {
 export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) {
   const Heading = headingLevel
   const dimensions = formatDimensions(product.width, product.height, product.thickness)
-  const isReferenceItem = !isPvcProduct(product)
 
   return (
     <article className="group flex flex-col">
@@ -54,7 +53,6 @@ export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) 
 
         {dimensions && <p className="mt-2 text-sm text-muted-foreground tabular-nums">{dimensions}</p>}
         <ProductRatings productId={product.id} />
-        {isReferenceItem && <p className="mt-2 text-xs leading-5 text-muted-foreground">Reference item — not part of the current PVC range</p>}
 
         <div className="mt-auto pt-4">
           <StockStatus inventory={product.inventory} compact />

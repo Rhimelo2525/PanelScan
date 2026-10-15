@@ -1,4 +1,4 @@
-import { Info, Search, SlidersHorizontal, X } from "lucide-react"
+import { Search, SlidersHorizontal, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { useSearchParams } from "react-router-dom"
@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { cn } from "@/lib/utils"
-import { PANEL_TYPES, REFERENCE_CATALOGUE_NOTICE, inScopeCategories, inScopeProducts, isPvcProduct } from "@/products/panel-types"
+import { PANEL_TYPES, inScopeCategories, inScopeProducts } from "@/products/panel-types"
 import type { Category } from "@/types/category"
 import type { PaginatedProducts, ProductSort } from "@/types/product"
 
@@ -163,13 +163,6 @@ export function ProductsPage() {
             <p id="catalog-results-heading" className="text-sm font-medium" aria-live="polite">{isLoading ? "Loading panels…" : error ? "Catalog unavailable" : `${result?.pagination.total ?? 0} ${result?.pagination.total === 1 ? "panel" : "panels"}`}</p>
             {hasFilters && <Button variant="ghost" size="sm" onClick={resetFilters}><X data-icon="inline-start" aria-hidden="true" />Clear filters</Button>}
           </div>
-
-          {!isLoading && !error && (result?.products ?? []).some((product) => !isPvcProduct(product)) && (
-            <p className="mt-6 flex items-start gap-2.5 surface-card p-4 text-sm leading-6 text-muted-foreground">
-              <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              Some records below are reference catalogue items whose material is not PVC. {REFERENCE_CATALOGUE_NOTICE.split(". ")[1]} They are marked on each card and will be replaced when Disenyo Interior Solution supplies the approved PVC catalogue.
-            </p>
-          )}
 
           <div key={`${categorySlug}|${search}|${sort}`} className="motion-swap mt-7">
             {isLoading && <ProductGridSkeleton />}

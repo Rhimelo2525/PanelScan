@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Box, Hammer, Info, Ruler } from "lucide-react"
+import { ArrowLeft, ArrowRight, Box, Hammer, Ruler } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 
@@ -11,7 +11,7 @@ import { ProductDetailSkeleton } from "@/components/products/product-detail-skel
 import { ProductGallery } from "@/components/products/product-gallery"
 import { ProductPricingPanel } from "@/components/products/product-pricing-panel"
 import { ProductRatings } from "@/components/products/product-ratings"
-import { REFERENCE_CATALOGUE_NOTICE, isPvcProduct, panelTypeForProduct, panelTypeLabel } from "@/products/panel-types"
+import { REFERENCE_CATALOGUE_NOTICE, panelTypeForProduct, panelTypeLabel } from "@/products/panel-types"
 import { StockStatus } from "@/components/products/stock-status"
 import { Badge } from "@/components/ui/badge"
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
@@ -144,6 +144,9 @@ export function ProductDetailPage() {
             <div className="mt-5"><StockStatus inventory={product.inventory} /></div>
             {product.description && <p className="mt-7 whitespace-pre-line text-base leading-7 text-muted-foreground">{product.description}</p>}
 
+            {/* Price first, then the panel details. */}
+            <div className="mt-8"><ProductPricingPanel product={product} returnTo={`/products/${product.id}`} /></div>
+
             <Separator className="my-8" />
 
             <section aria-labelledby="specifications-title">
@@ -159,7 +162,6 @@ export function ProductDetailPage() {
               <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-muted-foreground"><Box className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />Dimensions are shown exactly as stored in the product catalog. Confirm colour and finish against a physical sample before ordering.</p>
             </section>
 
-            <div className="mt-8"><ProductPricingPanel product={product} returnTo={`/products/${product.id}`} /></div>
             <ProductRatings productId={product.id} detailed />
 
             <section className="mt-6 rounded-lg border border-border bg-secondary/45 p-5" aria-labelledby="installation-cta-title">
@@ -168,12 +170,6 @@ export function ProductDetailPage() {
               <Button variant="outline" className="mt-4 w-full" asChild><Link to="/installation">Request installation<ArrowRight data-icon="inline-end" aria-hidden="true" /></Link></Button>
             </section>
 
-            {!isPvcProduct(product) && (
-              <p className="mt-6 flex items-start gap-2.5 surface-card p-4 text-sm leading-6 text-muted-foreground">
-                <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                {REFERENCE_CATALOGUE_NOTICE}
-              </p>
-            )}
           </div>
         </div>
       </Container>

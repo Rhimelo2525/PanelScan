@@ -88,14 +88,5 @@ export function inScopeProducts<T extends Pick<Product, "category">>(products: T
   return products.filter((product) => panelTypeForProduct(product) !== null)
 }
 
-/**
- * True when the product's own material field identifies PVC. Other seeded
- * wall/ceiling records are labeled as reference items rather than represented
- * as products in the current PVC range.
- */
-export function isPvcProduct(product: Pick<Product, "material">): boolean {
-  return (product.material ?? "").toLowerCase().includes("pvc")
-}
-
 export const REFERENCE_CATALOGUE_NOTICE =
   "Reference catalogue item. This product is not part of Disenyo Interior Solution's current PVC range."
