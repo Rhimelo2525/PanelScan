@@ -19,14 +19,16 @@ import { upsertBackupRow } from '../src/utils/backupSync';
 import { SYNC_ORDER, checkGeneratedClient, checkLiveBackupSchema } from '../src/utils/backupSchema';
 
 /**
- * Short-lived rows the app deletes all the time (a cart line removed, or
- * cleared at checkout). Those deletes are not mirrored in real time, so the
- * backup kept stale lines - and re-adding the same product then failed the
- * (cart_id, product_id) unique key on every run. For these tables only, rows
- * no longer in the primary are removed from the backup before the upsert.
- * Every other table keeps rows the primary has lost, as a backup should.
+ * Current-state rows the app deletes and creates again: a cart line (removed,
+ * or cleared at checkout) and a product's stock record (inventory, deleted by
+ * the owner or an approved moderator request, then recorded again). Those
+ * deletes are not mirrored in real time, so the backup kept the old row and
+ * the new one then failed the unique key - (cart_id, product_id) or
+ * (product_id) - on every run. For these tables only, rows no longer in the
+ * primary are removed from the backup before the upsert. Every other table
+ * keeps rows the primary has lost, as a backup should.
  */
-const MIRROR_DELETES = new Set(['cartItem']);
+const MIRROR_DELETES = new Set(['cartItem', 'inventory']);
 
 interface TableReport {
   table: string;
