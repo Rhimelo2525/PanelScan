@@ -52,7 +52,6 @@ import com.example.panelscan.core.ui.SpecRow
 import com.example.panelscan.core.ui.StatusBadge
 import com.example.panelscan.core.ui.formatAreaWithUnit
 import com.example.panelscan.core.ui.formatCurrency
-import com.example.panelscan.core.ui.formatMeters
 
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -218,17 +217,12 @@ fun ProductDetailScreen(
                         SpecRow(label = "Color", value = it)
                         SpecDivider()
                     }
-                    SpecRow(
-                        label = "Panel width",
-                        value = "${(panel.widthMeters * 1000).toInt()} mm  (${formatMeters(panel.widthMeters)} m)"
-                    )
+                    // In centimetres, as the admin enters them.
+                    SpecRow(label = "Width", value = "${cm(panel.widthMeters)} cm")
                     SpecDivider()
-                    SpecRow(
-                        label = "Panel length",
-                        value = "${(panel.heightMeters * 1000).toInt()} mm  (${formatMeters(panel.heightMeters)} m)"
-                    )
+                    SpecRow(label = "Height", value = "${cm(panel.heightMeters)} cm")
                     SpecDivider()
-                    SpecRow(label = "Thickness", value = "${panel.thicknessMm} mm")
+                    SpecRow(label = "Thickness", value = "${cm(panel.thicknessMm / 1000.0)} cm")
                     SpecDivider()
                     SpecRow(label = "Coverage per panel", value = formatAreaWithUnit(panel.coverageSquareMeters))
                     SpecDivider()
@@ -481,11 +475,11 @@ private fun QuickFact(label: String, value: String, modifier: Modifier = Modifie
     }
 }
 
-/** The panel's face size in centimetres, as the admin enters it: "20 × 290 cm". */
-private fun panelSizeCm(panel: PVCPanel): String {
-    fun cm(meters: Double): String {
-        val value = meters * 100
-        return if (value % 1.0 == 0.0) value.toInt().toString() else String.format(java.util.Locale.US, "%.1f", value)
-    }
-    return "${cm(panel.widthMeters)} × ${cm(panel.heightMeters)} cm"
+/** A length in metres as centimetres, without needless decimals: 0.2 → "20", 0.012 → "1.2". */
+private fun cm(meters: Double): String {
+    val value = Math.round(meters * 1000) / 10.0
+    return if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
 }
+
+/** The panel's face size in centimetres, as the admin enters it: "20 × 290 cm". */
+private fun panelSizeCm(panel: PVCPanel): String = "${cm(panel.widthMeters)} × ${cm(panel.heightMeters)} cm"
