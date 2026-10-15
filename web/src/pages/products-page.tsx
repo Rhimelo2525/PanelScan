@@ -121,7 +121,7 @@ export function ProductsPage() {
             <label className="relative block">
               <span className="sr-only">Search products</span>
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <Input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} className="h-11 bg-card pr-28 pl-10" placeholder="Search by name, finish, or SKU" />
+              <Input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} className="h-11 bg-card pr-28 pl-10" placeholder="Search by name, color, or product code" />
               <Button type="submit" size="sm" className="absolute top-2 right-2">Search</Button>
             </label>
 

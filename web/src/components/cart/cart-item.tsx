@@ -46,7 +46,7 @@ export function CartItem({ item, isPending, isSelected, onSelectChange, onQuanti
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold tracking-[-0.02em]"><Link className="hover:text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" to={`/products/${product.id}`}>{product.name}</Link></h2>
-            <p className="mt-1 text-xs text-muted-foreground">SKU {product.sku} · per {product.unit}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Product code {product.sku} · per {product.unit}</p>
           </div>
           <p className="shrink-0 text-sm font-medium">{formatProductPrice(product.price)}</p>
         </div>

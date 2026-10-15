@@ -81,6 +81,8 @@ export class ProductService {
               { name: { contains: filters.search, mode: 'insensitive' } },
               { description: { contains: filters.search, mode: 'insensitive' } },
               { sku: { contains: filters.search, mode: 'insensitive' } },
+              // The material field holds the panel's colour ("White Oak").
+              { material: { contains: filters.search, mode: 'insensitive' } },
             ],
           }
         : {}),

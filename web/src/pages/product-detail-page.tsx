@@ -116,7 +116,7 @@ export function ProductDetailPage() {
     { label: "Length / height", value: product.height && formatDimension(product.height) },
     { label: "Thickness", value: product.thickness && formatThickness(product.thickness) },
     { label: "Sold per", value: product.unit },
-    { label: "SKU", value: product.sku },
+    { label: "Product code", value: product.sku },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value))
 
   return (

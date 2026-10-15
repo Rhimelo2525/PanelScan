@@ -93,7 +93,7 @@ export function AdminInventoryPage() {
 
           <FilterBar
             searchValue={search}
-            searchPlaceholder="Search product or SKU"
+            searchPlaceholder="Search product or product code"
             onSearchChange={setSearch}
             hasActiveFilters={Boolean(search || statusFilter)}
             onClear={() => { setSearch(""); setStatusFilter("") }}

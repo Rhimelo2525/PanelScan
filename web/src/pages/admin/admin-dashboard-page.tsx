@@ -188,7 +188,7 @@ export function AdminDashboardPage() {
               empty={<div className="rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center text-sm text-muted-foreground">No products have been sold in this cycle yet.</div>}
               columns={[
                 { key: "name", header: "Product", primary: true, cell: (row) => <span className="font-medium">{row.productName}</span> },
-                { key: "sku", header: "SKU", secondary: true, cell: (row) => <span className="text-muted-foreground">{row.sku}</span> },
+                { key: "sku", header: "Product Code", secondary: true, cell: (row) => <span className="text-muted-foreground">{row.sku}</span> },
                 { key: "sold", header: "Units sold", numeric: true, cell: (row) => formatCount(row.unitsSold) },
                 { key: "revenue", header: "Revenue", numeric: true, cell: (row) => row.totalRevenue === undefined ? <span className="text-xs text-muted-foreground">Owner only</span> : formatMoney(row.totalRevenue) },
               ]}
