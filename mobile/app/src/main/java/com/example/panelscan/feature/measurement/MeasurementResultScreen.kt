@@ -175,10 +175,7 @@ fun MeasurementResultScreen(
                     SpecRow(label = "Panel size", value = panelSizeLabel(panel))
                     SpecRow(label = "Panel thickness", value = "${panel.thicknessMm} mm")
                     SpecRow(label = "Coverage per panel", value = formatAreaWithUnit(panel.coverageSquareMeters))
-                    SpecRow(
-                        label = "Finish",
-                        value = listOfNotNull(panel.finish, panel.material).joinToString(" · ")
-                    )
+                    SpecRow(label = "Color", value = panel.material ?: "—")
                 }
 
                 // ---- Waste allowance

@@ -213,11 +213,9 @@ fun ProductDetailScreen(
                     SpecRow(label = "Category", value = panel.category)
                     SpecDivider()
                     panel.material?.let {
-                        SpecRow(label = "Material", value = it)
+                        SpecRow(label = "Color", value = it)
                         SpecDivider()
                     }
-                    SpecRow(label = "Finish", value = panel.finish)
-                    SpecDivider()
                     SpecRow(
                         label = "Panel width",
                         value = "${(panel.widthMeters * 1000).toInt()} mm  (${formatMeters(panel.widthMeters)} m)"

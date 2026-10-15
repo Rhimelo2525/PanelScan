@@ -111,7 +111,7 @@ export function ProductDetailPage() {
   // Values are shown as the catalog stores them, in centimetres; thickness also in millimetres.
   const specifications = [
     { label: "Panel type", value: panelTypeLabel(product) },
-    { label: "Finish / material", value: product.material },
+    { label: "Color", value: product.material },
     { label: "Width", value: product.width && formatDimension(product.width) },
     { label: "Length / height", value: product.height && formatDimension(product.height) },
     { label: "Thickness", value: product.thickness && formatThickness(product.thickness) },

@@ -141,6 +141,12 @@ export function AdminProductsPage() {
       cell: (product) => <span className="text-muted-foreground">{product.category?.name ?? "—"}</span>,
     },
     {
+      // Stored in the product's material field.
+      key: "color",
+      header: "Color",
+      cell: (product) => <span className="text-muted-foreground">{product.material ?? "—"}</span>,
+    },
+    {
       key: "price",
       header: "Price",
       numeric: true,
@@ -389,7 +395,7 @@ function ProductDetailsSheet({ product, onClose }: { product: Product | null; on
             <Detail label="Category" value={product.category?.name ?? "—"} />
             <Detail label="Price" value={formatProductPrice(product.price)} />
             <Detail label="Product Code" value={product.sku} />
-            <Detail label="Finish / material" value={product.material ?? "—"} />
+            <Detail label="Color" value={product.material ?? "—"} />
             <Detail
               label="Dimensions"
               value={
@@ -605,12 +611,12 @@ function EditProductSheet({
             </div>
 
             <div>
-              <Label htmlFor="edit-material">Material / Finish</Label>
+              <Label htmlFor="edit-material">Color</Label>
               <Input
                 id="edit-material"
                 value={material}
                 onChange={(e) => setMaterial(e.target.value)}
-                placeholder="e.g. Oak Veneer, PVC"
+                placeholder="e.g. Black, Natural Oak, White"
                 className="mt-1.5"
               />
             </div>
@@ -881,12 +887,12 @@ function AddProductSheet({
             </div>
 
             <div>
-              <Label htmlFor="add-material">Material / Finish</Label>
+              <Label htmlFor="add-material">Color</Label>
               <Input
                 id="add-material"
                 value={material}
                 onChange={(e) => setMaterial(e.target.value)}
-                placeholder="e.g. Natural Oak, PVC"
+                placeholder="e.g. Black, Natural Oak, White"
                 className="mt-1.5"
               />
             </div>
