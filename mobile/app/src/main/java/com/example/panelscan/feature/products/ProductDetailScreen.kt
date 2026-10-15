@@ -1,5 +1,15 @@
 package com.example.panelscan.feature.products
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.example.panelscan.core.ui.panelSurface
+import com.example.panelscan.core.ui.pressScale
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +42,6 @@ import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.Spacing
 import com.example.panelscan.core.model.PVCPanel
 import com.example.panelscan.core.ui.BadgeTone
-import com.example.panelscan.core.ui.MetricCard
 import com.example.panelscan.core.ui.PanelCard
 import com.example.panelscan.core.ui.PanelScanTopBar
 import com.example.panelscan.core.ui.PanelGallery
@@ -41,7 +50,6 @@ import com.example.panelscan.core.ui.PrimaryButton
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.SpecRow
 import com.example.panelscan.core.ui.StatusBadge
-import com.example.panelscan.core.ui.formatArea
 import com.example.panelscan.core.ui.formatAreaWithUnit
 import com.example.panelscan.core.ui.formatCurrency
 import com.example.panelscan.core.ui.formatMeters
@@ -83,6 +91,7 @@ fun ProductDetailScreen(
     onOpenCart: () -> Unit = {},
     bottomPadding: Dp = 0.dp
 ) {
+    var showSpecs by rememberSaveable { mutableStateOf(false) }
     val colors = PanelScan.colors
     var quantity by remember { mutableIntStateOf(1) }
     var addedToCartState by remember { mutableStateOf(false) }
@@ -133,83 +142,76 @@ fun ProductDetailScreen(
                     }
                 }
 
+                // What a customer decides on first; everything else is under "Full specifications".
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                    Text(
-                        text = panel.finish.uppercase(),
-                        style = PanelScan.type.label,
-                        color = colors.textTertiary
-                    )
                     Text(text = panel.name, style = PanelScan.type.title, color = colors.textPrimary)
-                    Text(
-                        text = panel.description,
-                        style = PanelScan.type.body,
-                        color = colors.textSecondary
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    MetricCard(
-                        label = "Coverage",
-                        value = formatArea(panel.coverageSquareMeters),
-                        unit = "m² each",
-                        modifier = Modifier.weight(1f)
-                    )
                     if (showPrice) {
-                        MetricCard(
-                            label = "Price",
-                            value = panel.pricePerUnit?.let { formatCurrency(it) } ?: "—",
-                            unit = if (panel.pricePerUnit != null) "per panel" else null,
-                            emphasised = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                    } else {
-                        PanelCard(
-                            modifier = Modifier.weight(1f),
-                            onClick = onNavigateToSignIn,
-                            contentPadding = PaddingValues(Spacing.sm)
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = panel.pricePerUnit?.let { formatCurrency(it) } ?: "Price on request",
+                                style = PanelScan.type.metric,
+                                color = colors.accent
+                            )
+                            if (panel.pricePerUnit != null) {
                                 Text(
-                                    text = "PRICE",
-                                    style = PanelScan.type.label,
-                                    color = colors.textTertiary
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Lock,
-                                        contentDescription = null,
-                                        tint = colors.accent,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = "Log in",
-                                        style = PanelScan.type.cardTitle,
-                                        color = colors.accent
-                                    )
-                                }
-                                Text(
-                                    text = "to view pricing",
+                                    text = "per panel",
                                     style = PanelScan.type.supporting,
-                                    color = colors.textSecondary
+                                    color = colors.textSecondary,
+                                    modifier = Modifier.padding(bottom = 4.dp)
                                 )
                             }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.pressScale(onClick = onNavigateToSignIn).padding(vertical = Spacing.xxs),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Lock,
+                                contentDescription = null,
+                                tint = colors.accent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(text = "Log in to view pricing", style = PanelScan.type.cardTitle, color = colors.accent)
                         }
                     }
                 }
 
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    QuickFact(label = "Size", value = panelSizeCm(panel), modifier = Modifier.weight(1f))
+                    QuickFact(label = "Color", value = panel.material ?: "—", modifier = Modifier.weight(1f))
+                }
+
+                SecondaryButton(
+                    text = if (showSpecs) "Hide full specifications" else "View full specifications",
+                    icon = if (showSpecs) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    iconAfterText = true,
+                    onClick = { showSpecs = !showSpecs }
+                )
+
+                AnimatedVisibility(visible = showSpecs, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 PanelCard(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(Spacing.md)
                 ) {
                     Text(
-                        text = "Panel Specifications",
+                        text = "Full specifications",
                         style = PanelScan.type.sectionTitle,
                         color = colors.textPrimary,
                         modifier = Modifier.padding(bottom = Spacing.xs)
                     )
+                    if (panel.description.isNotBlank()) {
+                        Text(
+                            text = panel.description,
+                            style = PanelScan.type.body,
+                            color = colors.textSecondary,
+                            modifier = Modifier.padding(bottom = Spacing.sm)
+                        )
+                    }
                     SpecRow(label = "Category", value = panel.category)
                     SpecDivider()
                     panel.material?.let {
@@ -242,6 +244,7 @@ fun ProductDetailScreen(
                         value = if (panel.inStock) "In stock" else "Out of stock",
                         valueColor = if (panel.inStock) colors.success else colors.destructive
                     )
+                }
                 }
 
                 PanelCard(
@@ -461,4 +464,28 @@ private fun SpecDivider() {
         modifier = Modifier.padding(vertical = Spacing.xs),
         color = PanelScan.colors.border
     )
+}
+
+/** A short labelled fact under the product name ("Size", "Color"). */
+@Composable
+private fun QuickFact(label: String, value: String, modifier: Modifier = Modifier) {
+    val colors = PanelScan.colors
+    Column(
+        modifier = modifier
+            .panelSurface(shape = PanelScan.shapes.controlCompact, elevation = 0.dp)
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(text = label.uppercase(), style = PanelScan.type.label, color = colors.textTertiary)
+        Text(text = value, style = PanelScan.type.cardTitle, color = colors.textPrimary, maxLines = 2)
+    }
+}
+
+/** The panel's face size in centimetres, as the admin enters it: "20 × 290 cm". */
+private fun panelSizeCm(panel: PVCPanel): String {
+    fun cm(meters: Double): String {
+        val value = meters * 100
+        return if (value % 1.0 == 0.0) value.toInt().toString() else String.format(java.util.Locale.US, "%.1f", value)
+    }
+    return "${cm(panel.widthMeters)} × ${cm(panel.heightMeters)} cm"
 }
