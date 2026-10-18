@@ -17,7 +17,9 @@ import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
+import { guessPanel3d, panel3dError, panel3dLabel, panel3dPayload, panel3dStatus, panel3dValue, type Panel3dValue } from "@/admin/panel-3d"
 import { productImageItems, uploadProductImages, type ProductImageItem } from "@/admin/product-images"
+import { Panel3dField } from "@/components/admin/panel-3d-field"
 import { ProductImagesField } from "@/components/admin/product-images-field"
 import { ProductImage } from "@/components/products/product-image"
 import {
@@ -49,6 +51,24 @@ import type { Product } from "@/types/product"
 function StockBadge({ product }: { product: Product }) {
   const status = getStockStatus(product.inventory)
   return <StatusBadge status={status} label={STOCK_STATUS_LABELS[status]} />
+}
+
+/** Whether the product has its own 3D settings or the app still fills some in. */
+function Panel3dBadge({ product }: { product: Product }) {
+  const ready = panel3dStatus(product) === "READY"
+  return (
+    <span
+      className={ready ? "inline-flex items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[0.7rem] font-medium text-primary" : "inline-flex items-center rounded-md border border-border px-1.5 py-0.5 text-[0.7rem] font-medium text-muted-foreground"}
+      title={ready ? "Panel shape set for the app's 3D preview" : "Shape guessed from the name; edit the product to set it"}
+    >
+      3D: {ready ? "Ready" : "Auto"}
+    </span>
+  )
+}
+
+function guessedShape(name: string): string {
+  const guess = guessPanel3d(name)
+  return panel3dLabel(guess.profile, guess.grooveCount)
 }
 
 export function AdminProductsPage() {
@@ -175,6 +195,7 @@ export function AdminProductsPage() {
         <div className="flex flex-wrap items-center gap-1.5">
           <StatusBadge status={product.isActive ? "ACTIVE" : "DRAFT"} />
           <StockBadge product={product} />
+          <Panel3dBadge product={product} />
         </div>
       ),
     },
@@ -402,6 +423,7 @@ function ProductDetailsSheet({ product, onClose }: { product: Product | null; on
 formatDimensions(product.width, product.height, product.thickness) ?? "—"
               }
             />
+            <Detail label="3D shape" value={product.panelProfile ? panel3dLabel(product.panelProfile, product.grooveCount) : `${guessedShape(product.name)} (from the name)`} />
             <Detail label="Stock on hand" value={String(product.inventory?.quantity ?? 0)} />
             <Detail label="Reserved quantity" value={String(product.inventory?.reservedQty ?? 0)} />
             <Detail label="Reorder threshold" value={String(product.inventory?.reorderLevel ?? 0)} />
@@ -438,6 +460,7 @@ function EditProductSheet({
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
   const [images, setImages] = useState(() => productImageItems(product.images))
+  const [panel3d, setPanel3d] = useState<Panel3dValue>(() => panel3dValue(product))
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -496,10 +519,16 @@ function EditProductSheet({
       return
     }
 
+    const shapeProblem = panel3dError(panel3d.profile, panel3d.grooveCount)
+    if (shapeProblem) {
+      setError(shapeProblem)
+      return
+    }
+
     if (!(await confirm({
       title: `Save changes to ${product.name}?`,
       description: `The product listing will be updated for customers.${isModerator ? " It is sent to the owner for approval first." : ""}`,
-      details: [{ label: "Name", value: name.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }, { label: "Listing", value: isActive ? "Active" : "Hidden" }],
+      details: [{ label: "Name", value: name.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }, { label: "Listing", value: isActive ? "Active" : "Hidden" }, { label: "3D shape", value: panel3dLabel(panel3d.profile, Number(panel3d.grooveCount) || null) }],
       confirmLabel: "Save Changes",
     }))) return
 
@@ -524,6 +553,7 @@ function EditProductSheet({
         isActive,
         description: description.trim() || undefined,
         images: photosChanged ? await uploadProductImages(images, name.trim()) : undefined,
+        ...panel3dPayload(panel3d),
       }
 
       await updateProduct(product.id, payload)
@@ -641,6 +671,8 @@ function EditProductSheet({
             <DimensionInput id="edit-thickness" field="thickness" label="Thickness" value={thickness} onChange={setThickness} />
           </div>
 
+          <Panel3dField idPrefix="edit" value={panel3d} onChange={setPanel3d} disabled={isSaving} />
+
           <div>
             <Label htmlFor="edit-description">Description</Label>
             <Textarea
@@ -725,6 +757,9 @@ function AddProductSheet({
   const [thickness, setThickness] = useState("")
   const [description, setDescription] = useState("")
   const [images, setImages] = useState<ProductImageItem[]>([])
+  const [panel3d, setPanel3d] = useState<Panel3dValue>(() => panel3dValue())
+  // Until the moderator picks a shape, it follows the name ("WPC Fluted 7in1" → fluted, 7 grooves).
+  const [panel3dPicked, setPanel3dPicked] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
@@ -745,7 +780,21 @@ function AddProductSheet({
     setThickness("")
     setDescription("")
     setImages([])
+    setPanel3d(panel3dValue())
+    setPanel3dPicked(false)
     setError(null)
+  }
+
+  function changeName(value: string) {
+    setName(value)
+    if (panel3dPicked) return
+    const guess = guessPanel3d(value)
+    setPanel3d({ profile: guess.profile, grooveCount: guess.grooveCount ? String(guess.grooveCount) : "" })
+  }
+
+  function changePanel3d(value: Panel3dValue) {
+    if (value.profile !== panel3d.profile || value.grooveCount !== panel3d.grooveCount) setPanel3dPicked(true)
+    setPanel3d(value)
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -776,10 +825,16 @@ function AddProductSheet({
       return
     }
 
+    const shapeProblem = panel3dError(panel3d.profile, panel3d.grooveCount)
+    if (shapeProblem) {
+      setError(shapeProblem)
+      return
+    }
+
     if (!(await confirm({
       title: `Add ${name.trim()} to the catalogue?`,
       description: `A new product will be created.${isModerator ? " It is sent to the owner for approval first." : ""}`,
-      details: [{ label: "Product Code", value: sku.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }],
+      details: [{ label: "Product Code", value: sku.trim() }, { label: "Price", value: `₱${numPrice.toFixed(2)}` }, { label: "3D shape", value: panel3dLabel(panel3d.profile, Number(panel3d.grooveCount) || null) }],
       confirmLabel: "Add Product",
     }))) return
 
@@ -800,6 +855,7 @@ function AddProductSheet({
         thickness: thickness ? Number(thickness) : undefined,
         description: description.trim() || undefined,
         images: await uploadProductImages(images, name.trim()),
+        ...panel3dPayload(panel3d),
       })
 
       if (isModerator) {
@@ -845,7 +901,7 @@ function AddProductSheet({
               <Input
                 id="add-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => changeName(e.target.value)}
                 placeholder="e.g. Oak Veneer Wall Panel"
                 required
                 className="mt-1.5"
@@ -903,6 +959,8 @@ function AddProductSheet({
             <DimensionInput id="add-height" field="height" label="Height" value={height} onChange={setHeight} placeholder="240" />
             <DimensionInput id="add-thickness" field="thickness" label="Thickness" value={thickness} onChange={setThickness} placeholder="1.2" />
           </div>
+
+          <Panel3dField idPrefix="add" value={panel3d} onChange={changePanel3d} disabled={isSaving} />
 
           <div>
             <Label htmlFor="add-description">Description</Label>

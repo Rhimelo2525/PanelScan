@@ -1,5 +1,5 @@
 import { apiRequest } from "@/api/client"
-import type { Product } from "@/types/product"
+import type { PanelProfile, Product } from "@/types/product"
 import type {
   AdminBooking,
   DashboardArchiveDetail,
@@ -101,6 +101,10 @@ export interface CreateProductAdminInput {
   reorderLevel?: number
   isFeatured?: boolean
   images?: Array<{ url: string; altText?: string; isPrimary?: boolean; sortOrder?: number }>
+  /** 3D preview settings (admin/panel-3d.ts); null clears one. */
+  panelProfile?: PanelProfile | null
+  grooveCount?: number | null
+  surfaceImageUrl?: string | null
 }
 
 /** Creates products. For MODERATOR, creates an approval request. */
@@ -124,6 +128,10 @@ export interface UpdateProductAdminInput {
   isActive?: boolean
   isFeatured?: boolean
   images?: Array<{ url: string; altText?: string; isPrimary?: boolean; sortOrder?: number }>
+  /** 3D preview settings (admin/panel-3d.ts); null clears one. */
+  panelProfile?: PanelProfile | null
+  grooveCount?: number | null
+  surfaceImageUrl?: string | null
 }
 
 /** Updates product details. For MODERATOR, creates an approval request. */

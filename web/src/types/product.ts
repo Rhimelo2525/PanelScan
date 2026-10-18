@@ -16,6 +16,8 @@ export interface ProductInventory {
   reorderLevel: number
 }
 
+export type PanelProfile = "FLAT" | "FLUTED" | "INVERTED_CIRCLE" | "SPANDREL"
+
 export interface Product {
   id: string
   categoryId: string
@@ -29,6 +31,12 @@ export interface Product {
   thickness: string | null
   unit: string
   material: string | null
+  /** How the app's 3D preview draws the panel; null until a moderator sets it. */
+  panelProfile: PanelProfile | null
+  /** Grooves across the face (the 5 in "5in1"); null for a flat panel. */
+  grooveCount: number | null
+  /** A straight-on photo of the panel face; without one the main photo is used. */
+  surfaceImageUrl: string | null
   isActive: boolean
   isFeatured: boolean
   deletedAt: string | null
