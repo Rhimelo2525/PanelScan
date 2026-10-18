@@ -9,6 +9,7 @@ import { requestService } from '../request/request.service';
 import { serializeDescription } from '../request/request.types';
 import type { ChangeRequestPayload } from '../request/request.types';
 import type { ProductFilters } from './product.service';
+import { panel3dLabel } from './product.panel3d';
 import { ProductService, productService } from './product.service';
 
 /**
@@ -69,6 +70,8 @@ export class ProductController {
           Category: category.name,
           'Product Code': req.body.sku.trim().toUpperCase(),
           Price: priceFormatted,
+          '3D shape': panel3dLabel(req.body.panelProfile, req.body.grooveCount),
+          'Surface photo': req.body.surfaceImageUrl ? 'Added' : 'Main product photo',
         },
         productData: req.body,
       };
@@ -127,6 +130,22 @@ export class ProductController {
         currentValues.Material = product.material || 'None';
         proposedValues.Material = req.body.material || 'None';
         diffList.push(`Material: ${currentValues.Material} → ${proposedValues.Material}`);
+      }
+      if (req.body.panelProfile !== undefined || req.body.grooveCount !== undefined) {
+        const profile = req.body.panelProfile !== undefined ? req.body.panelProfile : product.panelProfile;
+        const grooves = req.body.grooveCount !== undefined ? req.body.grooveCount : product.grooveCount;
+        const current = panel3dLabel(product.panelProfile, product.grooveCount);
+        const proposed = panel3dLabel(profile, profile === 'FLAT' ? null : grooves);
+        if (current !== proposed) {
+          currentValues['3D shape'] = current;
+          proposedValues['3D shape'] = proposed;
+          diffList.push(`3D shape: ${current} → ${proposed}`);
+        }
+      }
+      if (req.body.surfaceImageUrl !== undefined && (req.body.surfaceImageUrl || null) !== product.surfaceImageUrl) {
+        currentValues['Surface photo'] = product.surfaceImageUrl ? 'Set' : 'Main product photo';
+        proposedValues['Surface photo'] = req.body.surfaceImageUrl ? (product.surfaceImageUrl ? 'Replaced' : 'Added') : 'Main product photo';
+        diffList.push(`Surface photo: ${currentValues['Surface photo']} → ${proposedValues['Surface photo']}`);
       }
       if (req.body.isActive !== undefined && req.body.isActive !== product.isActive) {
         currentValues.Status = product.isActive ? 'Active' : 'Draft';

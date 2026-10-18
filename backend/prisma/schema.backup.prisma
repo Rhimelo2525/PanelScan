@@ -190,6 +190,9 @@ model Product {
   thickness   Decimal?  @db.Decimal(10, 2)
   unit        String    @default("piece")
   material    String?
+  panelProfile    String?   @map("panel_profile")
+  grooveCount     Int?      @map("groove_count")
+  surfaceImageUrl String?   @map("surface_image_url")
   isActive    Boolean   @default(true) @map("is_active")
   isFeatured  Boolean   @default(false) @map("is_featured")
   createdAt   DateTime  @default(now()) @map("created_at")

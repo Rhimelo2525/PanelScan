@@ -9,6 +9,7 @@ import { AppError } from '../../utils/AppError';
 import { containsText, searchWords } from '../../utils/searchWhere';
 import { slugify } from '../../utils/slugify';
 import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
+import { SURFACE_IMAGE_MESSAGE, isSurfaceImageUrl, panel3dProblem } from '../product/product.panel3d';
 import { DIMENSION_DIGIT_LIMITS, PRICE_MESSAGE, dimensionDigitMessage, hasAllowedDimensionDigits, hasAllowedPriceDigits, type DimensionField } from '../product/product.validation';
 import { REQUEST_KIND_TITLE_PREFIXES, parseDescription, requestInclude, serializeDescription } from './request.types';
 import type { ChangeRequestPayload, PaginatedRequests, RequestFilters, RequestWithRelations } from './request.types';
@@ -39,6 +40,34 @@ const assertPriceDigits = (price: unknown): void => {
   if (!hasAllowedPriceDigits(Number(price))) {
     throw new AppError(PRICE_MESSAGE, 400);
   }
+};
+
+/**
+ * Same for the 3D preview settings: the shape and groove count the product
+ * ends up with must fit together, and a surface photo must be a web address.
+ * Returns the columns to store; a flat (or unset) panel keeps no groove count.
+ */
+const panel3dColumns = (
+  data: { panelProfile?: unknown; grooveCount?: unknown; surfaceImageUrl?: unknown },
+  existing?: { panelProfile: string | null; grooveCount: number | null },
+): { panelProfile?: string | null; grooveCount?: number | null; surfaceImageUrl?: string | null } => {
+  const columns: { panelProfile?: string | null; grooveCount?: number | null; surfaceImageUrl?: string | null } = {};
+  if (data.panelProfile !== undefined || data.grooveCount !== undefined) {
+    const profile = data.panelProfile !== undefined ? data.panelProfile : existing?.panelProfile ?? null;
+    let grooveCount = data.grooveCount !== undefined ? data.grooveCount : existing?.grooveCount ?? null;
+    // Switching an existing fluted panel to flat drops its old count.
+    if (data.grooveCount === undefined && (profile === 'FLAT' || profile === null)) grooveCount = null;
+    const problem = panel3dProblem(profile, grooveCount);
+    if (problem) throw new AppError(problem, 400);
+    columns.panelProfile = profile as string | null;
+    columns.grooveCount = grooveCount as number | null;
+  }
+  if (data.surfaceImageUrl !== undefined) {
+    const url = typeof data.surfaceImageUrl === 'string' ? data.surfaceImageUrl.trim() : data.surfaceImageUrl;
+    if (url !== null && url !== '' && !isSurfaceImageUrl(url)) throw new AppError(SURFACE_IMAGE_MESSAGE, 400);
+    columns.surfaceImageUrl = url ? (url as string) : null;
+  }
+  return columns;
 };
 
 /** Stock figures in a stored request are re-checked against the 5-digit cap when it is approved. */
@@ -320,6 +349,7 @@ export class RequestService {
       const data = payload.productData;
       assertDimensionDigits(data);
       assertPriceDigits(data.price);
+      const panel3d = panel3dColumns(data);
       const category = await tx.category.findUnique({ where: { id: data.categoryId } });
       if (!category) {
         throw new AppError('Product category not found.', 404);
@@ -366,6 +396,7 @@ export class RequestService {
           description: data.description?.trim() || null,
           isActive: data.isActive ?? true,
           isFeatured: data.isFeatured ?? false,
+          ...panel3d,
         },
       });
 
@@ -390,6 +421,7 @@ export class RequestService {
       const { name, categoryId, sku, price, material, unit, width, height, thickness, isActive, isFeatured, description, images } = payload.updateData;
       assertDimensionDigits({ width, height, thickness });
       assertPriceDigits(price);
+      const panel3d = panel3dColumns(payload.updateData, existing);
 
       if (sku) {
         const trimmedSku = sku.trim().toUpperCase();
@@ -405,7 +437,7 @@ export class RequestService {
         }
       }
 
-      const scalarFields: any = {};
+      const scalarFields: any = { ...panel3d };
       if (name) {
         scalarFields.name = name.trim();
         scalarFields.slug = slugify(name);

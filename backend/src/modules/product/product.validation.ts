@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
+import { GROOVE_COUNT_MESSAGE, GROOVE_COUNT_MAX, PANEL_PROFILES, PANEL_PROFILE_MESSAGE, SURFACE_IMAGE_MESSAGE, panel3dProblem } from './product.panel3d';
 
 const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const NUMERIC_STRING = /^\d+$/;
@@ -49,6 +50,23 @@ const productImageSchema = z.object({
   sortOrder: z.number().int('Sort order must be a whole number.').min(0).optional(),
 });
 
+/** The 3D preview settings (see product.panel3d.ts); null clears one. */
+const panel3dFields = {
+  panelProfile: z.enum(PANEL_PROFILES, { errorMap: () => ({ message: PANEL_PROFILE_MESSAGE }) }).nullable().optional(),
+  grooveCount: z.number().int(GROOVE_COUNT_MESSAGE).min(1, GROOVE_COUNT_MESSAGE).max(GROOVE_COUNT_MAX, GROOVE_COUNT_MESSAGE).nullable().optional(),
+  surfaceImageUrl: z.string().trim().url(SURFACE_IMAGE_MESSAGE).max(2048, SURFACE_IMAGE_MESSAGE).nullable().optional(),
+};
+
+/**
+ * A shape sent with the request must fit its groove count. An edit that sends
+ * only one of the two is checked against the product when it is approved.
+ */
+const checkPanel3d = (data: { panelProfile?: string | null; grooveCount?: number | null }, ctx: z.RefinementCtx): void => {
+  if (data.panelProfile === undefined) return;
+  const problem = panel3dProblem(data.panelProfile, data.grooveCount);
+  if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['grooveCount'], message: problem });
+};
+
 export const createProductSchema = z.object({
   body: z.object({
     categoryId: z.string().uuid('Invalid category id.'),
@@ -72,7 +90,8 @@ export const createProductSchema = z.object({
     stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
     reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
     images: z.array(productImageSchema).max(10, 'A product can have at most 10 images.').optional(),
-  }),
+    ...panel3dFields,
+  }).superRefine(checkPanel3d),
 });
 
 export const updateProductSchema = z.object({
@@ -100,8 +119,10 @@ export const updateProductSchema = z.object({
       stock: z.number().int('Stock must be an integer.').min(0, 'Stock cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
       reorderLevel: z.number().int('Reorder level must be an integer.').min(0, 'Reorder level cannot be negative.').max(STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE).optional(),
       images: z.array(productImageSchema).max(10, 'A product can have at most 10 images.').optional(),
+      ...panel3dFields,
     })
-    .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' }),
+    .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided.' })
+    .superRefine(checkPanel3d),
 });
 
 export const idParamsSchema = z.object({

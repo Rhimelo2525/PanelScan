@@ -217,6 +217,12 @@ model Product {
   thickness   Decimal?  @db.Decimal(10, 2)
   unit        String    @default("piece")
   material    String?
+  // How the app's 3D preview draws the panel (see product.panel3d.ts):
+  // FLAT, FLUTED, INVERTED_CIRCLE or SPANDREL, with grooveCount grooves,
+  // faced with surfaceImageUrl (or the main product photo when empty).
+  panelProfile    String?   @map("panel_profile")
+  grooveCount     Int?      @map("groove_count")
+  surfaceImageUrl String?   @map("surface_image_url")
   isActive    Boolean   @default(true) @map("is_active")
   isFeatured  Boolean   @default(false) @map("is_featured")
   createdAt   DateTime  @default(now()) @map("created_at")
