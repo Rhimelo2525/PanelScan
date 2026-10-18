@@ -1,6 +1,7 @@
 package com.example.panelscan.data.repository
 
 import com.example.panelscan.core.data.ProductCatalog
+import com.example.panelscan.core.logic.PanelShape
 import com.example.panelscan.core.model.PVCPanel
 import com.example.panelscan.core.model.SurfaceType
 import com.example.panelscan.core.network.ApiClient
@@ -85,6 +86,8 @@ class ProductRepository(private val api: ApiClient) {
         // Main photo first, then the rest in their order, as the website's gallery shows them.
         val photos = images.sortedWith(compareByDescending<ApiImage> { it.isPrimary }.thenBy { it.sortOrder })
             .map { absoluteUrl(it.url) }
+        // The 3D shape set on the website, or a guess from the name until a moderator sets it.
+        val (shape, grooves) = PanelShape.resolve(panelProfile, grooveCount, name)
         return PVCPanel(
             id = id,
             name = name,
@@ -102,7 +105,10 @@ class ProductRepository(private val api: ApiClient) {
             imageUrls = photos,
             material = material,
             inventoryQty = available,
-            thicknessMm = thickness?.toDoubleOrNull()?.let { (it * 10).roundToInt() } ?: 0
+            thicknessMm = thickness?.toDoubleOrNull()?.let { (it * 10).roundToInt() } ?: 0,
+            profile = shape,
+            grooveCount = grooves,
+            surfaceImageUrl = surfaceImageUrl?.let(::absoluteUrl)
         )
     }
 
@@ -131,7 +137,10 @@ class ProductRepository(private val api: ApiClient) {
         val isActive: Boolean = true,
         val category: ApiCategory? = null,
         val images: List<ApiImage> = emptyList(),
-        val inventory: ApiInventory? = null
+        val inventory: ApiInventory? = null,
+        val panelProfile: String? = null,
+        val grooveCount: Int? = null,
+        val surfaceImageUrl: String? = null
     )
 
     @Serializable

@@ -103,6 +103,7 @@ import com.example.panelscan.feature.orders.OrderDetailScreen
 import com.example.panelscan.feature.orders.OrdersScreen
 import com.example.panelscan.feature.notifications.NotificationsScreen
 import com.example.panelscan.feature.preview3d.Preview3DScreen
+import com.example.panelscan.data.local.WallPhotoStore
 import com.example.panelscan.feature.products.CatalogFilter
 import com.example.panelscan.feature.products.ProductDetailScreen
 import com.example.panelscan.feature.products.ProductsScreen
@@ -186,6 +187,8 @@ fun PanelScanNavHost(
         cartRepository.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
     }
 
+    // Photos of measured walls for the 3D preview; on the phone only.
+    val wallPhotos = remember(context) { WallPhotoStore(context.filesDir) }
     val repository = remember(context, apiClient) {
         ProjectRepository(
             ProjectDatabase.getDatabase(context).projectDao(),
@@ -405,6 +408,7 @@ fun PanelScanNavHost(
                     // AR → Estimation Result → 3D Preview → Cart
                     onViewPreview = { project ->
                         projectsViewModel.saveProject(project)
+                        measurementState.wallPhoto?.let { wallPhotos.attach(project.id, it) }
                         navController.navigate(Screen.Preview3D.createRoute(project.id))
                     },
                     onBrowsePanels = { navController.navigate(Screen.PanelSelection.route) }
@@ -420,6 +424,7 @@ fun PanelScanNavHost(
                     showPrice = pricesVisible,
                     onProjectSaved = { project ->
                         projectsViewModel.saveProject(project)
+                        measurementState.wallPhoto?.let { wallPhotos.attach(project.id, it) }
                         measurementViewModel.setPreselectedPanel(null)
                         navController.navigate(Screen.Preview3D.createRoute(project.id))
                     }
@@ -470,6 +475,7 @@ fun PanelScanNavHost(
                         },
                         onDelete = {
                             projectsViewModel.deleteProject(project) { error ->
+                                if (error == null) wallPhotos.delete(project.id)
                                 if (error == null) navController.popBackStack()
                                 else Toast.makeText(context, error, Toast.LENGTH_LONG).show()
                             }
@@ -484,8 +490,10 @@ fun PanelScanNavHost(
                 if (project == null) {
                     ProjectLoadingScreen()
                 } else {
+                    val wallPhoto = remember(project.id) { wallPhotos.load(project.id) }
                     Preview3DScreen(
                         project = project,
+                        wallPhoto = wallPhoto?.let { it to wallPhotos.file(it) },
                         onBack = { navController.popBackStack() },
                         onSaveProject = { updated ->
                             projectsViewModel.saveProject(updated)

@@ -14,6 +14,14 @@ enum class SurfaceType {
     WALL, CEILING
 }
 
+/**
+ * How a panel's face is shaped in the 3D preview: smooth, square ridges
+ * (fluted 5in1/6in1/7in1), half-round flutes (inverted circle), or a flat
+ * face with lines along it (spandrel ceiling panels).
+ */
+@Serializable
+enum class PanelProfile { FLAT, FLUTED, INVERTED_CIRCLE, SPANDREL }
+
 @Serializable
 data class PVCPanel(
     val id: String,
@@ -36,7 +44,13 @@ data class PVCPanel(
     val inventoryQty: Int? = null,
     val imageResId: Int? = null,
     /** Panel thickness in millimetres (PVC face layer). Used in spec display only. */
-    val thicknessMm: Int = 8
+    val thicknessMm: Int = 8,
+    /** The shape the 3D preview gives the panel face (set per product on the website). */
+    val profile: PanelProfile = PanelProfile.FLAT,
+    /** Grooves across one panel (the 5 in "5in1"; lines on a spandrel); 0 when flat. */
+    val grooveCount: Int = 0,
+    /** A straight-on photo of the face for the 3D preview; null uses the main photo. */
+    val surfaceImageUrl: String? = null
 ) {
     val areaSquareMeters: Double get() = widthMeters * heightMeters
 
@@ -59,6 +73,26 @@ data class Estimation(
     /** Total panel face area being ordered, i.e. what the final quantity actually covers. */
     val totalMaterialArea: Double get() = finalQuantity * panelArea
 }
+
+/**
+ * The photo of the measured wall, taken as the measurement was confirmed, and
+ * where the wall sat in it, so the 3D preview can show the panels on the
+ * customer's own wall. Kept on the phone only.
+ */
+@Serializable
+data class WallPhoto(
+    /** JPEG in the app's private storage. */
+    val fileName: String,
+    val imageWidth: Int,
+    val imageHeight: Int,
+    /** The AR camera's projection for that image (4×4, column-major). */
+    val projection: List<Float>,
+    /**
+     * The measured wall's corners as the camera saw them, in metres (x right,
+     * y up, looking down -z): bottom-left, bottom-right, top-right, top-left.
+     */
+    val corners: List<Float>
+)
 
 /** A project saved to the account, as the PanelScan team sees it. */
 data class ProjectReference(

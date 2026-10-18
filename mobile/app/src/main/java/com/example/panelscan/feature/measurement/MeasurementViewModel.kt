@@ -3,6 +3,7 @@ package com.example.panelscan.feature.measurement
 import androidx.lifecycle.ViewModel
 import com.example.panelscan.core.model.MeasurementResult
 import com.example.panelscan.core.model.SurfaceType
+import com.example.panelscan.core.model.WallPhoto
 import com.example.panelscan.feature.measurement.ar.quality.ScanEnhancementSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +40,9 @@ data class MeasurementUiState(
     /** Advanced scanning settings; kept for the session so they survive re-entering AR. */
     val scanEnhancement: ScanEnhancementSettings = ScanEnhancementSettings.Default,
     /** Waste allowance chosen on the estimation result, carried into the saved project. */
-    val wastePercent: Int = 10
+    val wastePercent: Int = 10,
+    /** The wall photographed as the AR measurement was confirmed; given to the project it is saved as. */
+    val wallPhoto: WallPhoto? = null
 ) {
     val hasUsableMeasurement: Boolean get() = widthMeters > 0.0 && heightMeters > 0.0
 }
@@ -64,10 +67,15 @@ class MeasurementViewModel : ViewModel() {
         _uiState.update { it.copy(preselectedPanelId = panelId) }
     }
 
+    fun setWallPhoto(photo: WallPhoto?) {
+        _uiState.update { it.copy(wallPhoto = photo) }
+    }
+
     /** Clears the previous scan so re-entering Measure never resumes a stale session. */
     fun beginNewMeasurement() {
         _uiState.update {
             it.copy(
+                wallPhoto = null,
                 capturedPointCount = 0,
                 widthMeters = 0.0,
                 heightMeters = 0.0,
@@ -110,6 +118,7 @@ class MeasurementViewModel : ViewModel() {
     fun reset() {
         _uiState.update {
             it.copy(
+                wallPhoto = null,
                 capturedPointCount = 0,
                 widthMeters = 0.0,
                 heightMeters = 0.0,

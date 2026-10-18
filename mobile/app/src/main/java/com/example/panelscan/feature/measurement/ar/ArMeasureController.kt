@@ -40,7 +40,19 @@ import com.example.panelscan.feature.measurement.ar.quality.SurfaceOrientationCl
 import com.example.panelscan.feature.measurement.ar.quality.SurfaceSignals
 import com.example.panelscan.feature.measurement.ar.quality.TrackingProblem
 import com.example.panelscan.feature.measurement.ar.quality.TrackingQuality
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import com.example.panelscan.core.logic.WallPhotoGeometry
+import com.example.panelscan.core.model.WallPhoto
+import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.StateFlow
 import com.google.ar.core.Anchor
 import com.google.ar.core.CameraConfig
@@ -251,6 +263,10 @@ class ArMeasureController(
 
     private class PlacedPoint(val anchor: Anchor, val node: AnchorNode)
 
+    /** The AR camera at one frame, for placing the measured wall on its photo. */
+    private class CameraMatrices(val view: FloatArray, val projection: FloatArray)
+    private var cameraRequest: CompletableDeferred<CameraMatrices>? = null
+
     /** A suggestion that has survived AR validation and is being watched for steadiness. */
     private class LockedCorner(
         val world: Float3,
@@ -372,6 +388,15 @@ class ArMeasureController(
      */
     private fun onFrame(session: Session, frame: Frame) {
         if (released) return
+
+        cameraRequest?.let { request ->
+            val camera = frame.camera
+            if (!request.isCompleted && camera.trackingState == TrackingState.TRACKING) {
+                val view = FloatArray(16).also { camera.getViewMatrix(it, 0) }
+                val projection = FloatArray(16).also { camera.getProjectionMatrix(it, 0, PHOTO_NEAR, PHOTO_FAR) }
+                request.complete(CameraMatrices(view, projection))
+            }
+        }
 
         countFrame(frame.timestamp)
 
@@ -1838,6 +1863,67 @@ class ArMeasureController(
         return Triple(w, h, placed.size)
     }
 
+    // ------------------------------------------------------------ wall photo
+
+    /**
+     * Photographs the measured wall for the 3D preview: the camera view with
+     * the markers, guide bars and plane dots hidden for that frame, plus where
+     * the wall's corners were in it. Null if there is no full measurement or
+     * tracking is lost; the measurement itself never depends on it.
+     */
+    suspend fun captureWallPhoto(target: File): WallPhoto? {
+        val view = sceneView ?: return null
+        if (released || placed.size < 3) return null
+        val taps = placed.take(3).map { point ->
+            val pose = point.anchor.pose
+            WallPhotoGeometry.Vec(pose.tx(), pose.ty(), pose.tz())
+        }
+        val corners = WallPhotoGeometry.cornersFromTaps(taps[0], taps[1], taps[2])
+
+        val overlays = placed.map { it.node } + guideNodes
+        val planesVisible = view.planeRenderer.isVisible
+        overlays.forEach { it.isVisible = false }
+        view.planeRenderer.isVisible = false
+        try {
+            val request = CompletableDeferred<CameraMatrices>().also { cameraRequest = it }
+            val camera = withTimeoutOrNull(1500) { request.await() } ?: return null
+            // Let the frame drawn without the markers reach the screen before copying it.
+            delay(120)
+            val shot = copyPixels(view) ?: return null
+            return withContext(Dispatchers.IO) {
+                val scale = minOf(1f, PHOTO_MAX_SIDE / maxOf(shot.width, shot.height).toFloat())
+                val saved = if (scale < 1f) Bitmap.createScaledBitmap(shot, (shot.width * scale).toInt(), (shot.height * scale).toInt(), true) else shot
+                target.outputStream().use { saved.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+                WallPhoto(
+                    fileName = target.name,
+                    imageWidth = view.width,
+                    imageHeight = view.height,
+                    projection = camera.projection.toList(),
+                    corners = corners.flatMap { WallPhotoGeometry.transform(camera.view, it).toList() }
+                )
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "Wall photo not taken", error)
+            return null
+        } finally {
+            cameraRequest = null
+            if (!released) {
+                overlays.forEach { it.isVisible = true }
+                view.planeRenderer.isVisible = planesVisible
+            }
+        }
+    }
+
+    private suspend fun copyPixels(view: ARSceneView): Bitmap? {
+        if (view.width == 0 || view.height == 0) return null
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        return suspendCancellableCoroutine { continuation ->
+            PixelCopy.request(view, bitmap, { result ->
+                continuation.resume(if (result == PixelCopy.SUCCESS) bitmap else null)
+            }, Handler(Looper.getMainLooper()))
+        }
+    }
+
     // --------------------------------------------------------------- markers
 
     private fun createMarker(view: ARSceneView, anchor: Anchor, index: Int): AnchorNode {
@@ -2109,6 +2195,11 @@ class ArMeasureController(
         const val MARKER_POINT_A = 0xFFCE8A5A.toInt()
         const val MARKER_POINT_B = 0xFF38BDF8.toInt()
         const val MARKER_HEIGHT = 0xFF6FBF95.toInt()
+        /** Clip planes for the wall photo's projection; the 3D preview uses the same. */
+        const val PHOTO_NEAR = 0.05f
+        const val PHOTO_FAR = 100f
+        /** Longest side of the saved wall photo, in pixels. */
+        const val PHOTO_MAX_SIDE = 1600f
     }
 }
 

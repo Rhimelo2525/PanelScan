@@ -1,6 +1,7 @@
 package com.example.panelscan.data.repository
 
 import com.example.panelscan.core.data.ProductCatalog
+import com.example.panelscan.core.model.PanelProfile
 import com.example.panelscan.core.model.SurfaceType
 import com.example.panelscan.core.network.ApiClient
 import com.example.panelscan.core.session.SessionManager
@@ -78,6 +79,29 @@ class ProductRepositoryApiTest {
         assertEquals(SurfaceType.CEILING, repo.getPanelById("c1")!!.surfaceType)
         // Signed out: no price.
         assertNull(repo.getPanelById("w2")!!.pricePerUnit)
+    }
+
+    @Test
+    fun `gives each panel its 3D shape, set or guessed from the name`() = runBlocking {
+        val repo = repository(
+            listOf(
+                product("f1", "Fluted Panel", "Wall Panels", "900", extra = "\"panelProfile\":\"FLUTED\",\"grooveCount\":7,\"surfaceImageUrl\":\"/uploads/f1-face.webp\",") + "," +
+                    product("f2", "WPC Fluted 6in1 Inverted Circle", "Wall Panels", "900") + "," +
+                    product("c1", "Seamless PVC Ceiling Panel", "Ceiling Panels", "450")
+            )
+        )
+
+        assertNull(repo.refresh())
+
+        val set = repo.getPanelById("f1")!!
+        assertEquals(PanelProfile.FLUTED, set.profile)
+        assertEquals(7, set.grooveCount)
+        assertEquals("https://backend.test/uploads/f1-face.webp", set.surfaceImageUrl)
+        val guessed = repo.getPanelById("f2")!!
+        assertEquals(PanelProfile.INVERTED_CIRCLE, guessed.profile)
+        assertEquals(6, guessed.grooveCount)
+        assertNull(guessed.surfaceImageUrl)
+        assertEquals(PanelProfile.FLAT, repo.getPanelById("c1")!!.profile)
     }
 
     @Test

@@ -67,6 +67,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.example.panelscan.data.local.WallPhotoStore
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -148,6 +150,7 @@ fun ARMeasurementScreen(
     val context = LocalContext.current
     var playbackFile by remember { mutableStateOf<File?>(null) }
     var replayGeneration by remember { mutableStateOf(0) }
+    var takingWallPhoto by remember { mutableStateOf(false) }
 
     // Not keyed on surfaceType: the AndroidView factory runs once, so a re-keyed controller
     // would never be attached to the live view. Wall/Ceiling changes go through
@@ -364,10 +367,19 @@ fun ARMeasurementScreen(
                 hostView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             },
             onConfirm = {
-                controller.stopRecording()
-                val (w, h, points) = controller.snapshot()
-                viewModel.applyArMeasurement(w, h, points)
-                onConfirm()
+                if (!takingWallPhoto) {
+                    takingWallPhoto = true
+                    controller.stopRecording()
+                    val (w, h, points) = controller.snapshot()
+                    viewModel.applyArMeasurement(w, h, points)
+                    // A photo of the wall for the 3D preview's background; a moment, then on.
+                    scope.launch {
+                        val photo = controller.captureWallPhoto(WallPhotoStore(context.filesDir).newPendingFile())
+                        viewModel.setWallPhoto(photo)
+                        takingWallPhoto = false
+                        onConfirm()
+                    }
+                }
             },
             modifier = Modifier.align(Alignment.BottomCenter)
         )
