@@ -15,6 +15,7 @@ import { MetricCard } from "@/components/admin/metric-card"
 import { StatusBadge } from "@/components/admin/status-badge"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
@@ -114,6 +115,10 @@ export function AdminRequestsPage() {
   const search = useDebouncedValue(searchInput.trim())
   const [selectedRequest, setSelectedRequest] = useState<AdminRequest | null>(null)
   const [reviewing, setReviewing] = useState<{ request: AdminRequest; decision: "approve" | "reject" } | null>(null)
+  // Owner: pending requests ticked for one decision together, kept across pages.
+  const [selected, setSelected] = useState<Record<string, AdminRequest>>({})
+  const [bulkDecision, setBulkDecision] = useState<"approve" | "reject" | null>(null)
+  const selectedList = Object.values(selected)
 
   const requests = useAdminResource(
     (signal) => getRequests({ page, limit: 10, status: status || undefined, kind: type || undefined, search: search || undefined }, signal),
@@ -121,6 +126,28 @@ export function AdminRequestsPage() {
     { pollIntervalMs: 20_000 }
   )
   const rows = useMemo(() => requests.data?.requests ?? [], [requests.data])
+  const pendingRows = rows.filter((row) => row.status === "PENDING")
+  const allPendingSelected = pendingRows.length > 0 && pendingRows.every((row) => selected[row.id])
+
+  function toggleSelected(row: AdminRequest, checked: boolean) {
+    setSelected((current) => {
+      const next = { ...current }
+      if (checked) next[row.id] = row
+      else delete next[row.id]
+      return next
+    })
+  }
+
+  function togglePagePending(checked: boolean) {
+    setSelected((current) => {
+      const next = { ...current }
+      for (const row of pendingRows) {
+        if (checked) next[row.id] = row
+        else delete next[row.id]
+      }
+      return next
+    })
+  }
 
   // The summary cards count every request, not just the 10 on this page or
   // the active filters: pending from the API's total, and this month's
@@ -208,14 +235,26 @@ export function AdminRequestsPage() {
       cell: (row) => {
         const { payload } = parseRequestDescription(row.description)
         return (
-          <button
-            type="button"
-            onClick={() => setSelectedRequest(row)}
-            className="text-left group focus-visible:outline-none"
-          >
-            <span className="block font-medium group-hover:underline text-foreground">{row.title}</span>
-            <span className="block text-xs text-muted-foreground">{formatScope(row.type, payload)}</span>
-          </button>
+          <span className="flex items-start gap-3">
+            {row.status === "PENDING" ? (
+              <Checkbox
+                className="mt-0.5"
+                checked={Boolean(selected[row.id])}
+                onCheckedChange={(checked) => toggleSelected(row, checked === true)}
+                aria-label={`Select ${row.title}`}
+              />
+            ) : (
+              <span className="size-4 shrink-0" aria-hidden="true" />
+            )}
+            <button
+              type="button"
+              onClick={() => setSelectedRequest(row)}
+              className="text-left group focus-visible:outline-none"
+            >
+              <span className="block font-medium group-hover:underline text-foreground">{row.title}</span>
+              <span className="block text-xs text-muted-foreground">{formatScope(row.type, payload)}</span>
+            </button>
+          </span>
         )
       },
     },
@@ -316,6 +355,7 @@ export function AdminRequestsPage() {
             onSearchChange={(value) => {
               setSearchInput(value)
               setPage(1)
+              setSelected({})
             }}
             hasActiveFilters={Boolean(status || type || searchInput)}
             onClear={() => {
@@ -323,6 +363,7 @@ export function AdminRequestsPage() {
               setType("")
               setSearchInput("")
               setPage(1)
+              setSelected({})
             }}
           >
             <FilterSelect
@@ -334,6 +375,7 @@ export function AdminRequestsPage() {
               onChange={(val) => {
                 setStatus(val)
                 setPage(1)
+                setSelected({})
               }}
             />
             <FilterSelect
@@ -344,6 +386,7 @@ export function AdminRequestsPage() {
               onChange={(val) => {
                 setType(val)
                 setPage(1)
+                setSelected({})
               }}
             />
           </FilterBar>
@@ -355,6 +398,29 @@ export function AdminRequestsPage() {
               <p className="text-xs text-muted-foreground">
                 Track the status of submitted change requests. Approval and rejection are managed by the owner.
               </p>
+            </div>
+          )}
+
+          {isOwner && (pendingRows.length > 0 || selectedList.length > 0) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+              <label className="flex items-center gap-3 text-sm">
+                <Checkbox
+                  checked={allPendingSelected}
+                  onCheckedChange={(checked) => togglePagePending(checked === true)}
+                  disabled={pendingRows.length === 0}
+                />
+                <span>
+                  Select all pending on this page
+                  {selectedList.length > 0 && <span className="ml-2 font-semibold">· {selectedList.length} selected</span>}
+                </span>
+              </label>
+              {selectedList.length > 0 && (
+                <span className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSelected({})}>Clear</Button>
+                  <Button size="sm" variant="outline" onClick={() => setBulkDecision("reject")}>Reject selected</Button>
+                  <Button size="sm" onClick={() => setBulkDecision("approve")}>Approve selected ({selectedList.length})</Button>
+                </span>
+              )}
             </div>
           )}
 
@@ -419,7 +485,26 @@ export function AdminRequestsPage() {
         review={reviewing}
         onClose={() => setReviewing(null)}
         onDone={() => {
+          const decided = reviewing?.request.id
           setReviewing(null)
+          if (decided) toggleSelected({ id: decided } as AdminRequest, false)
+          requests.reload()
+          metrics.reload()
+        }}
+      />
+
+      {/* Owner: one decision for every ticked request */}
+      <BulkReviewDialog
+        decision={bulkDecision}
+        requests={selectedList}
+        onClose={() => setBulkDecision(null)}
+        onDone={(decidedIds) => {
+          setBulkDecision(null)
+          setSelected((current) => {
+            const next = { ...current }
+            for (const id of decidedIds) delete next[id]
+            return next
+          })
           requests.reload()
           metrics.reload()
         }}
@@ -611,6 +696,111 @@ function ReviewDialog({
           >
             {isSaving && <Loader2 className="animate-spin" aria-hidden="true" />}
             {isApprove ? "Approve request" : "Reject request"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * Approves or rejects several pending requests with one note. They run one at
+ * a time, oldest first, so a request that depends on an earlier one (an "Add
+ * stock" for a product an "Add product" creates) is decided after it. A failed
+ * request stays ticked so the owner can see and retry it.
+ */
+function BulkReviewDialog({
+  decision,
+  requests,
+  onClose,
+  onDone,
+}: {
+  decision: "approve" | "reject" | null
+  requests: AdminRequest[]
+  onClose: () => void
+  onDone: (decidedIds: string[]) => void
+}) {
+  const [note, setNote] = useState("")
+  const [progress, setProgress] = useState<number | null>(null)
+  const isApprove = decision === "approve"
+  const isSaving = progress !== null
+  const ordered = [...requests].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  const count = ordered.length
+  const noun = count === 1 ? "request" : "requests"
+
+  async function submit() {
+    if (!decision || count === 0) return
+    const trimmed = note.trim() || undefined
+    const decided: string[] = []
+    const failed: Array<{ title: string; message: string }> = []
+    for (const [index, request] of ordered.entries()) {
+      setProgress(index + 1)
+      try {
+        if (isApprove) await approveRequest(request.id, trimmed)
+        else await rejectRequest(request.id, trimmed)
+        decided.push(request.id)
+      } catch (error) {
+        failed.push({ title: request.title, message: getAdminErrorMessage(error) })
+      }
+    }
+    setProgress(null)
+    if (decided.length > 0) toast.success(`${decided.length} ${decided.length === 1 ? "request" : "requests"} ${isApprove ? "approved" : "rejected"}.`)
+    if (failed.length > 0) {
+      toast.error(`${failed.length} ${failed.length === 1 ? "request was" : "requests were"} not ${isApprove ? "approved" : "rejected"}`, {
+        description: `${failed[0].title}: ${failed[0].message}${failed.length > 1 ? ` (and ${failed.length - 1} more)` : ""}`,
+      })
+    }
+    setNote("")
+    onDone(decided)
+  }
+
+  return (
+    <AlertDialog open={Boolean(decision)} onOpenChange={(open) => { if (!open && !isSaving) onClose() }}>
+      <AlertDialogContent className="admin-surface sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{isApprove ? `Approve ${count} ${noun}?` : `Reject ${count} ${noun}?`}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {isApprove
+              ? "Approving applies each requested change to the live system, oldest first."
+              : "Rejecting discards each proposed change without modifying live data."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-3 text-sm">
+          <ul className="max-h-56 divide-y divide-border overflow-y-auto rounded-md border border-border">
+            {ordered.map((request) => (
+              <li key={request.id} className="px-3 py-2">
+                <span className="block text-xs font-medium text-foreground">{request.title}</span>
+                <span className="block text-[11px] text-muted-foreground">{fullName(request.requestedBy)} · {formatDateTime(request.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="space-y-1.5 pt-1">
+            <Label htmlFor="bulk-review-note">Review note for all (optional)</Label>
+            <Textarea
+              id="bulk-review-note"
+              rows={2}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder={isApprove ? "Approved and applied to production" : "Reason for rejection"}
+              maxLength={1000}
+              disabled={isSaving}
+            />
+          </div>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant={isApprove ? "default" : "destructive"}
+            onClick={(event) => { event.preventDefault(); void submit() }}
+            disabled={isSaving}
+          >
+            {isSaving && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {isSaving
+              ? `${isApprove ? "Approving" : "Rejecting"} ${progress} of ${count}…`
+              : isApprove ? `Approve ${count} ${noun}` : `Reject ${count} ${noun}`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

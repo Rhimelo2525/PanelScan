@@ -1,4 +1,4 @@
-import { ExternalLink, Eye, Loader2, MapPin, PackageSearch } from "lucide-react"
+import { Coins, ExternalLink, Eye, Loader2, MapPin, PackageCheck, PackageSearch, Receipt } from "lucide-react"
 import { useState } from "react"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
@@ -15,7 +15,7 @@ import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { OrderItemsCell } from "@/components/admin/order-items-cell"
 import { StatusBadge } from "@/components/admin/status-badge"
-import { StatusBreakdownBars } from "@/components/admin/trend-chart"
+import { StatusMixBar } from "@/components/admin/trend-chart"
 import { ProductImage } from "@/components/products/product-image"
 import { useAuth } from "@/auth/use-auth"
 import { Button } from "@/components/ui/button"
@@ -139,12 +139,12 @@ export function AdminSalesPage() {
 
       {report.error ? <ErrorState message={report.error} onRetry={report.reload} /> : (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Sales summary">
-            <MetricCard label="Total revenue" value={formatMoney(summary?.totalRevenue)} isLoading={report.isLoading} restricted={!report.isLoading && summary?.totalRevenue === undefined} />
-            <MetricCard label="Average order value" value={formatMoney(summary?.averageOrderValue)} isLoading={report.isLoading} restricted={!report.isLoading && summary?.averageOrderValue === undefined} />
-            <MetricCard label="Orders" value={formatCount(summary?.totalOrders)} isLoading={report.isLoading} />
-            <div className="surface-card p-4 sm:col-span-2 xl:col-span-1">
-              <StatusBreakdownBars title="Order mix" items={summary?.ordersByStatus ?? []} />
+          <section className="grid gap-3 sm:grid-cols-3" aria-label="Sales summary">
+            <MetricCard size="large" label="Total revenue" icon={Coins} value={formatMoney(summary?.totalRevenue)} isLoading={report.isLoading} restricted={!report.isLoading && summary?.totalRevenue === undefined} />
+            <MetricCard size="large" label="Average order value" icon={Receipt} value={formatMoney(summary?.averageOrderValue)} isLoading={report.isLoading} restricted={!report.isLoading && summary?.averageOrderValue === undefined} />
+            <MetricCard size="large" label="Orders" icon={PackageCheck} value={formatCount(summary?.totalOrders)} isLoading={report.isLoading} />
+            <div className="surface-card p-5 sm:col-span-3">
+              <StatusMixBar title="Order mix" unit="order" items={summary?.ordersByStatus ?? []} emptyLabel="No orders match this view" />
             </div>
           </section>
 

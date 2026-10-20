@@ -3,17 +3,17 @@ import { Link, Outlet, useLocation } from "react-router-dom"
 import { MessageSquare } from "lucide-react"
 import { useAuth } from "@/auth/use-auth"
 import { SupportChatWidget } from "@/components/chat/support-chat-widget"
-import { Container } from "@/components/layout/container"
-import { Button } from "@/components/ui/button"
 
 import { SiteFooter } from "@/components/layout/site-footer"
 import { SiteHeader } from "@/components/layout/site-header"
+
+const CHAT_BUBBLE_CLASS = "fixed right-4 bottom-4 z-40 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-1 ring-black/5 transition-transform hover:scale-105 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none sm:right-6 sm:bottom-6"
 
 export function SiteLayout() {
   const location = useLocation()
   const isMessagesPage = location.pathname.startsWith("/messages")
   const { user } = useAuth()
-  // "Chat with Support" opens the small chat for a signed-in customer; anyone
+  // The round chat button opens the small chat for a signed-in customer; anyone
   // else goes to Messages (which asks them to sign in with a customer account).
   const canChat = user?.role === "CUSTOMER"
   const [isChatOpen, setIsChatOpen] = useState(false)
@@ -52,11 +52,19 @@ export function SiteLayout() {
           navigation is never held back waiting for an outgoing animation, and
           #main-content always exists for the skip link. */}
       <main id="main-content" key={location.pathname} className="motion-page"><Outlet /></main>
-      {/* Not on Messages itself: the customer is already chatting with support there. */}
-      {!isMessagesPage && (
-        <aside className="border-t border-border bg-secondary/30 py-5" aria-label="Customer support"><Container className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Questions about your panels?</p><p className="mt-1 text-xs text-muted-foreground">Chat directly with our team for orders, specs, or installation advice.</p></div>{canChat ? <Button variant="outline" onClick={() => setIsChatOpen(true)} aria-expanded={showChat}><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Button> : <Button variant="outline" asChild><Link to="/messages"><MessageSquare className="size-4" aria-hidden="true" />Chat with Support</Link></Button>}</Container></aside>
-      )}
       <SiteFooter />
+      {/* A round chat button that stays in the corner on every page, except on
+          Messages itself (the customer is already chatting there) and while the
+          small chat, which opens in the same corner, is showing. */}
+      {!isMessagesPage && !showChat && (canChat ? (
+        <button type="button" onClick={() => setIsChatOpen(true)} aria-expanded={false} aria-label="Chat with Support" title="Chat with Support" className={CHAT_BUBBLE_CLASS}>
+          <MessageSquare className="size-6" aria-hidden="true" />
+        </button>
+      ) : (
+        <Link to="/messages" aria-label="Chat with Support" title="Chat with Support" className={CHAT_BUBBLE_CLASS}>
+          <MessageSquare className="size-6" aria-hidden="true" />
+        </Link>
+      ))}
       {showChat && <SupportChatWidget onClose={() => setIsChatOpen(false)} />}
 
     </div>

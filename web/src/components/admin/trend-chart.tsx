@@ -123,6 +123,52 @@ export function TrendChart({ points, title, formatValue, description, color, axi
  * identity, the bar carries magnitude, and no colour vocabulary is invented for
  * categories that already have a status meaning elsewhere.
  */
+/** Soft, earthy tones that sit with the brand's wood browns. */
+const MIX_COLORS: Record<string, string> = {
+  PENDING: "#d4a54a",
+  PROCESSING: "#6f93ab",
+  SHIPPED: "#9a7b63",
+  DELIVERED: "#74a383",
+  CANCELLED: "#c97b6d",
+}
+
+/**
+ * Status counts as one bar split by share, with a legend of counts and
+ * percentages underneath. Wide and short, for a full-width card.
+ */
+export function StatusMixBar({ title, items, unit, emptyLabel = "No records yet" }: { title: string; items: Array<{ status: string; count: number }>; unit: string; emptyLabel?: string }) {
+  const total = items.reduce((sum, item) => sum + item.count, 0)
+  const shown = items.filter((item) => item.count > 0)
+  const label = (status: string) => status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ")
+  const color = (status: string) => MIX_COLORS[status] ?? "#a8a29e"
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm font-semibold">{title}</p>
+        {total > 0 && <p className="text-xs text-muted-foreground tabular-nums">{total} {unit}{total === 1 ? "" : "s"}</p>}
+      </div>
+      {total === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        <>
+          <div className="mt-3 flex h-2.5 w-full gap-[3px] overflow-hidden rounded-full" aria-hidden="true">
+            {shown.map((item) => <div key={item.status} className="h-full first:rounded-l-full last:rounded-r-full" style={{ flexGrow: item.count, flexBasis: 0, background: color(item.status) }} />)}
+          </div>
+          <ul className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+            {items.map((item) => (
+              <li key={item.status} className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="size-2 shrink-0 rounded-full" style={{ background: color(item.status) }} aria-hidden="true" />{label(item.status)}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums leading-tight">{item.count}<span className="ml-1.5 text-xs font-normal text-muted-foreground">{Math.round((item.count / total) * 100)}%</span></p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function StatusBreakdownBars({ title, items, emptyLabel = "No records yet" }: { title: string; items: Array<{ status: string; count: number }>; emptyLabel?: string }) {
   const total = items.reduce((sum, item) => sum + item.count, 0)
 

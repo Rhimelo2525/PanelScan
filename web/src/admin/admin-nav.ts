@@ -1,4 +1,4 @@
-import { Archive, BarChart3, Bell, Boxes, ClipboardList, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Truck, Users, Wrench } from "lucide-react"
+import { BarChart3, Bell, Boxes, ClipboardList, FileText, HardHat, LayoutDashboard, MessageSquare, Package, ShieldCheck, Star, Truck, Users, Wrench } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import type { UserRole } from "@/types/auth"
@@ -52,11 +52,11 @@ export const adminNavGroups: AdminNavGroup[] = [
     ],
   },
   {
-    label: "Governance",
+    label: "Management",
     items: [
       { to: "/admin/requests", label: "Requests", icon: ShieldCheck, roles: ["OWNER", "MODERATOR"], description: "Moderator change requests and owner approvals" },
       { to: "/admin/team", label: "Team", icon: Users, roles: ["OWNER"], description: "Staff and customer accounts" },
-      { to: "/admin/archives", label: "Archives", icon: Archive, roles: ["OWNER"], description: "Saved monthly dashboard cycles and Excel records" },
+      { to: "/admin/archives", label: "Reports", icon: FileText, roles: ["OWNER"], description: "Saved monthly dashboard cycles and Excel records" },
     ],
   },
 ]

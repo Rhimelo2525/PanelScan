@@ -10,6 +10,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable } from "@/components/admin/data-table"
 import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { MONTHS } from "@/components/admin/month-colors"
+import { RangeReportCard } from "@/components/admin/range-report-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/auth/use-auth"
@@ -51,7 +52,7 @@ export function AdminArchivesPage() {
 }
 
 function ArchivesContent() {
-  useDocumentTitle("Archives | PanelScan Admin")
+  useDocumentTitle("Reports | PanelScan Admin")
   const archives = useAdminResource((signal) => getDashboardArchives(signal), [])
   const cycle = useAdminResource((signal) => getDashboardCycle(signal), [])
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
@@ -83,8 +84,8 @@ function ArchivesContent() {
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        eyebrow="Governance"
-        title="Archives"
+        eyebrow="Management"
+        title="Reports"
         description="At the end of every month, the dashboard's revenue, orders, product demand and orders by status are saved here and start again from zero on the 1st. Orders, payments and products are never changed or deleted. Times are in Philippine time."
       />
 
@@ -102,6 +103,9 @@ function ArchivesContent() {
         )}
       </section>
 
+      <RangeReportCard />
+
+      <h2 className="pt-2 text-sm font-semibold">Monthly archives</h2>
       {archives.error ? <ErrorState message={archives.error} onRetry={archives.reload} /> : (
         <DataTable
           caption="Archived monthly dashboard cycles"

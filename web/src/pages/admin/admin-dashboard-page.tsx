@@ -1,9 +1,9 @@
-import { AlertTriangle, ArrowLeft, Boxes, ClipboardList, Coins, History, PackageCheck, ShieldCheck, Star, Users } from "lucide-react"
+import { AlertTriangle, ArrowLeft, ArrowRight, Boxes, ClipboardList, Coins, History, PackageCheck, ShieldCheck, Star, Users } from "lucide-react"
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 
-import { getDashboardArchive, getDashboardCycle, getDashboardStats, getInventoryReport, getProductStats } from "@/api/admin"
-import { formatCount, formatManilaDate, formatManilaDateTime, formatMoney, manilaDayKey } from "@/admin/admin-format"
+import { getDashboardArchive, getDashboardCycle, getDashboardStats, getInventoryReport, getProductStats, getProjects } from "@/api/admin"
+import { formatCount, formatDate, formatManilaDate, formatManilaDateTime, formatMoney, fullName, manilaDayKey } from "@/admin/admin-format"
 import { dayKey, daysInMonth, getMonthOrders } from "@/admin/month-orders"
 import { MONTHS } from "@/components/admin/month-colors"
 import { MonthSelector } from "@/components/admin/month-selector"
@@ -113,7 +113,7 @@ export function AdminDashboardPage() {
             </div>
           </div>
           <Button size="sm" asChild>
-            <Link to="/admin/archives"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Back to Archives</Link>
+            <Link to="/admin/archives"><ArrowLeft data-icon="inline-start" aria-hidden="true" />Back to Reports</Link>
           </Button>
         </section>
       )}
@@ -130,11 +130,11 @@ export function AdminDashboardPage() {
       {stats.error ? <ErrorState message={stats.error} onRetry={stats.reload} /> : (
         <section aria-label="Key metrics" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard label="Gross revenue" value={formatMoney(shownCycle?.totalGrossRevenue)} hint={cycleSince ? `Non-cancelled orders · ${cycleSince}` : undefined} icon={Coins} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} restricted={!shownState.isLoading && !shownState.error && shownCycle?.totalGrossRevenue === undefined} />
-          <MetricCard label="Orders" value={formatCount(shownCycle?.totalOrdersCount)} hint={cycleSince} icon={PackageCheck} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} />
-          <MetricCard label="Active projects" value={formatCount(dashboard?.totalProjects)} hint={dashboard?.projectsByStatus.length ? undefined : "No projects recorded yet"} icon={ClipboardList} isLoading={stats.isLoading} />
-          <MetricCard label="Low stock items" value={formatCount(dashboard?.lowStockCount)} hint={`${formatCount(dashboard?.totalActiveProducts)} active products`} icon={AlertTriangle} isLoading={stats.isLoading} />
-          <MetricCard label="Wall panel stock" value={formatCount(wallStock.reduce((total, row) => total + row.available, 0))} hint={`${wallStock.length} product${wallStock.length === 1 ? "" : "s"} · ${wallStock.filter((row) => row.isLowStock).length} low`} icon={Boxes} isLoading={inventory.isLoading} unavailable={Boolean(inventory.error)} />
-          <MetricCard label="Ceiling panel stock" value={formatCount(ceilingStock.reduce((total, row) => total + row.available, 0))} hint={`${ceilingStock.length} product${ceilingStock.length === 1 ? "" : "s"} · ${ceilingStock.filter((row) => row.isLowStock).length} low`} icon={Boxes} isLoading={inventory.isLoading} unavailable={Boolean(inventory.error)} />
+          <MetricCard label="Orders" value={formatCount(shownCycle?.totalOrdersCount)} hint={cycleSince} to="/admin/sales" icon={PackageCheck} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} />
+          <MetricCard to="/admin/projects" label="Active projects" value={formatCount(dashboard?.totalProjects)} hint={dashboard?.projectsByStatus.length ? undefined : "No projects recorded yet"} icon={ClipboardList} isLoading={stats.isLoading} />
+          <MetricCard to="/admin/inventory" label="Low stock items" value={formatCount(dashboard?.lowStockCount)} hint={`${formatCount(dashboard?.totalActiveProducts)} active products`} icon={AlertTriangle} isLoading={stats.isLoading} />
+          <MetricCard to="/admin/inventory" label="Wall panel stock" value={formatCount(wallStock.reduce((total, row) => total + row.available, 0))} hint={`${wallStock.length} product${wallStock.length === 1 ? "" : "s"} · ${wallStock.filter((row) => row.isLowStock).length} low`} icon={Boxes} isLoading={inventory.isLoading} unavailable={Boolean(inventory.error)} />
+          <MetricCard to="/admin/inventory" label="Ceiling panel stock" value={formatCount(ceilingStock.reduce((total, row) => total + row.available, 0))} hint={`${ceilingStock.length} product${ceilingStock.length === 1 ? "" : "s"} · ${ceilingStock.filter((row) => row.isLowStock).length} low`} icon={Boxes} isLoading={inventory.isLoading} unavailable={Boolean(inventory.error)} />
         </section>
       )}
 
@@ -203,15 +203,44 @@ export function AdminDashboardPage() {
               {cycleLabel && <p className="mt-3 text-xs text-muted-foreground">{cycleLabel}</p>}
             </>}
           </div>
-          <div className="surface-card p-5">
-            {stats.isLoading ? <Skeleton className="h-32 w-full" /> : <StatusBreakdownBars title="Projects by status" items={dashboard?.projectsByStatus ?? []} emptyLabel="No projects have been created yet." />}
-          </div>
-          <MetricCard label="Pending requests" value={formatCount(dashboard?.pendingRequests)} hint={isOwner ? "Awaiting your review" : "Submitted for owner review"} icon={ShieldCheck} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
-          <MetricCard label="Average feedback rating" value={dashboard?.averageFeedbackRating === null ? "No ratings yet" : dashboard?.averageFeedbackRating?.toFixed(1)} hint="Across all customer feedback" icon={Star} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
-          <MetricCard label="Inventory value" value={formatMoney(products.data?.totalInventoryValue)} hint="At current unit prices" icon={Boxes} isLoading={products.isLoading} unavailable={Boolean(products.error)} restricted={!products.isLoading && !products.error && products.data?.totalInventoryValue === undefined} />
+          <RecentProjectsCard />
+          <MetricCard to="/admin/requests" label="Pending requests" value={formatCount(dashboard?.pendingRequests)} hint={isOwner ? "Awaiting your review" : "Submitted for owner review"} icon={ShieldCheck} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
+          <MetricCard to="/admin/feedback" label="Average feedback rating" value={dashboard?.averageFeedbackRating === null ? "No ratings yet" : dashboard?.averageFeedbackRating?.toFixed(1)} hint="Across all customer feedback" icon={Star} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
+          <MetricCard to="/admin/inventory" label="Inventory value" value={formatMoney(products.data?.totalInventoryValue)} hint="At current unit prices" icon={Boxes} isLoading={products.isLoading} unavailable={Boolean(products.error)} restricted={!products.isLoading && !products.error && products.data?.totalInventoryValue === undefined} />
           <MetricCard label="Customers" value={formatCount(dashboard?.totalCustomers)} icon={Users} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
         </aside>
       </div>
     </div>
+  )
+}
+
+const RECENT_PROJECTS_LIMIT = 5
+
+/** The latest customer projects, each opening on the Projects page. */
+function RecentProjectsCard() {
+  const projects = useAdminResource((signal) => getProjects({ page: 1, limit: RECENT_PROJECTS_LIMIT }, signal), [], { pollIntervalMs: 45_000 })
+  const rows = projects.data?.projects ?? []
+
+  return (
+    <section className="surface-card p-5" aria-labelledby="recent-projects-title">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="recent-projects-title" className="text-sm font-semibold">Recent projects</h2>
+        <Link to="/admin/projects" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">View all<ArrowRight className="size-3" aria-hidden="true" /></Link>
+      </div>
+      {projects.isLoading && !projects.data ? <Skeleton className="mt-3 h-32 w-full" /> : projects.error ? <ErrorState message={projects.error} onRetry={projects.reload} /> : rows.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">No projects have been created yet.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border">
+          {rows.map((project) => (
+            <li key={project.id}>
+              <Link to={`/admin/projects?customer=${project.customerId}&project=${project.id}`} className="-mx-2 block rounded-md px-2 py-2 transition-colors hover:bg-muted/50">
+                <p className="truncate text-sm font-medium">{project.name}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{fullName(project.customer)} · {formatDate(project.createdAt)}</p>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }

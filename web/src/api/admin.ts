@@ -4,6 +4,7 @@ import type {
   AdminBooking,
   DashboardArchiveDetail,
   DashboardArchiveSummary,
+  DashboardRangeReport,
   DashboardCycle,
   AdminFeedback,
   AdminListQuery,
@@ -388,6 +389,16 @@ export function getDashboardArchives(signal?: AbortSignal) {
 /** OWNER only: one archived cycle with its frozen figures, to view it on the dashboard. */
 export function getDashboardArchive(archiveId: string, signal?: AbortSignal) {
   return apiRequest<{ archive: DashboardArchiveDetail }>(`/admin/archives/${archiveId}`, { authenticated: true, signal })
+}
+
+/** OWNER only: the cycle figures for the Philippine dates dateFrom to dateTo (YYYY-MM-DD, both included), computed live. */
+export function getDashboardRangeReport(dateFrom: string, dateTo: string, signal?: AbortSignal) {
+  return apiRequest<{ report: DashboardRangeReport }>(`/admin/archives/range${toQuery({ dateFrom, dateTo })}`, { authenticated: true, signal })
+}
+
+/** OWNER only: that date range report as one Excel workbook (.xlsx), laid out like an archived cycle's. */
+export function downloadDashboardRangeReport(dateFrom: string, dateTo: string) {
+  return apiRequest<Blob>(`/admin/archives/range/download${toQuery({ dateFrom, dateTo })}`, { authenticated: true, responseType: "blob" })
 }
 
 /** OWNER only: one archived cycle as a single Excel workbook (.xlsx) - an overview sheet plus one sheet per dashboard widget. */

@@ -479,6 +479,19 @@ export interface DashboardArchiveSummary {
   totalOrdersCount: number
 }
 
+/** The cycle figures for days the owner picks (GET /admin/archives/range), both dates included. */
+export interface DashboardRangeReport {
+  dateFrom: string
+  dateTo: string
+  startTimestamp: string
+  endTimestamp: string
+  revenueOverTime: CycleRevenueDay[]
+  productDemand: CycleProductDemand[]
+  ordersByStatus: Array<{ status: string; count: number; percentage: number }>
+  totalGrossRevenue?: number
+  totalOrdersCount: number
+}
+
 /** One archived cycle with its frozen widget data (GET /admin/archives/:id), shown on the dashboard. */
 export interface DashboardArchiveDetail extends DashboardArchiveSummary {
   revenueOverTime: CycleRevenueDay[]
