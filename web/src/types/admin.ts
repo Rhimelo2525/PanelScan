@@ -243,7 +243,8 @@ export interface AdminProject {
   status: ProjectStatus
   source?: ProjectSource
   externalProjectId?: string | null
-  arDataUrl?: string | null
+  /** Staff only: where to fetch the photo of the measured wall (an API path); null when there is none. */
+  wallPhotoUrl?: string | null
   arMetadata?: Record<string, unknown> | null
   threeDModelUrl?: string | null
   threeDMetadata?: Record<string, unknown> | null

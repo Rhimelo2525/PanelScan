@@ -10,6 +10,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
 import { EmptyState, ErrorState } from "@/components/admin/empty-state"
 import { FilterBar } from "@/components/admin/filter-bar"
+import { WallPhoto } from "@/components/admin/wall-photo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -270,6 +271,8 @@ function ProjectSheet({ projectId, onClose }: { projectId: string | null; onClos
               </div>
               <Button variant="outline" size="sm" onClick={() => void copyCode(data.projectCode)}><Copy data-icon="inline-start" aria-hidden="true" />Copy</Button>
             </div>
+
+            {data.source === SOURCE && <WallPhoto url={data.wallPhotoUrl ?? null} name={data.name} />}
 
             <AppMeasurement project={data} />
 

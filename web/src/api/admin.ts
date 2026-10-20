@@ -212,6 +212,11 @@ export function getProjects(query: AdminListQuery & { moderatorId?: string; cust
   return apiRequest<{ projects: AdminProject[]; pagination: Pagination }>(`/projects${toQuery({ ...query })}`, { authenticated: true, signal })
 }
 
+/** Staff only: the photo of the wall a customer measured (wallPhotoUrl from the project), with the outline and size drawn on it. */
+export function fetchProjectWallPhoto(path: string, signal?: AbortSignal) {
+  return apiRequest<Blob>(path, { authenticated: true, responseType: "blob", signal })
+}
+
 export function getProjectById(id: string, signal?: AbortSignal) {
   return apiRequest<{ project: AdminProject }>(`/projects/${id}`, { authenticated: true, signal })
 }
