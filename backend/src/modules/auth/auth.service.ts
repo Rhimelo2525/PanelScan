@@ -16,7 +16,7 @@ import { isInvitationPending } from '../users/staffInvitation.service';
 import { verificationService } from './verification.service';
 
 /** Shown when an OWNER/MODERATOR uses the customer sign-in (password or Google). */
-export const STAFF_LOGIN_ONLY_MESSAGE = 'Owner and moderator accounts sign in on the staff login page.';
+export const STAFF_LOGIN_ONLY_MESSAGE = 'Owner and moderator accounts sign in on the admin login page.';
 /** Shown when a CUSTOMER uses the staff sign-in page. */
 export const CUSTOMER_LOGIN_ONLY_MESSAGE = 'This sign-in page is for PanelScan staff. Customers log in on the regular login page.';
 

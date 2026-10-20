@@ -5,7 +5,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 
 import { exchangeGoogleTicket } from "@/api/auth"
 import { apiBaseUrl } from "@/api/client"
-import { CUSTOMER_LOGIN_ONLY_MESSAGE, DISPOSABLE_EMAIL_MESSAGE, STAFF_LOGIN_ONLY_MESSAGE, formatLockoutWait, getLoginErrorMessage, loginLockoutSeconds } from "@/auth/errors"
+import { CUSTOMER_LOGIN_ONLY_MESSAGE, DISPOSABLE_EMAIL_MESSAGE, LEGACY_STAFF_LOGIN_ONLY_MESSAGE, STAFF_LOGIN_ONLY_MESSAGE, formatLockoutWait, getLoginErrorMessage, loginLockoutSeconds } from "@/auth/errors"
 import { getSafeRedirect, resolveLoginDestination } from "@/auth/redirect"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -180,7 +180,7 @@ export function LoginPage({ variant = "customer" }: { variant?: "customer" | "st
         setLockout({ email: email.trim().toLowerCase(), until: current + lockSeconds * 1000, seconds: lockSeconds })
       } else {
         const message = getLoginErrorMessage(error)
-        if (message === STAFF_LOGIN_ONLY_MESSAGE) setWrongPage("staff")
+        if (message === STAFF_LOGIN_ONLY_MESSAGE || message === LEGACY_STAFF_LOGIN_ONLY_MESSAGE) setWrongPage("staff")
         else if (message === CUSTOMER_LOGIN_ONLY_MESSAGE) setWrongPage("customer")
         else setSubmissionError(message)
       }
@@ -194,7 +194,7 @@ export function LoginPage({ variant = "customer" }: { variant?: "customer" | "st
       message={<>
         {wrongPage === "staff" ? STAFF_LOGIN_ONLY_MESSAGE : CUSTOMER_LOGIN_ONLY_MESSAGE}{" "}
         <Link to={wrongPage === "staff" ? "/login/admin" : "/login"} state={{ email: email.trim().toLowerCase() }} className="font-semibold underline underline-offset-4">
-          {wrongPage === "staff" ? "Go to staff login" : "Go to customer login"}
+          {wrongPage === "staff" ? "Go to admin login" : "Go to customer login"}
         </Link>
       </>}
     />
@@ -210,7 +210,7 @@ export function LoginPage({ variant = "customer" }: { variant?: "customer" | "st
   return (
     <AuthShell
       eyebrow={isStaff ? "PanelScan staff" : "Account access"}
-      title={isStaff ? "Staff sign in" : "Welcome back"}
+      title={isStaff ? "Admin sign in" : "Welcome back"}
       description={isStaff
         ? "Owners and moderators sign in here to open the PanelScan admin."
         : "Log in to reveal product pricing and continue to your PanelScan account."}

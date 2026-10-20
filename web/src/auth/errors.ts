@@ -20,7 +20,9 @@ export function formatLockoutWait(totalSeconds: number): string {
 }
 
 /** The backend's answer when a staff account uses the customer sign-in (password or Google). */
-export const STAFF_LOGIN_ONLY_MESSAGE = "Owner and moderator accounts sign in on the staff login page."
+export const STAFF_LOGIN_ONLY_MESSAGE = "Owner and moderator accounts sign in on the admin login page."
+/** The same answer from a backend deployed before the staff page was renamed "admin". */
+export const LEGACY_STAFF_LOGIN_ONLY_MESSAGE = "Owner and moderator accounts sign in on the staff login page."
 /** The backend's answer when a customer uses the staff sign-in page. */
 export const CUSTOMER_LOGIN_ONLY_MESSAGE = "This sign-in page is for PanelScan staff. Customers log in on the regular login page."
 
