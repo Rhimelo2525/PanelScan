@@ -1,5 +1,8 @@
 package com.example.panelscan.core.logic
 
+import com.example.panelscan.core.model.WallPhoto
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
@@ -23,17 +26,21 @@ object WallPhotoGeometry {
     }
 
     /**
-     * The wall's corners from the AR taps: [p0] and [p1] mark the width, [p2]
-     * the height (only its distance square to the width counts, as on the
-     * result screen). Returned bottom-left, bottom-right, top-right, top-left,
-     * with "up" turned to point up in the world (AR y is up) for a wall, so
-     * panel rows start at the floor whichever end was tapped first.
+     * The wall's corners from the AR taps: [p0] to [p1] is one side, [p2]
+     * gives the other (only its distance square to that side counts, as on the
+     * result screen). The level side is the width whichever was tapped first.
+     * Returned bottom-left, bottom-right, top-right, top-left, with "up" turned
+     * to point up in the world (AR y is up) for a wall, so panel rows start at
+     * the floor whichever end was tapped first.
      */
     fun cornersFromTaps(p0: Vec, p1: Vec, p2: Vec): List<Vec> {
-        val across = p1 - p0
-        val right = across.normalized()
+        var across = p1 - p0
         val toHeight = p2 - p0
-        var up = toHeight - right * (toHeight dot right)
+        var up = toHeight - across.normalized() * (toHeight dot across.normalized())
+        // The upright side was tapped first: it is the height, the other the width.
+        if (kotlin.math.abs(across.normalized().y) > kotlin.math.abs(up.normalized().y)) {
+            across = up.also { up = across }
+        }
         var start = p0
         if (up.y < 0f) {
             start = p0 + up
@@ -102,6 +109,52 @@ object WallPhotoGeometry {
         fun at(ndcX: Float, ndcY: Float) = Vec((ndcX + ox) * distance / sx, (ndcY + oy) * distance / sy, -distance)
         return listOf(at(-1f, -1f), at(1f, -1f), at(1f, 1f), at(-1f, 1f))
     }
+
+    /**
+     * The measured wall's corners on the photo, in pixels of an image
+     * [imageWidth] × [imageHeight] (x right, y down): bottom-left,
+     * bottom-right, top-right, top-left. Null if a corner is behind the camera.
+     */
+    fun pixelCorners(photo: WallPhoto, imageWidth: Int, imageHeight: Int): List<Pair<Float, Float>>? {
+        if (photo.corners.size < 12 || photo.projection.size < 16) return null
+        val projection = photo.projection.toFloatArray()
+        return (0 until 4).map { index ->
+            val point = Vec(photo.corners[index * 3], photo.corners[index * 3 + 1], photo.corners[index * 3 + 2])
+            if (point.z > -MIN_DEPTH) return null
+            val (x, y) = project(projection, point)
+            ((x + 1f) / 2f * imageWidth) to ((1f - y) / 2f * imageHeight)
+        }
+    }
+
+    /**
+     * Where to centre the label (a box [halfWidth] × [halfHeight] px from its
+     * centre) of the edge from corner [from] to corner [to]: its midpoint,
+     * pushed away from the outline's centre until the box clears the edge by
+     * [gap], then kept inside the image.
+     */
+    fun labelAnchor(
+        corners: List<Pair<Float, Float>>,
+        from: Int,
+        to: Int,
+        halfWidth: Float,
+        halfHeight: Float,
+        gap: Float,
+        imageWidth: Int,
+        imageHeight: Int
+    ): Pair<Float, Float> {
+        val centreX = corners.sumOf { it.first.toDouble() }.toFloat() / corners.size
+        val centreY = corners.sumOf { it.second.toDouble() }.toFloat() / corners.size
+        val midX = (corners[from].first + corners[to].first) / 2f
+        val midY = (corners[from].second + corners[to].second) / 2f
+        val away = Vec(midX - centreX, midY - centreY, 0f).normalized()
+        val offset = abs(away.x) * halfWidth + abs(away.y) * halfHeight + gap
+        val x = (midX + away.x * offset).coerceIn(halfWidth, max(halfWidth, imageWidth - halfWidth))
+        val y = (midY + away.y * offset).coerceIn(halfHeight, max(halfHeight, imageHeight - halfHeight))
+        return x to y
+    }
+
+    /** A corner this close to the camera plane (or behind it) can't be drawn on the photo. */
+    private const val MIN_DEPTH = 0.01f
 
     /** Where a camera-space point lands on screen, -1..1 each way (y up). */
     fun project(projection: FloatArray, point: Vec): Pair<Float, Float> {

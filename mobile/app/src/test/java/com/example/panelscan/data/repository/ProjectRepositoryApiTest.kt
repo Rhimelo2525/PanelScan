@@ -62,7 +62,18 @@ class ProjectRepositoryApiTest {
                          "baseQuantity":9,"wastePercent":10,"finalQuantity":10,"estimatedCost":18500.0,"savedAt":500},
            "createdAt":"2026-10-08T02:00:00.000Z"}"""
 
-    private fun repository(respond: (method: String, path: String, body: String) -> String): ProjectRepository {
+    /** Wall photos the fake app has for projects, and the measurement each was last sent with. */
+    private class FakeWallPhotos(private val withPhoto: Set<String>) : ProjectRepository.WallPhotoUploads {
+        val sent = mutableMapOf<String, String>()
+        override suspend fun photoToSend(projectId: String, measurementKey: String, widthMeters: Double, heightMeters: Double, surfaceType: SurfaceType): ByteArray? =
+            if (projectId in withPhoto && sent[projectId] != measurementKey) byteArrayOf(1, 2, 3) else null
+        override fun markSent(projectId: String, measurementKey: String) { sent[projectId] = measurementKey }
+    }
+
+    private fun repository(
+        wallPhotos: ProjectRepository.WallPhotoUploads? = null,
+        respond: (method: String, path: String, body: String) -> String
+    ): ProjectRepository {
         val backend = Interceptor { chain ->
             val request = chain.request()
             val path = request.url.encodedPath.removePrefix("/api") + (request.url.encodedQuery?.let { "?$it" } ?: "")
@@ -79,7 +90,7 @@ class ProjectRepositoryApiTest {
             setCustomerSession(CustomerUser(id = "me", firstName = "Juan", lastName = "Dela Cruz", email = "juan@gmail.com"))
         }
         val api = ApiClient("https://backend.test/api/", session, OkHttpClient.Builder().addInterceptor(backend).build())
-        return ProjectRepository(dao, MutableStateFlow(listOf(panel)), api) { signedIn }
+        return ProjectRepository(dao, MutableStateFlow(listOf(panel)), api, wallPhotos) { signedIn }
     }
 
     private val savedResponse = """{"project":{"id":"r-app-1","name":"x","externalProjectId":"app-1","createdAt":"2026-10-08T02:00:00.000Z"}}"""
@@ -204,4 +215,35 @@ class ProjectRepositoryApiTest {
     }
 
     private suspend fun FakeProjectDao.allIds() = getAllProjects().first().map { it.id }
+
+    @Test
+    fun `the wall photo goes up after its project, once per measurement, and a failed one is retried later`() = runBlocking {
+        val photos = FakeWallPhotos(withPhoto = setOf("app-1"))
+        var photoFails = true
+        val repo = repository(photos) { method, path, _ ->
+            when {
+                method == "PUT" && photoFails -> "!Storage is busy"
+                method == "PUT" -> savedResponse
+                method == "GET" -> """{"projects":[]}"""
+                else -> savedResponse
+            }
+        }
+
+        // The photo failing never fails the save; it is not marked as sent.
+        assertNull(repo.saveProject(project()))
+        assertEquals(listOf("POST /projects/mobile", "PUT /projects/mobile/app-1/wall-photo"), calls.map { it.substringBefore(" {").substringBefore(" --") })
+        assertTrue(photos.sent.isEmpty())
+
+        // Opening Projects retries it.
+        photoFails = false
+        calls.clear()
+        repo.refreshReferences()
+        assertEquals(1, calls.count { it.startsWith("PUT /projects/mobile/app-1/wall-photo") })
+        assertEquals("3.2|2.6|WALL", photos.sent["app-1"])
+
+        // Saving the same measurement again sends the project, not the photo.
+        calls.clear()
+        repo.saveProject(project())
+        assertEquals(0, calls.count { it.startsWith("PUT ") })
+    }
 }

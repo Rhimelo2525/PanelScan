@@ -35,8 +35,19 @@ class ProjectRepository(
     /** The live catalogue; a project shows its panel once the catalogue has loaded. */
     private val catalog: StateFlow<List<PVCPanel>>,
     private val api: ApiClient? = null,
+    private val wallPhotos: WallPhotoUploads? = null,
     private val isSignedIn: () -> Boolean = { false }
 ) {
+    /**
+     * The photos of measured walls sent with projects, so the team sees which
+     * wall was measured (staff only; not shown on the customer's website).
+     */
+    interface WallPhotoUploads {
+        /** The photo with [measurementKey]'s measurement drawn on it; null when there is none or it was already sent. */
+        suspend fun photoToSend(projectId: String, measurementKey: String, widthMeters: Double, heightMeters: Double, surfaceType: SurfaceType): ByteArray?
+        fun markSent(projectId: String, measurementKey: String)
+    }
+
     /** App project ids known to be saved on the account. */
     private val syncedIds = mutableSetOf<String>()
 
@@ -111,9 +122,31 @@ class ProjectRepository(
             val remote = client.get<ProjectPage>("/projects?source=MOBILE_AR_3D&limit=$PAGE_SIZE", authenticated = true).projects
             synchronized(syncedIds) { syncedIds += remote.mapNotNull { it.externalProjectId } }
             _references.value = remote.referencesById()
+            sendPendingWallPhotos(client)
             null
         } catch (error: ApiException) {
             error.message
+        }
+    }
+
+    /** Wall photos that did not go with their project (offline, or an error) are retried here. */
+    private suspend fun sendPendingWallPhotos(client: ApiClient) {
+        if (wallPhotos == null) return
+        val synced = synchronized(syncedIds) { syncedIds.toSet() }
+        projectDao.getAllProjects().first().filter { it.id in synced }.forEach { sendWallPhoto(client, it) }
+    }
+
+    /** Best effort: a photo that fails to send never fails saving the project; it is tried again later. */
+    private suspend fun sendWallPhoto(client: ApiClient, entity: ProjectEntity) {
+        val photos = wallPhotos ?: return
+        val surface = runCatching { SurfaceType.valueOf(entity.surfaceType) }.getOrNull() ?: return
+        val key = "${entity.widthMeters}|${entity.heightMeters}|${entity.surfaceType}"
+        val bytes = photos.photoToSend(entity.id, key, entity.widthMeters, entity.heightMeters, surface) ?: return
+        try {
+            client.uploadFile("PUT", "/projects/mobile/${encode(entity.id)}/wall-photo", "image", "wall.jpg", "image/jpeg", bytes)
+            photos.markSent(entity.id, key)
+        } catch (_: ApiException) {
+            // Kept for the next save, sign-in or visit to Projects.
         }
     }
 
@@ -157,6 +190,7 @@ class ProjectRepository(
             val saved = client.post<MobileProjectRequest, ProjectResponse>("/projects/mobile", body, authenticated = true).project
             synchronized(syncedIds) { syncedIds += entity.id }
             _references.update { it + (entity.id to saved.toReference()) }
+            sendWallPhoto(client, entity)
             null
         } catch (error: ApiException) {
             error.message

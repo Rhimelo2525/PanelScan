@@ -1,6 +1,8 @@
 package com.example.panelscan.core.navigation
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import com.example.panelscan.core.model.CustomerReview
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.DisposableEffect
@@ -103,6 +105,7 @@ import com.example.panelscan.feature.orders.OrderDetailScreen
 import com.example.panelscan.feature.orders.OrdersScreen
 import com.example.panelscan.feature.notifications.NotificationsScreen
 import com.example.panelscan.feature.preview3d.Preview3DScreen
+import com.example.panelscan.data.local.WallPhotoAnnotator
 import com.example.panelscan.data.local.WallPhotoStore
 import com.example.panelscan.feature.products.CatalogFilter
 import com.example.panelscan.feature.products.ProductDetailScreen
@@ -187,13 +190,31 @@ fun PanelScanNavHost(
         cartRepository.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
     }
 
-    // Photos of measured walls for the 3D preview; on the phone only.
+    // Photos of measured walls: clean on the phone for the 3D preview, and a
+    // copy with the measurement drawn on it sent with the project for the team.
     val wallPhotos = remember(context) { WallPhotoStore(context.filesDir) }
     val repository = remember(context, apiClient) {
         ProjectRepository(
             ProjectDatabase.getDatabase(context).projectDao(),
             ProductCatalog.panels,
-            apiClient
+            apiClient,
+            object : ProjectRepository.WallPhotoUploads {
+                override suspend fun photoToSend(
+                    projectId: String,
+                    measurementKey: String,
+                    widthMeters: Double,
+                    heightMeters: Double,
+                    surfaceType: SurfaceType
+                ): ByteArray? {
+                    if (wallPhotos.isSent(projectId, measurementKey)) return null
+                    val photo = wallPhotos.load(projectId) ?: return null
+                    return withContext(Dispatchers.Default) {
+                        WallPhotoAnnotator.annotate(wallPhotos.file(photo), photo, widthMeters, heightMeters, surfaceType)
+                    }
+                }
+
+                override fun markSent(projectId: String, measurementKey: String) = wallPhotos.markSent(projectId, measurementKey)
+            }
         ) { sessionManager.sessionState.value is CustomerSessionState.LoggedIn }
     }
     // Projects follow the account like the cart: merged in at sign-in, removed at sign-out.
@@ -406,9 +427,11 @@ fun PanelScanNavHost(
                     onBack = { navController.popBackStack() },
                     onDimensionsChanged = measurementViewModel::applyManualDimensions,
                     // AR → Estimation Result → 3D Preview → Cart
+                    savesWallPhoto = measurementState.wallPhoto != null,
                     onViewPreview = { project ->
-                        projectsViewModel.saveProject(project)
+                        // The photo first, so the save sends it along.
                         measurementState.wallPhoto?.let { wallPhotos.attach(project.id, it) }
+                        projectsViewModel.saveProject(project)
                         navController.navigate(Screen.Preview3D.createRoute(project.id))
                     },
                     onBrowsePanels = { navController.navigate(Screen.PanelSelection.route) }
@@ -423,8 +446,8 @@ fun PanelScanNavHost(
                     onBack = { navController.popBackStack() },
                     showPrice = pricesVisible,
                     onProjectSaved = { project ->
-                        projectsViewModel.saveProject(project)
                         measurementState.wallPhoto?.let { wallPhotos.attach(project.id, it) }
+                        projectsViewModel.saveProject(project)
                         measurementViewModel.setPreselectedPanel(null)
                         navController.navigate(Screen.Preview3D.createRoute(project.id))
                     }

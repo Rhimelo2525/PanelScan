@@ -1,7 +1,9 @@
 package com.example.panelscan.core.logic
 
 import com.example.panelscan.core.logic.WallPhotoGeometry.Vec
+import com.example.panelscan.core.model.WallPhoto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -77,5 +79,44 @@ class WallPhotoGeometryTest {
         val narrower = WallPhotoGeometry.fitProjection(projection, photoAspect, 0.4f)
         assertEquals(projection[0] * (photoAspect / 0.4f), narrower[0], 1e-5f)
         assertEquals(projection[5], narrower[5], 1e-5f)
+    }
+
+    @Test
+    fun `the measured corners land on the photo's pixels, and none are drawn when one is behind the camera`() {
+        // A 1080 × 2400 photo: a point straight ahead is its centre; one up the edge of the view is its top.
+        val photo = WallPhoto(
+            fileName = "p.jpg", imageWidth = 1080, imageHeight = 2400, projection = projection.toList(),
+            corners = listOf(0f, 0f, -2f, 0.5f, 0f, -2f, 0.5f, 2f / 1.7320508f, -2f, 0f, 2f / 1.7320508f, -2f)
+        )
+        val pixels = WallPhotoGeometry.pixelCorners(photo, 1080, 2400)!!
+        assertEquals(540f, pixels[0].first, 0.5f)
+        assertEquals(1200f, pixels[0].second, 0.5f)
+        assertEquals(0f, pixels[3].second, 0.5f)
+        assertTrue(pixels[1].first > 540f)
+        // Drawn at another size (the uploaded copy is scaled), the same spots scale with it.
+        assertEquals(270f, WallPhotoGeometry.pixelCorners(photo, 540, 1200)!![0].first, 0.5f)
+
+        val behind = photo.copy(corners = photo.corners.toMutableList().also { it[2] = 1f })
+        assertNull(WallPhotoGeometry.pixelCorners(behind, 1080, 2400))
+    }
+
+    @Test
+    fun `an edge's label clears the outline, and stays inside the photo`() {
+        val square = listOf(300f to 500f, 500f to 500f, 500f to 300f, 300f to 300f)
+        // A 120 × 30 label: below the bottom edge by half its height, left of the left edge by half its width.
+        assertEquals(400f to 525f, WallPhotoGeometry.labelAnchor(square, 0, 1, 60f, 15f, 10f, 1000, 1000))
+        assertEquals(230f to 400f, WallPhotoGeometry.labelAnchor(square, 0, 3, 60f, 15f, 10f, 1000, 1000))
+        // A wall reaching the photo's bottom edge: the label is pulled back in, whole.
+        assertEquals(400f to 485f, WallPhotoGeometry.labelAnchor(square, 0, 1, 60f, 15f, 10f, 1000, 500))
+    }
+
+    @Test
+    fun `the wall's corners are the same when the upright side was tapped first`() {
+        // Down the left side, then across to the right: the level side is still the width.
+        val corners = WallPhotoGeometry.cornersFromTaps(Vec(0f, 1f, -2f), Vec(0f, 0.7f, -2f), Vec(0.35f, 0.7f, -2f))
+        assertVec(Vec(0f, 0.7f, -2f), corners[0])
+        assertVec(Vec(0.35f, 0.7f, -2f), corners[1])
+        assertVec(Vec(0.35f, 1f, -2f), corners[2])
+        assertVec(Vec(0f, 1f, -2f), corners[3])
     }
 }

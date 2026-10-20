@@ -5,11 +5,13 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * Photos of measured walls, kept in the app's private storage and never
- * uploaded: a project's photo is `<projectId>.jpg` with its placement in
- * `<projectId>.json`. A photo taken during a measurement stays "pending"
- * (copied to each project saved from that measurement) until the next
- * measurement replaces it.
+ * Photos of measured walls, kept in the app's private storage: a project's
+ * photo is `<projectId>.jpg` with its placement in `<projectId>.json`. A photo
+ * taken during a measurement stays "pending" (copied to each project saved
+ * from that measurement) until the next measurement replaces it. A copy with
+ * the measurement drawn on it goes to the PanelScan team with the project;
+ * `<projectId>.sent` records which measurement that copy showed, so it is
+ * sent again only when the photo or the size changes.
  */
 class WallPhotoStore(filesDir: File) {
 
@@ -39,14 +41,26 @@ class WallPhotoStore(filesDir: File) {
         if (source != target) source.copyTo(target, overwrite = true)
         val owned = pending.copy(fileName = target.name)
         metaFile(projectId).writeText(json.encodeToString(WallPhoto.serializer(), owned))
+        sentFile(projectId).delete()
+    }
+
+    /** Whether the team already has this project's photo drawn with [measurementKey]. */
+    fun isSent(projectId: String, measurementKey: String): Boolean =
+        sentFile(projectId).let { it.exists() && it.readText() == measurementKey }
+
+    fun markSent(projectId: String, measurementKey: String) {
+        sentFile(projectId).writeText(measurementKey)
     }
 
     fun delete(projectId: String) {
         File(dir, "${safe(projectId)}.jpg").delete()
         metaFile(projectId).delete()
+        sentFile(projectId).delete()
     }
 
     private fun metaFile(projectId: String) = File(dir, "${safe(projectId)}.json")
+
+    private fun sentFile(projectId: String) = File(dir, "${safe(projectId)}.sent")
 
     private fun safe(id: String) = id.replace(Regex("[^A-Za-z0-9_-]"), "_")
 }
