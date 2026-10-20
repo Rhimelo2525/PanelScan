@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { authenticate } from '../../middleware/auth.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
+import { receiveProfileImage } from '../profilePicture/profilePicture.upload';
 import { projectController } from './project.controller';
 import {
   idParamsSchema,
@@ -34,6 +35,19 @@ router.delete(
   validate(mobileProjectParamsSchema),
   projectController.removeMobile,
 );
+
+// PUT /api/projects/mobile/:externalProjectId/wall-photo - CUSTOMER: the photo of the measured
+// wall, with the measured outline drawn on it by the app (multipart, field "image", up to 5 MB).
+router.put(
+  '/mobile/:externalProjectId/wall-photo',
+  restrictTo(UserRole.CUSTOMER),
+  validate(mobileProjectParamsSchema),
+  receiveProfileImage,
+  projectController.uploadWallPhoto,
+);
+
+// GET /api/projects/:id/wall-photo - OWNER/MODERATOR only: customers see it in the app, not here.
+router.get('/:id/wall-photo', restrictTo(UserRole.OWNER, UserRole.MODERATOR), validate(idParamsSchema), projectController.viewWallPhoto);
 
 // GET /api/projects/customers - OWNER/MODERATOR: customers who have projects, with counts.
 // Registered before /:id so "customers" is never read as a project id.

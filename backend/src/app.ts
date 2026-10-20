@@ -48,9 +48,10 @@ const uploadsDirectory = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FU
   ? path.join('/tmp', 'uploads')
   : path.resolve(process.cwd(), env.UPLOAD_DIR);
 
-// Customer profile pictures live under uploads/profiles/ but are private: they
-// may only be served by the authenticated GET /api/users/:id/profile-picture
-// endpoint, never by the public static mount below (which has no login check
+// Customer profile pictures live under uploads/profiles/ (and wall photos under
+// uploads/wall-photos/) but are private: they may only be served by the
+// authenticated GET /api/users/:id/profile-picture (and GET
+// /api/projects/:id/wall-photo) endpoints, never by the public static mount below (which has no login check
 // at all). This runs first and works on the DECODED, normalised path, because
 // the static handler decodes %-escapes and resolves "." / ".." itself - a
 // naive check on the raw URL could be slipped past with "/%70rofiles/..",
@@ -65,7 +66,7 @@ app.use('/uploads', (req: Request, _res: Response, next: NextFunction) => {
   }
 
   const normalisedPath = path.posix.normalize(decodedPath.replace(/\\/g, '/')).toLowerCase();
-  if (/^\/*profiles(\/|$)/.test(normalisedPath)) {
+  if (/^\/*(profiles|wall-photos)(\/|$)/.test(normalisedPath)) {
     next(new AppError('The requested file was not found.', 404));
     return;
   }

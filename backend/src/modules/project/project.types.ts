@@ -8,8 +8,16 @@ export const projectInclude = {
 
 export type ProjectWithRelations = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
 
-/** A project as the API returns it: with its reference code ("PRJ-2026-1A2B3C4D"). */
-export type ProjectView = ProjectWithRelations & { projectCode: string };
+/**
+ * A project as the API returns it: with its reference code
+ * ("PRJ-2026-1A2B3C4D") and, instead of the stored file location
+ * (arDataUrl), where staff fetch the photo of the measured wall.
+ */
+export type ProjectView = Omit<ProjectWithRelations, 'arDataUrl'> & {
+  projectCode: string;
+  /** GET path (under /api) of the wall photo, staff only; null when the customer saved none. */
+  wallPhotoUrl: string | null;
+};
 
 export interface PaginationMeta {
   page: number;

@@ -1,9 +1,11 @@
 import { ProjectSource, UserRole } from '@prisma/client';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
+import { uploadsRoot } from '../../utils/profilePictureStorage';
+import { isWallPhotoUrl } from '../../utils/wallPhotoStorage';
 import { ProjectService, projectService } from './project.service';
 import type { ProjectFilters } from './project.types';
 
@@ -64,6 +66,40 @@ export class ProjectController {
     const requester = getRequester(req);
     await this.projectService.deleteMobileProject(requester.id, req.params.externalProjectId as string);
     sendSuccess(res, 200, 'Project deleted successfully.');
+  });
+
+  /** CUSTOMER: the photo of the measured wall for one of their mobile projects (multipart, field "image"). */
+  uploadWallPhoto = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const requester = getRequester(req);
+    if (!req.file) {
+      throw new AppError('Please provide an image file to upload.', 400);
+    }
+    const project = await this.projectService.setWallPhoto(requester.id, req.params.externalProjectId as string, req.file);
+    sendSuccess(res, 200, 'Wall photo saved successfully.', { project });
+  });
+
+  /** OWNER and MODERATOR: the project's wall photo. The ?v= version names one photo, so a matching one is cached for good. */
+  viewWallPhoto = catchAsync(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const stored = await this.projectService.getWallPhotoFile(req.params.id as string);
+    const cache = typeof req.query.v === 'string' && stored.includes(req.query.v) ? 'private, max-age=31536000, immutable' : 'private, no-cache';
+    // Blob mode: the role check already ran, so the unguessable Blob URL can be handed over.
+    if (isWallPhotoUrl(stored)) {
+      res.set('Cache-Control', cache);
+      res.redirect(302, stored);
+      return;
+    }
+    res.sendFile(
+      stored,
+      {
+        root: uploadsRoot,
+        dotfiles: 'deny',
+        cacheControl: false,
+        headers: { 'Cache-Control': cache, 'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff' },
+      },
+      (error) => {
+        if (error && !res.headersSent) next(new AppError('Wall photo not found.', 404));
+      },
+    );
   });
 
   /** OWNER and MODERATOR: every project (view-only). CUSTOMER: own projects only. */

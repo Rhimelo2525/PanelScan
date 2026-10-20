@@ -1,8 +1,12 @@
+import path from 'path';
 import { NotificationType, Prisma, ProjectSource, ProjectStatus, UserRole } from '@prisma/client';
+import sharp from 'sharp';
 
 import { prisma } from '../../config/database';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { ALLOWED_IMAGE_EXTENSIONS, detectImageType } from '../../utils/imageSniff';
+import { isWallPhotoPathOwnedBy, purgeWallPhotos, saveWallPhoto, wallPhotoVersion } from '../../utils/wallPhotoStorage';
 import { parseProjectCode, projectCodeFor } from './project.code';
 import { projectInclude } from './project.types';
 import type {
@@ -29,8 +33,28 @@ const buildOrderBy = (
   return { createdAt: direction };
 };
 
-/** Every project the API returns carries its reference code. */
-const withCode = (project: ProjectWithRelations): ProjectView => ({ ...project, projectCode: projectCodeFor(project) });
+/** The longest side a stored wall photo keeps, and its JPEG quality. */
+const WALL_PHOTO_MAX_SIDE_PX = 1600;
+const WALL_PHOTO_QUALITY = 82;
+const MAX_WALL_PHOTO_BYTES = 5 * 1024 * 1024;
+// sharp refuses a "decompression bomb" (tiny file, enormous declared size) above this.
+const MAX_INPUT_PIXELS = 40_000_000;
+
+export interface UploadedWallPhoto {
+  buffer: Buffer;
+  originalname: string;
+}
+
+/** Every project the API returns carries its reference code, and its wall photo as a staff URL, never the stored location. */
+const withCode = (project: ProjectWithRelations): ProjectView => {
+  const { arDataUrl, ...rest } = project;
+  const version = arDataUrl ? wallPhotoVersion(arDataUrl) : null;
+  return {
+    ...rest,
+    projectCode: projectCodeFor(project),
+    wallPhotoUrl: version ? `/projects/${project.id}/wall-photo?v=${version}` : null,
+  };
+};
 
 /** Each word must match the customer's first name, last name or email ("Justin Ablog" finds Justin Andre Ablog). */
 const customerSearch = (search: string | undefined): Prisma.UserWhereInput => {
@@ -222,6 +246,64 @@ export class ProjectService {
       throw new AppError('This project is already being handled by the PanelScan team and can no longer be deleted.', 400);
     }
     await prisma.project.delete({ where: { id: existing.id } });
+    await purgeWallPhotos(existing.id).catch((error) => console.error('[project] Could not remove wall photos:', error));
+  }
+
+  /**
+   * CUSTOMER: the photo of the measured wall for one of their mobile projects,
+   * drawn on by the app with the measured outline and its width and height.
+   * It is checked (extension, real image bytes, decodable), then re-encoded:
+   * no EXIF (so no location) and at most 1600 px on its longest side. Saving
+   * again replaces the earlier photo.
+   */
+  async setWallPhoto(customerId: string, externalProjectId: string, file: UploadedWallPhoto): Promise<ProjectView> {
+    const project = await prisma.project.findFirst({
+      where: { customerId, source: ProjectSource.MOBILE_AR_3D, externalProjectId },
+      select: { id: true },
+    });
+    if (!project) {
+      throw new AppError('Project not found.', 404);
+    }
+
+    if (file.buffer.length > MAX_WALL_PHOTO_BYTES) {
+      throw new AppError('Image size must be less than 5MB.', 413);
+    }
+    const extension = path.extname(file.originalname ?? '').toLowerCase();
+    if (!ALLOWED_IMAGE_EXTENSIONS.has(extension) || detectImageType(file.buffer) === null) {
+      throw new AppError('Please upload a JPG, PNG, or WEBP image.', 400);
+    }
+    let processed: Buffer;
+    try {
+      processed = await sharp(file.buffer, { limitInputPixels: MAX_INPUT_PIXELS })
+        .rotate()
+        .resize(WALL_PHOTO_MAX_SIDE_PX, WALL_PHOTO_MAX_SIDE_PX, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: WALL_PHOTO_QUALITY })
+        .toBuffer();
+    } catch {
+      throw new AppError("We couldn't read that image. Please try again.", 400);
+    }
+
+    let stored: string;
+    try {
+      stored = await saveWallPhoto(project.id, processed);
+    } catch (error) {
+      console.error('[project] Could not store the wall photo:', error);
+      throw new AppError("We couldn't save the wall photo right now. Please try again shortly.", 503);
+    }
+    const updated = await prisma.project.update({ where: { id: project.id }, data: { arDataUrl: stored }, include: projectInclude });
+    // Only once the project points at the new photo is the old one removed.
+    await purgeWallPhotos(project.id, stored).catch((error) => console.error('[project] Could not remove old wall photos:', error));
+    return withCode(updated);
+  }
+
+  /** OWNER and MODERATOR: where the project's wall photo is stored (a Blob URL or a relative disk path). */
+  async getWallPhotoFile(projectId: string): Promise<string> {
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { arDataUrl: true } });
+    // The path check is a second guard: even a tampered value can't serve another project's file.
+    if (!project?.arDataUrl || !isWallPhotoPathOwnedBy(project.arDataUrl, projectId)) {
+      throw new AppError('Wall photo not found.', 404);
+    }
+    return project.arDataUrl;
   }
 
   private async assertCustomer(customerId: string): Promise<void> {
