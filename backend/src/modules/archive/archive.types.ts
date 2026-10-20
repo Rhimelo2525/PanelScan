@@ -59,6 +59,17 @@ export interface ArchiveSummary {
   totalOrdersCount: number;
 }
 
+/**
+ * The same figures as a cycle, for any span of Philippine calendar days the
+ * owner picks (dateFrom to dateTo, both included), computed live.
+ */
+export interface RangeReport extends CycleMetrics {
+  dateFrom: string;
+  dateTo: string;
+  startTimestamp: string;
+  endTimestamp: string;
+}
+
 /** One archived cycle with its frozen widget data, for viewing it on the dashboard. */
 export interface ArchiveDetail extends ArchiveSummary {
   revenueOverTime: RevenueDay[];

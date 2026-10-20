@@ -3,11 +3,14 @@ import type { DashboardArchive } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
-import { cycleEndExclusive, cycleLastSecond, cycleTitle, manilaDateKey, manilaDaysBetween, manilaMidnight } from './archive.cycle';
+import { cycleEndExclusive, cycleLastSecond, cycleTitle, manilaDateKey, manilaDayEndExclusive, manilaDayStart, manilaDaysBetween, manilaMidnight } from './archive.cycle';
 import { ARCHIVED_METRIC_TYPES } from './archive.types';
-import type { ArchiveDetail, ArchiveSummary, ArchivedMetricType, CurrentCycle, CycleMetrics, OrderStatusShare, ProductDemandRow, RevenueDay } from './archive.types';
+import type { ArchiveDetail, ArchiveSummary, ArchivedMetricType, CurrentCycle, CycleMetrics, OrderStatusShare, ProductDemandRow, RangeReport, RevenueDay } from './archive.types';
 
 const roundMoney = (value: number): number => Math.round(value * 100) / 100;
+/** The longest span a custom range report covers. */
+export const MAX_RANGE_DAYS = 366;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const STATUS_ORDER: OrderStatus[] = [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.CANCELLED];
 
 /**
@@ -107,6 +110,33 @@ export class ArchiveService {
       ...metrics,
     };
     return role === UserRole.OWNER ? cycle : withoutRevenue(cycle);
+  }
+
+  /**
+   * The cycle figures for the Philippine calendar days dateFrom to dateTo
+   * (both included), read live from the orders: e.g. Sep 19 to Sep 22 only.
+   * Days after today are not listed; the dates are already format-checked.
+   */
+  async getRangeReport(dateFrom: string, dateTo: string, now: Date = new Date()): Promise<RangeReport> {
+    const start = manilaDayStart(dateFrom);
+    const endExclusive = manilaDayEndExclusive(dateTo);
+    if (endExclusive.getTime() <= start.getTime()) {
+      throw new AppError('The start date must be on or before the end date.', 400);
+    }
+    if (start.getTime() > now.getTime()) {
+      throw new AppError('The start date cannot be in the future.', 400);
+    }
+    if ((endExclusive.getTime() - start.getTime()) / DAY_MS > MAX_RANGE_DAYS) {
+      throw new AppError(`Choose a range of up to ${MAX_RANGE_DAYS} days.`, 400);
+    }
+    const metrics = await this.computeCycleMetrics(start, endExclusive, now.getTime() < endExclusive.getTime() ? now : endExclusive);
+    return {
+      dateFrom,
+      dateTo,
+      startTimestamp: start.toISOString(),
+      endTimestamp: new Date(endExclusive.getTime() - 1000).toISOString(),
+      ...metrics,
+    };
   }
 
   /** Every archived cycle, newest first. */

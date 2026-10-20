@@ -2,7 +2,8 @@ import type { DashboardArchive } from '@prisma/client';
 import ExcelJS from 'exceljs';
 
 import { formatManilaDateTime, manilaDateKey, toManilaIso } from './archive.cycle';
-import type { ArchivedMetricType, OrderStatusShare, ProductDemandRow, RevenueDay } from './archive.types';
+import { ARCHIVED_METRIC_TYPES } from './archive.types';
+import type { ArchivedMetricType, OrderStatusShare, ProductDemandRow, RangeReport, RevenueDay } from './archive.types';
 
 export const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -28,6 +29,15 @@ export const archiveFileName = (archive: Pick<DashboardArchive, 'startTimestamp'
   return from.year === to.year
     ? `PanelScan_Archive_${from.day}_to_${to.day}_${to.year}.xlsx`
     : `PanelScan_Archive_${from.day}_${from.year}_to_${to.day}_${to.year}.xlsx`;
+};
+
+/** "PanelScan_Sales_Sep19_to_Sep22_2026.xlsx" (both years shown if the range spans New Year). */
+export const rangeFileName = (report: Pick<RangeReport, 'startTimestamp' | 'endTimestamp'>): string => {
+  const from = fileDate(new Date(report.startTimestamp));
+  const to = fileDate(new Date(report.endTimestamp));
+  return from.year === to.year
+    ? `PanelScan_Sales_${from.day}_to_${to.day}_${to.year}.xlsx`
+    : `PanelScan_Sales_${from.day}_${from.year}_to_${to.day}_${to.year}.xlsx`;
 };
 
 /** "PENDING" -> "Pending" */
@@ -64,57 +74,130 @@ const addTableSheet = (
   });
 };
 
+/** What one workbook holds: the overview sheet's text and the three widgets' data. */
+interface MetricsWorkbook {
+  title: string;
+  overviewSheet: string;
+  intro: string;
+  created: Date;
+  details: Array<[string, string | number]>;
+  /** The detail whose value is a peso amount. */
+  revenueLabel: string;
+  notes: string[];
+  revenueDays: RevenueDay[];
+  productDemand: ProductDemandRow[];
+  ordersByStatus: OrderStatusShare[];
+  totalRevenue: number;
+  totalOrdersCount: number;
+}
+
+const completedOrdersOf = (days: RevenueDay[]): number => days.reduce((sum, day) => sum + day.completedOrdersCount, 0);
+
 /**
  * The downloadable record of one archived cycle: a single Excel workbook with
  * an overview sheet describing the cycle and one sheet per dashboard widget.
  */
 export async function buildArchiveWorkbook(archive: DashboardArchive): Promise<Buffer> {
   const revenueDays = archive.revenueOverTimeData as unknown as RevenueDay[];
-  const productDemand = archive.productDemandData as unknown as ProductDemandRow[];
-  const ordersByStatus = archive.ordersByStatusData as unknown as OrderStatusShare[];
   const metricTypes = archive.metricTypesIncluded as ArchivedMetricType[];
   const totalRevenue = Number(archive.totalGrossRevenue);
-  const completedOrders = revenueDays.reduce((sum, day) => sum + day.completedOrdersCount, 0);
+  const title = `Cycle #${archive.cycleNumber} Archived Record`;
+  return buildMetricsWorkbook({
+    title,
+    overviewSheet: 'Archive Overview',
+    intro: 'PanelScan dashboard archive. All times are Philippine time (Asia/Manila, UTC+08:00).',
+    created: archive.archivedAt,
+    details: [
+      ['Archive Title', title],
+      ['Cycle', archive.cycleTitle],
+      ['Date Range (Philippine Time)', `${formatManilaDateTime(archive.startTimestamp)} – ${formatManilaDateTime(archive.endTimestamp)}`],
+      ['Start Timestamp', toManilaIso(archive.startTimestamp)],
+      ['End Timestamp', toManilaIso(archive.endTimestamp)],
+      ['Archived Timestamp', `${formatManilaDateTime(archive.archivedAt)} (${toManilaIso(archive.archivedAt)})`],
+      ['Covered Metrics Included', metricTypes.map((type) => METRIC_LABELS[type] ?? type).join(', ')],
+      ['Cycle Total Revenue (PHP)', totalRevenue],
+      ['Cycle Total Orders', archive.totalOrdersCount],
+      ['Cycle Total Completed Orders', completedOrdersOf(revenueDays)],
+      ['Archive ID', archive.id],
+    ],
+    revenueLabel: 'Cycle Total Revenue (PHP)',
+    notes: [
+      'Gross revenue: value of non-cancelled orders placed during the cycle.',
+      'Total orders: every order placed during the cycle, including cancelled ones.',
+      'Completed orders: orders placed during the cycle that had been delivered when it was archived.',
+      'Product demand: units and value of the products themselves in non-cancelled orders placed during the cycle (item prices only, so its total can be lower than gross revenue).',
+      'Orders by status: every order placed during the cycle, by its status when it was archived.',
+    ],
+    revenueDays,
+    productDemand: archive.productDemandData as unknown as ProductDemandRow[],
+    ordersByStatus: archive.ordersByStatusData as unknown as OrderStatusShare[],
+    totalRevenue,
+    totalOrdersCount: archive.totalOrdersCount,
+  });
+}
+
+/** A custom date range report (owner's pick of days) as the same kind of workbook, generated now. */
+export async function buildRangeWorkbook(report: RangeReport, generatedAt: Date = new Date()): Promise<Buffer> {
+  const start = new Date(report.startTimestamp);
+  const end = new Date(report.endTimestamp);
+  const range = `${formatManilaDateTime(start)} – ${formatManilaDateTime(end)}`;
+  const totalRevenue = report.totalGrossRevenue ?? 0;
+  return buildMetricsWorkbook({
+    title: 'Sales Report',
+    overviewSheet: 'Report Overview',
+    intro: 'PanelScan sales report for a chosen date range. All times are Philippine time (Asia/Manila, UTC+08:00).',
+    created: generatedAt,
+    details: [
+      ['Report Title', 'Sales Report'],
+      ['Date Range (Philippine Time)', range],
+      ['Start Timestamp', toManilaIso(start)],
+      ['End Timestamp', toManilaIso(end)],
+      ['Generated Timestamp', `${formatManilaDateTime(generatedAt)} (${toManilaIso(generatedAt)})`],
+      ['Covered Metrics Included', ARCHIVED_METRIC_TYPES.map((type) => METRIC_LABELS[type]).join(', ')],
+      ['Total Revenue (PHP)', totalRevenue],
+      ['Total Orders', report.totalOrdersCount],
+      ['Total Completed Orders', completedOrdersOf(report.revenueOverTime)],
+    ],
+    revenueLabel: 'Total Revenue (PHP)',
+    notes: [
+      'Gross revenue: value of non-cancelled orders placed during the date range.',
+      'Total orders: every order placed during the date range, including cancelled ones.',
+      'Completed orders: orders placed during the date range that had been delivered when this report was generated.',
+      'Product demand: units and value of the products themselves in non-cancelled orders placed during the date range (item prices only, so its total can be lower than gross revenue).',
+      'Orders by status: every order placed during the date range, by its status when this report was generated.',
+    ],
+    revenueDays: report.revenueOverTime,
+    productDemand: report.productDemand,
+    ordersByStatus: report.ordersByStatus,
+    totalRevenue,
+    totalOrdersCount: report.totalOrdersCount,
+  });
+}
+
+async function buildMetricsWorkbook(record: MetricsWorkbook): Promise<Buffer> {
+  const { revenueDays, productDemand, ordersByStatus, totalRevenue } = record;
+  const completedOrders = completedOrdersOf(revenueDays);
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'PanelScan';
-  workbook.created = archive.archivedAt;
-  workbook.title = `Cycle #${archive.cycleNumber} Archived Record`;
+  workbook.created = record.created;
+  workbook.title = record.title;
 
   // Tab 1: what this record is.
-  const overview = workbook.addWorksheet('Archive Overview');
+  const overview = workbook.addWorksheet(record.overviewSheet);
   overview.columns = [{ width: 34 }, { width: 58 }];
-  overview.addRow([`Cycle #${archive.cycleNumber} Archived Record`]).font = { bold: true, size: 14 };
-  overview.addRow(['PanelScan dashboard archive. All times are Philippine time (Asia/Manila, UTC+08:00).']).font = { italic: true, color: { argb: 'FF6B7280' } };
+  overview.addRow([record.title]).font = { bold: true, size: 14 };
+  overview.addRow([record.intro]).font = { italic: true, color: { argb: 'FF6B7280' } };
   overview.addRow([]);
-  const details: Array<[string, string | number]> = [
-    ['Archive Title', `Cycle #${archive.cycleNumber} Archived Record`],
-    ['Cycle', archive.cycleTitle],
-    ['Date Range (Philippine Time)', `${formatManilaDateTime(archive.startTimestamp)} – ${formatManilaDateTime(archive.endTimestamp)}`],
-    ['Start Timestamp', toManilaIso(archive.startTimestamp)],
-    ['End Timestamp', toManilaIso(archive.endTimestamp)],
-    ['Archived Timestamp', `${formatManilaDateTime(archive.archivedAt)} (${toManilaIso(archive.archivedAt)})`],
-    ['Covered Metrics Included', metricTypes.map((type) => METRIC_LABELS[type] ?? type).join(', ')],
-    ['Cycle Total Revenue (PHP)', totalRevenue],
-    ['Cycle Total Orders', archive.totalOrdersCount],
-    ['Cycle Total Completed Orders', completedOrders],
-    ['Archive ID', archive.id],
-  ];
-  for (const [label, value] of details) {
+  for (const [label, value] of record.details) {
     const row = overview.addRow([label, value]);
     row.getCell(1).font = { bold: true };
     row.getCell(2).alignment = { horizontal: 'left', wrapText: true };
-    if (label === 'Cycle Total Revenue (PHP)') row.getCell(2).numFmt = PESO_FORMAT;
+    if (label === record.revenueLabel) row.getCell(2).numFmt = PESO_FORMAT;
   }
   overview.addRow([]);
   overview.addRow(['Notes']).font = { bold: true };
-  for (const note of [
-    'Gross revenue: value of non-cancelled orders placed during the cycle.',
-    'Total orders: every order placed during the cycle, including cancelled ones.',
-    'Completed orders: orders placed during the cycle that had been delivered when it was archived.',
-    'Product demand: units and value of the products themselves in non-cancelled orders placed during the cycle (item prices only, so its total can be lower than gross revenue).',
-    'Orders by status: every order placed during the cycle, by its status when it was archived.',
-  ]) {
+  for (const note of record.notes) {
     overview.addRow([note]);
   }
 
@@ -161,7 +244,7 @@ export async function buildArchiveWorkbook(archive: DashboardArchive): Promise<B
     ],
     // 62.5 -> 0.625, shown as 62.5%; the integer step keeps it exact (33.3 -> 0.333, not 0.33299...).
     ordersByStatus.map((row) => [statusLabel(row.status), row.count, Math.round(row.percentage * 10) / 1000]),
-    ['Total', archive.totalOrdersCount, archive.totalOrdersCount > 0 ? 1 : 0],
+    ['Total', record.totalOrdersCount, record.totalOrdersCount > 0 ? 1 : 0],
   );
 
   return Buffer.from(await workbook.xlsx.writeBuffer());

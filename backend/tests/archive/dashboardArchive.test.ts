@@ -196,3 +196,62 @@ describe('monthly dashboard cycles and archives', () => {
     expect((await request(app).get('/api/admin/archives/00000000-0000-4000-8000-000000000000/download').set(authHeader(owner.token))).status).toBe(404);
   });
 });
+
+describe('custom date range reports', () => {
+  const binary = (req: request.Test) =>
+    req.buffer(true).parse((res, done) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => done(null, Buffer.concat(chunks)));
+    });
+
+  it('counts only the orders placed on the chosen Philippine days, both ends included', async () => {
+    const { customerId, productId } = await seedFirstCycle();
+    // Sep 22 23:30 in Manila (15:30 UTC): still inside a range ending Sep 22.
+    const late = await createTestOrder({ customerId, items: [{ productId, quantity: 1, unitPrice: 200 }] });
+    await prisma.order.update({ where: { id: late.id }, data: { createdAt: new Date('2026-09-22T15:30:00.000Z') } });
+    // Sep 23 00:30 in Manila (Sep 22 16:30 UTC): the next day, outside it.
+    const next = await createTestOrder({ customerId, items: [{ productId, quantity: 1, unitPrice: 900 }] });
+    await prisma.order.update({ where: { id: next.id }, data: { createdAt: new Date('2026-09-22T16:30:00.000Z') } });
+
+    const report = await archiveService.getRangeReport('2026-09-19', '2026-09-22', new Date(OCTOBER_START.getTime() + DAY));
+
+    expect(report.startTimestamp).toBe('2026-09-18T16:00:00.000Z');
+    expect(report.endTimestamp).toBe('2026-09-22T15:59:59.000Z');
+    expect(report.totalGrossRevenue).toBe(1200); // Sep 19 ₱1,000 + Sep 22 ₱200
+    expect(report.totalOrdersCount).toBe(2);
+    expect(report.revenueOverTime.map((day) => day.date)).toEqual(['2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22']);
+    expect(report.revenueOverTime[3]).toMatchObject({ date: '2026-09-22', grossRevenue: 200 });
+    expect(report.productDemand).toEqual([expect.objectContaining({ productName: 'Oak Panel', unitsSold: 3, totalRevenue: 1200 })]);
+  });
+
+  it('owner only, with real dates in order; downloads as an Excel workbook', async () => {
+    await seedFirstCycle();
+    const owner = await createOwner();
+    const moderator = await createModerator();
+    const range = '/api/admin/archives/range?dateFrom=2026-09-19&dateTo=2026-09-24';
+
+    const viewed = await request(app).get(range).set(authHeader(owner.token));
+    expect(viewed.status).toBe(200);
+    expect(viewed.body.data.report).toMatchObject({ dateFrom: '2026-09-19', dateTo: '2026-09-24', totalGrossRevenue: 1500, totalOrdersCount: 3 });
+    expect((await request(app).get(range).set(authHeader(moderator.token))).status).toBe(403);
+
+    for (const bad of ['dateFrom=2026-09-24&dateTo=2026-09-19', 'dateFrom=2026-02-31&dateTo=2026-03-02', 'dateFrom=2026-09-19', 'dateFrom=2099-01-01&dateTo=2099-01-02', 'dateFrom=2024-01-01&dateTo=2026-01-01']) {
+      expect((await request(app).get(`/api/admin/archives/range?${bad}`).set(authHeader(owner.token))).status).toBe(400);
+    }
+
+    const response = await binary(request(app).get(range.replace('/range?', '/range/download?')).set(authHeader(owner.token)));
+    expect(response.status).toBe(200);
+    expect(response.headers['content-disposition']).toBe('attachment; filename="PanelScan_Sales_Sep19_to_Sep24_2026.xlsx"');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(response.body as unknown as ExcelJS.Buffer);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(['Report Overview', 'Revenue Over Time', 'Product Demand', 'Orders By Status']);
+    const overview = new Map<unknown, unknown>();
+    workbook.getWorksheet('Report Overview')!.eachRow((row) => overview.set(row.getCell(1).value, row.getCell(2).value));
+    expect(overview.get('Date Range (Philippine Time)')).toBe('Sep 19, 2026 00:00 – Sep 24, 2026 23:59');
+    expect(overview.get('Total Revenue (PHP)')).toBe(1500);
+    expect(overview.get('Total Orders')).toBe(3);
+    expect(workbook.getWorksheet('Revenue Over Time')!.rowCount).toBe(8); // header, 6 days, total
+    expect((await request(app).get(range.replace('/range?', '/range/download?')).set(authHeader(moderator.token))).status).toBe(403);
+  });
+});

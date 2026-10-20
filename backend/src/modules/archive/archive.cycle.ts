@@ -14,6 +14,19 @@ const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 export const manilaMidnight = (instant: Date): Date =>
   new Date(Math.floor((instant.getTime() + MANILA_OFFSET_MS) / DAY_MS) * DAY_MS - MANILA_OFFSET_MS);
 
+/** Philippine midnight at the start of the calendar date "2026-09-19". */
+export const manilaDayStart = (dateKey: string): Date => {
+  const [year, month, day] = dateKey.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day) - MANILA_OFFSET_MS);
+};
+
+/** Philippine midnight right after the calendar date "2026-09-22" (the exclusive end of that day). */
+export const manilaDayEndExclusive = (dateKey: string): Date => new Date(manilaDayStart(dateKey).getTime() + DAY_MS);
+
+/** Whether "YYYY-MM-DD" names a real calendar date (not 2026-02-31). */
+export const isCalendarDate = (dateKey: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}$/.test(dateKey) && manilaDateKey(manilaDayStart(dateKey)) === dateKey;
+
 /** Exclusive end of the cycle starting at `start`: Philippine midnight on the 1st of the next month (= the next cycle's start). */
 export const cycleEndExclusive = (start: Date): Date => {
   const manila = new Date(start.getTime() + MANILA_OFFSET_MS);

@@ -4,7 +4,7 @@ import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
 import { sendSuccess } from '../../utils/response';
 import { ArchiveService, archiveService } from './archive.service';
-import { XLSX_CONTENT_TYPE, archiveFileName, buildArchiveWorkbook } from './archive.xlsx';
+import { XLSX_CONTENT_TYPE, archiveFileName, buildArchiveWorkbook, buildRangeWorkbook, rangeFileName } from './archive.xlsx';
 
 export class ArchiveController {
   constructor(private readonly archiveService: ArchiveService) {}
@@ -20,6 +20,22 @@ export class ArchiveController {
   list = catchAsync(async (_req: Request, res: Response): Promise<void> => {
     const archives = await this.archiveService.listArchives();
     sendSuccess(res, 200, 'Archives retrieved successfully.', { archives });
+  });
+
+  /** OWNER: the cycle figures for a chosen span of days (?dateFrom=&dateTo=, Philippine dates). */
+  getRange = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const report = await this.archiveService.getRangeReport(req.query.dateFrom as string, req.query.dateTo as string);
+    sendSuccess(res, 200, 'Date range report retrieved successfully.', { report });
+  });
+
+  /** OWNER: the same date range report as one Excel workbook. */
+  downloadRange = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const report = await this.archiveService.getRangeReport(req.query.dateFrom as string, req.query.dateTo as string);
+    const workbook = await buildRangeWorkbook(report);
+    res.setHeader('Content-Type', XLSX_CONTENT_TYPE);
+    res.setHeader('Content-Disposition', `attachment; filename="${rangeFileName(report)}"`);
+    res.setHeader('Content-Length', String(workbook.length));
+    res.status(200).send(workbook);
   });
 
   /** OWNER: one archived cycle with its frozen widget data, to view it on the dashboard. */
