@@ -192,6 +192,14 @@ class ArMeasureController(
     private var currentHit: ValidatedHit? = null
     /** Quick measure: point-to-point 3D distance, no surface lock or corner search. */
     private var quickMode = true
+    /**
+     * Quick measure: the tracked plane the first point lies on. Later points
+     * are found on it (its infinite extension), so all three are on one wall
+     * and a corner tap never lands on the ceiling cove, a frame or a shadow.
+     */
+    private var quickPlane: Plane? = null
+    /** Quick measure: recent reticle positions, averaged into the point when the customer taps. */
+    private val quickSamples = ArrayDeque<Pair<Long, Float3>>()
     private var transientMessageUntil = 0L
 
     // Surface lock
@@ -1656,33 +1664,44 @@ class ArMeasureController(
     fun setQuickMode(enabled: Boolean) {
         if (quickMode == enabled || placed.isNotEmpty()) return
         quickMode = enabled
+        quickPlane = null
+        quickSamples.clear()
         currentHit = null
         snappedHit = null
         validStreak = 0
         update { it.copy(quickMode = enabled) }
     }
 
-    /** Whatever ARCore can hit under the reticle, else a point QUICK_FALLBACK_M ahead. */
+    /**
+     * The point under the reticle, best evidence first: the first point's
+     * wall plane once there is one; a tracked plane of the chosen surface (in
+     * its outline, or its extension a little past it, which is where corners
+     * are); a depth point; a feature point. Nothing found means no point: the
+     * old fallback of a spot 1 m ahead put points in mid-air.
+     */
     private fun quickFrame(frame: Frame, view: ARSceneView, now: Long) {
+        val session = view.session
         val camPose = frame.camera.pose
         val dir = FloatArray(3)
         camPose.getTransformedAxis(2, -1f, dir, 0)
         val origin = camPose.toWorldPoint()
-        val hit = runCatching {
-            frame.hitTest(view.width / 2f, view.height / 2f).firstOrNull { h ->
-                val t = h.trackable
-                h.distance in 0.1f..8f && when (t) {
-                    is Plane -> t.trackingState == TrackingState.TRACKING && t.isPoseInPolygon(h.hitPose)
-                    is com.google.ar.core.Point, is com.google.ar.core.DepthPoint -> t.trackingState == TrackingState.TRACKING
-                    else -> false
-                }
-            }
-        }.getOrNull()
-        val pos = hit?.hitPose?.let { Float3(it.tx(), it.ty(), it.tz()) }
-            ?: Float3(origin.x + dir[0] * QUICK_FALLBACK_M, origin.y + dir[1] * QUICK_FALLBACK_M, origin.z + dir[2] * QUICK_FALLBACK_M)
-        val dist = hit?.distance ?: QUICK_FALLBACK_M
-        val facing = PlaneSignature(-dir[0], -dir[1], -dir[2], pos.x, pos.y, pos.z)
-        currentHit = ValidatedHit(hit, hit?.trackable as? Plane, pos, HitKind.None, HitConfidence.Good, dist, facing)
+        val ray = WorldPoint3(dir[0], dir[1], dir[2])
+        // A first point placed before its wall was tracked joins the wall plane once ARCore finds it.
+        if (quickPlane == null && placed.isNotEmpty() && session != null) {
+            quickPlane = planeThrough(session, placed[0].anchor.pose.toFloat3())
+        }
+
+        val hit = quickHitOnPlane(origin, ray)
+            ?: quickPlaneHit(frame, view, camPose.ty())
+            ?: session?.let { runCatching { projectCentreRayToTrackedPlane(it, frame) }.getOrNull() }
+            ?: quickPointHit(frame, view, dir)
+        currentHit = hit
+        if (hit == null) {
+            quickSamples.clear()
+        } else {
+            quickSamples.addLast(now to hit.position)
+            while (quickSamples.size > QUICK_SAMPLES || now - quickSamples.first().first > QUICK_SAMPLE_WINDOW_MS) quickSamples.removeFirst()
+        }
         val measurement = computeMeasurement()
         update { c ->
             val step = stepFor(placed.size)
@@ -1690,8 +1709,8 @@ class ArMeasureController(
                 quickMode = true,
                 step = step,
                 phase = if (step == MeasureStep.Complete) ArPhase.MeasurementComplete else ArPhase.Ready,
-                confidence = HitConfidence.Good,
-                surfaceDetected = true,
+                confidence = if (hit != null) HitConfidence.Good else HitConfidence.None,
+                surfaceDetected = hit != null,
                 surfaceLocked = true,
                 pointCount = placed.size,
                 widthMeters = measurement.first,
@@ -1709,9 +1728,10 @@ class ArMeasureController(
     }
 
     private fun placeQuickPoint(view: ARSceneView, session: Session): Boolean {
-        val hit = currentHit ?: run { showTransient("Wait for camera tracking"); return false }
+        val hit = currentHit ?: run { showTransient("Aim the reticle at the ${surfaceName()} first"); return false }
+        val position = steadyQuickPosition(hit.position)
         val pose = Pose(
-            floatArrayOf(hit.position.x, hit.position.y, hit.position.z),
+            floatArrayOf(position.x, position.y, position.z),
             SurfaceMath.quaternionFromUpTo(hit.surface.normal())
         )
         val anchor = try { session.createAnchor(pose) } catch (e: Throwable) {
@@ -1721,10 +1741,71 @@ class ArMeasureController(
             anchor.detach(); showTransient("Could not place the marker — try again"); return false
         }
         placed += PlacedPoint(anchor, node)
+        if (quickPlane == null) quickPlane = hit.plane?.takeIf { matchesSurface(planeKind(it)) } ?: planeThrough(session, position)
+        quickSamples.clear()
         pendingRecordEvent = "point_${placed.size}"
         onPointPlaced()
         refreshAfterPointChange()
         return true
+    }
+
+    /** Quick measure: the reticle on the first point's wall plane, followed through ARCore's plane merges. */
+    private fun quickHitOnPlane(origin: WorldPoint3, ray: WorldPoint3): ValidatedHit? {
+        var plane = quickPlane ?: return null
+        while (plane.subsumedBy != null) plane = plane.subsumedBy!!
+        quickPlane = plane
+        if (plane.trackingState != TrackingState.TRACKING) return null
+        val signature = planeSignature(plane)
+        val point = ArMeasurementGeometry.intersectRayWithPlane(origin, ray, signature, MIN_HIT_DISTANCE_M, MAX_HIT_DISTANCE_M) ?: return null
+        val distance = ArMeasurementGeometry.distance(origin, point).toFloat()
+        return ValidatedHit(null, plane, Float3(point.x, point.y, point.z), planeKind(plane), HitConfidence.Good, distance, signature)
+    }
+
+    /** Quick measure: an ARCore hit on a tracked plane of the chosen surface, inside its outline. */
+    private fun quickPlaneHit(frame: Frame, view: ARSceneView, cameraY: Float): ValidatedHit? = runCatching {
+        frame.hitTest(view.width / 2f, view.height / 2f).firstNotNullOfOrNull { hit ->
+            val plane = hit.trackable as? Plane ?: return@firstNotNullOfOrNull null
+            val kind = planeKind(plane, cameraY)
+            if (hit.distance !in MIN_HIT_DISTANCE_M..MAX_HIT_DISTANCE_M || plane.trackingState != TrackingState.TRACKING ||
+                !plane.isPoseInPolygon(hit.hitPose) || !matchesSurface(kind)
+            ) return@firstNotNullOfOrNull null
+            val pose = hit.hitPose
+            ValidatedHit(hit, plane, Float3(pose.tx(), pose.ty(), pose.tz()), kind, HitConfidence.Good, hit.distance, planeSignature(plane))
+        }
+    }.getOrNull()
+
+    /** Quick measure, last resort: a depth point, else a feature point, under the reticle. */
+    private fun quickPointHit(frame: Frame, view: ARSceneView, dir: FloatArray): ValidatedHit? = runCatching {
+        val hits = frame.hitTest(view.width / 2f, view.height / 2f).filter { hit ->
+            hit.distance in MIN_HIT_DISTANCE_M..MAX_HIT_DISTANCE_M && hit.trackable.trackingState == TrackingState.TRACKING
+        }
+        val hit = hits.firstOrNull { it.trackable is com.google.ar.core.DepthPoint }
+            ?: hits.firstOrNull { it.trackable is com.google.ar.core.Point }
+            ?: return@runCatching null
+        val pose = hit.hitPose
+        val facing = PlaneSignature(-dir[0], -dir[1], -dir[2], pose.tx(), pose.ty(), pose.tz())
+        ValidatedHit(hit, null, Float3(pose.tx(), pose.ty(), pose.tz()), HitKind.None, HitConfidence.Good, hit.distance, facing)
+    }.getOrNull()
+
+    /** A tracked plane of the chosen surface that [point] lies on (within QUICK_PLANE_TOLERANCE_M), if any. */
+    private fun planeThrough(session: Session, point: Float3): Plane? =
+        session.getAllTrackables(Plane::class.java)
+            .filter { it.trackingState == TrackingState.TRACKING && it.subsumedBy == null && matchesSurface(planeKind(it)) }
+            .map { it to ArMeasurementGeometry.distanceToPlane(point.toWorldPoint(), planeSignature(it)) }
+            .filter { it.second <= QUICK_PLANE_TOLERANCE_M }
+            .minByOrNull { it.second }?.first
+
+    /**
+     * The point to place: the middle of the reticle's last few positions
+     * (about half a second) when they agree, which takes out hand shake; just
+     * the latest one if the phone was still moving.
+     */
+    private fun steadyQuickPosition(latest: Float3): Float3 {
+        val samples = quickSamples.map { it.second.toWorldPoint() }
+        if (samples.size < 3) return latest
+        val middle = ArMeasurementGeometry.medianPoint(samples)
+        val spread = samples.maxOf { ArMeasurementGeometry.distance(it, middle) }
+        return if (spread <= QUICK_STEADY_SPREAD_M) Float3(middle.x, middle.y, middle.z) else latest
     }
 
     private fun blockMessage(block: PlacementBlock): String = when (block) {
@@ -1750,6 +1831,8 @@ class ArMeasureController(
         pendingRecordEvent = "undo"
         val last = placed.removeLastOrNull() ?: return
         releasePointLive(last)
+        if (placed.isEmpty()) quickPlane = null
+        quickSamples.clear()
         clearGuides()
         validStreak = 0
         refreshAfterPointChange()
@@ -1769,6 +1852,8 @@ class ArMeasureController(
         }
         placed.forEach { releasePointLive(it) }
         placed.clear()
+        quickPlane = null
+        quickSamples.clear()
         dropLock()
         lastDepth = null
         lastEvidenceAt = 0L
@@ -1834,7 +1919,8 @@ class ArMeasureController(
         val width = ArMeasurementGeometry.distance(p0.toWorldPoint(), p1.toWorldPoint())
         if (placed.size < 3) return width to 0.0
         val p2 = placed[2].anchor.pose.toFloat3()
-        return width to heightFrom(p0, p1, p2)
+        // On a wall the level side is the width, whichever side was tapped first.
+        return ArMeasurementGeometry.rectangleSize(p0.toWorldPoint(), p1.toWorldPoint(), p2.toWorldPoint(), surfaceType)
     }
 
     /**
@@ -2191,7 +2277,13 @@ class ArMeasureController(
     }
 
     private companion object {
-        const val QUICK_FALLBACK_M = 1.0f
+        /** Quick measure: at most this many recent reticle positions, from the last QUICK_SAMPLE_WINDOW_MS, are averaged. */
+        const val QUICK_SAMPLES = 8
+        const val QUICK_SAMPLE_WINDOW_MS = 500L
+        /** Positions further apart than this mean the phone was moving: the latest one is used instead. */
+        const val QUICK_STEADY_SPREAD_M = 0.03f
+        /** A first point this close to a tracked wall plane is taken to lie on it. */
+        const val QUICK_PLANE_TOLERANCE_M = 0.04f
         const val MARKER_POINT_A = 0xFFCE8A5A.toInt()
         const val MARKER_POINT_B = 0xFF38BDF8.toInt()
         const val MARKER_HEIGHT = 0xFF6FBF95.toInt()

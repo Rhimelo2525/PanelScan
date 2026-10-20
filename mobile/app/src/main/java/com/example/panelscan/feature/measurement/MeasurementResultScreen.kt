@@ -91,6 +91,8 @@ fun MeasurementResultScreen(
     onWasteChange: (Int) -> Unit = {},
     onPanelChosen: (String) -> Unit = {},
     showPrice: Boolean = false,
+    /** A photo of the measured wall goes with the saved project: say so. */
+    savesWallPhoto: Boolean = false,
     bottomPadding: Dp = 0.dp
 ) {
     val colors = PanelScan.colors
@@ -274,6 +276,13 @@ fun MeasurementResultScreen(
                         text = "Enter a width and height to see the estimate.",
                         style = PanelScan.type.supporting,
                         color = colors.warning
+                    )
+                }
+                if (savesWallPhoto) {
+                    Text(
+                        text = "A photo of the measured wall is saved with your project so the PanelScan team can see it.",
+                        style = PanelScan.type.label,
+                        color = colors.textSecondary
                     )
                 }
                 PrimaryButton(

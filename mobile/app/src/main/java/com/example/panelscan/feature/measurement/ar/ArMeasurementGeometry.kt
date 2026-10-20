@@ -76,6 +76,42 @@ object ArMeasurementGeometry {
         )
     }
 
+    /**
+     * Width and height of the rectangle the three taps mark: [first] to [second]
+     * is one side, [third] gives the other (its distance square to that side).
+     * On a wall the width is the level side and the height the upright one,
+     * whichever was tapped first; AR's y axis points up. A ceiling keeps the
+     * tap order, as neither side is upright there.
+     */
+    fun rectangleSize(first: WorldPoint3, second: WorldPoint3, third: WorldPoint3, surfaceType: SurfaceType): Pair<Double, Double> {
+        val side = distance(first, second)
+        val across = perpendicularExtent(first, second, third)
+        if (surfaceType != SurfaceType.WALL || side <= 1e-6 || across <= 1e-6) return side to across
+        // How upright the tapped side is: its rise over its length (0 level, 1 straight up).
+        val sideRise = abs(second.y - first.y) / side
+        // The other side's direction is what is left of first->third after its part along the tapped side.
+        val ax = (second.x - first.x) / side; val ay = (second.y - first.y) / side; val az = (second.z - first.z) / side
+        val vx = third.x - first.x; val vy = third.y - first.y; val vz = third.z - first.z
+        val along = vx * ax + vy * ay + vz * az
+        val acrossRise = abs(vy - along * ay) / across
+        return if (sideRise > acrossRise) across to side else side to across
+    }
+
+    /** The middle value on each axis: one point that ignores a stray sample or two. */
+    fun medianPoint(points: List<WorldPoint3>): WorldPoint3 {
+        require(points.isNotEmpty())
+        fun median(values: List<Float>): Float = values.sorted().let { sorted ->
+            if (sorted.size % 2 == 1) sorted[sorted.size / 2] else (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2f
+        }
+        return WorldPoint3(median(points.map { it.x }), median(points.map { it.y }), median(points.map { it.z }))
+    }
+
+    /** How far [point] is from [plane] (its infinite extension), in metres. */
+    fun distanceToPlane(point: WorldPoint3, plane: PlaneSignature): Float {
+        val normal = normalised(plane.normalX, plane.normalY, plane.normalZ) ?: return Float.MAX_VALUE
+        return abs((point.x - plane.centerX) * normal.x + (point.y - plane.centerY) * normal.y + (point.z - plane.centerZ) * normal.z)
+    }
+
     /** Perpendicular extent from the width line; sideways drift is not counted as height. */
     fun perpendicularExtent(widthStart: WorldPoint3, widthEnd: WorldPoint3, extent: WorldPoint3): Double {
         val axisX = widthEnd.x - widthStart.x

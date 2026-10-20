@@ -138,9 +138,20 @@ class ArGuidanceCopyTest {
 
     @Test
     fun `quick measure walks top-left, top-right, bottom`() {
-        fun q(step: MeasureStep) = arCopy(wall(ScanStage.MEASURE, step = step, phase = ArPhase.Ready).copy(quickMode = true))
+        fun q(step: MeasureStep) = arCopy(wall(ScanStage.MEASURE, step = step, phase = ArPhase.Ready).copy(quickMode = true, surfaceDetected = true))
         assertTrue(q(MeasureStep.WidthStart).headline.contains("Top-left"))
         assertTrue(q(MeasureStep.WidthEnd).headline.contains("Top-right"))
         assertTrue(q(MeasureStep.Height).headline.contains("Bottom"))
+    }
+
+    @Test
+    fun `quick measure places nothing until the reticle is on the wall`() {
+        val searching = ArUiState(quickMode = true, surfaceType = SurfaceType.WALL, phase = ArPhase.Ready, surfaceDetected = false)
+        assertFalse(searching.canPlace)
+        assertEquals("Finding the wall", arCopy(searching).headline)
+
+        val onWall = searching.copy(surfaceDetected = true)
+        assertTrue(onWall.canPlace)
+        assertTrue(arCopy(onWall).headline.startsWith("Step 1 of 3"))
     }
 }

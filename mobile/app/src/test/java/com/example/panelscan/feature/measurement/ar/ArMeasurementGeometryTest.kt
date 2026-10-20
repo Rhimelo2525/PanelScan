@@ -89,4 +89,49 @@ class ArMeasurementGeometryTest {
         assertEquals(0, state.pointCount)
         assertFalse(state.canPlace)
     }
+
+    @Test
+    fun `on a wall the level side is the width, whichever side was tapped first`() {
+        // The customer's wall: 1.85 m across, 1.32 m tall, 2 m away.
+        val topLeft = WorldPoint3(0f, 2.1f, -2f)
+        val topRight = WorldPoint3(1.85f, 2.1f, -2f)
+        val bottomLeft = WorldPoint3(0f, 0.78f, -2f)
+        val bottomRight = WorldPoint3(1.85f, 0.78f, -2f)
+
+        // As the app asks: along the top, then down.
+        val (width, height) = ArMeasurementGeometry.rectangleSize(topLeft, topRight, bottomRight, SurfaceType.WALL)
+        assertEquals(1.85, width, 1e-4)
+        assertEquals(1.32, height, 1e-4)
+        // Down the left side first, then across: still 1.85 wide and 1.32 tall, not swapped.
+        val (swappedWidth, swappedHeight) = ArMeasurementGeometry.rectangleSize(topLeft, bottomLeft, bottomRight, SurfaceType.WALL)
+        assertEquals(1.85, swappedWidth, 1e-4)
+        assertEquals(1.32, swappedHeight, 1e-4)
+    }
+
+    @Test
+    fun `a ceiling keeps the tap order`() {
+        val (width, height) = ArMeasurementGeometry.rectangleSize(
+            WorldPoint3(0f, 2.6f, 0f), WorldPoint3(0f, 2.6f, -1.5f), WorldPoint3(3f, 2.6f, -1.5f), SurfaceType.CEILING
+        )
+        assertEquals(1.5, width, 1e-4)
+        assertEquals(3.0, height, 1e-4)
+    }
+
+    @Test
+    fun `the averaged point ignores a stray sample`() {
+        val samples = listOf(
+            WorldPoint3(1.00f, 2.00f, -2.00f), WorldPoint3(1.01f, 2.01f, -2.00f), WorldPoint3(0.99f, 1.99f, -2.01f),
+            WorldPoint3(1.00f, 2.00f, -1.99f), WorldPoint3(1.40f, 2.30f, -2.20f) // one jumped onto the cove
+        )
+        val middle = ArMeasurementGeometry.medianPoint(samples)
+        assertEquals(1.00f, middle.x, 1e-4f)
+        assertEquals(2.00f, middle.y, 1e-4f)
+        assertEquals(-2.00f, middle.z, 1e-4f)
+    }
+
+    @Test
+    fun `distance to a wall plane counts only the depth off it`() {
+        val wall = PlaneSignature(0f, 0f, 1f, 0f, 1.5f, -2f)
+        assertEquals(0.03f, ArMeasurementGeometry.distanceToPlane(WorldPoint3(4f, 0.2f, -1.97f), wall), 1e-4f)
+    }
 }

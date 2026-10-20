@@ -206,7 +206,8 @@ data class ArUiState(
 ) {
     val areaSquareMeters: Double get() = widthMeters * heightMeters
 
-    val canPlace: Boolean get() = phase.allowsPlacement && step != MeasureStep.Complete
+    /** Quick measure places a point only where the reticle is on something real (never in mid-air). */
+    val canPlace: Boolean get() = phase.allowsPlacement && step != MeasureStep.Complete && (!quickMode || surfaceDetected)
 
     val canUndo: Boolean get() = pointCount > 0
 

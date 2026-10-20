@@ -35,6 +35,11 @@ fun arCopy(state: ArUiState): ArCopy {
     }
 
     if (state.quickMode && state.phase == ArPhase.Ready && state.step != MeasureStep.Complete) {
+        if (!state.surfaceDetected) {
+            val surface = if (state.surfaceType == SurfaceType.WALL) "wall" else "ceiling"
+            return ArCopy("Finding the $surface",
+                "Move your phone slowly with the reticle on the $surface until it settles on it.", ArTone.Neutral)
+        }
         return when (state.step) {
             MeasureStep.WidthStart -> ArCopy("Step 1 of 3 · Top-left corner",
                 "Aim the reticle at the top-left corner and tap.", ArTone.Good)
