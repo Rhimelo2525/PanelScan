@@ -109,6 +109,18 @@ fun HomeScreen(
                 )
             }
 
+            // The dashboard first, right under the header.
+            item {
+                CustomerServicesSection(
+                    onOpenInstallation = onOpenInstallation,
+                    onOpenOrders = onOpenOrders,
+                    onOpenChat = onOpenChat,
+                    onOpenProjects = onSeeAllProjects,
+                    onOpenFeedback = onOpenFeedback,
+                    onOpenAbout = onOpenAbout
+                )
+            }
+
             item { HeroCard(onStartMeasurement = onStartMeasurement) }
 
             item {
@@ -136,17 +148,6 @@ fun HomeScreen(
                         )
                     }
                 }
-            }
-
-            item {
-                CustomerServicesSection(
-                    onOpenInstallation = onOpenInstallation,
-                    onOpenOrders = onOpenOrders,
-                    onOpenChat = onOpenChat,
-                    onOpenProjects = onSeeAllProjects,
-                    onOpenFeedback = onOpenFeedback,
-                    onOpenAbout = onOpenAbout
-                )
             }
 
             item {

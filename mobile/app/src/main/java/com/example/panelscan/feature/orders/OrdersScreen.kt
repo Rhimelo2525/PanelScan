@@ -7,8 +7,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -281,7 +279,6 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OrderCard(
     order: Order,
@@ -307,19 +304,24 @@ fun OrderCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         order.orderNumber.uppercase(),
-                        style = PanelScan.type.label,
+                        style = PanelScan.type.cardTitle,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.2.sp,
+                        letterSpacing = 0.8.sp,
                         color = colors.textPrimary
                     )
-                    Text(formatOrderDate(order.createdAt), style = PanelScan.type.label, color = colors.textSecondary)
+                    Text(
+                        formatOrderDate(order.createdAt),
+                        style = PanelScan.type.supporting,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
                 StatusBadge(text = order.status.label, tone = order.status.badgeTone())
             }
             if (deliveryStatus != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = colors.accent, modifier = Modifier.size(14.dp))
-                    Text(deliveryStatusLabel(deliveryStatus), style = PanelScan.type.label, color = colors.textSecondary)
+                    Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
+                    Text(deliveryStatusLabel(deliveryStatus), style = PanelScan.type.supporting, color = colors.textSecondary)
                 }
             }
         }
@@ -355,46 +357,32 @@ fun OrderCard(
         }
         HorizontalDivider(color = colors.border)
 
-        // Footer: the amount and this stage's actions.
+        // Footer: the amount on the left, level with "View order" on the right,
+        // then this stage's note and the feedback action.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(colors.surfaceMuted)
                 .padding(horizontal = Spacing.md, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.Bottom
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    if (awaitingFee) "Subtotal:" else "Order total:",
-                    style = PanelScan.type.supporting,
-                    color = colors.textSecondary,
-                    modifier = Modifier.padding(end = 6.dp, bottom = 3.dp)
-                )
-                Text(
-                    formatCurrency(if (awaitingFee) order.subtotal else order.totalAmount),
-                    style = PanelScan.type.sectionTitle,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.accent
-                )
-            }
-            val note = when {
-                awaitingFee -> "The delivery fee is added once PanelScan approves your order."
-                canLeaveFeedback -> "Your order has arrived. Tell us how it went."
-                else -> null
-            }
-            note?.let { Text(it, style = PanelScan.type.label, color = colors.textSecondary) }
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.End),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
-            ) {
-                if (order.isReviewEligible) {
-                    if (canLeaveFeedback) PrimaryButton(text = "Leave Feedback", onClick = onFeedback, fillMaxWidth = false)
-                    else SecondaryButton(text = "View Feedback", onClick = onFeedback, fillMaxWidth = false)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (awaitingFee) "Subtotal" else "Order total",
+                        style = PanelScan.type.supporting,
+                        color = colors.textSecondary
+                    )
+                    Text(
+                        formatCurrency(if (awaitingFee) order.subtotal else order.totalAmount),
+                        style = PanelScan.type.sectionTitle,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.accent
+                    )
                 }
                 SecondaryButton(
                     text = "View order",
@@ -403,6 +391,16 @@ fun OrderCard(
                     onClick = onOpen,
                     fillMaxWidth = false
                 )
+            }
+            val note = when {
+                awaitingFee -> "The delivery fee is added once PanelScan approves your order."
+                canLeaveFeedback -> "Your order has arrived. Tell us how it went."
+                else -> null
+            }
+            note?.let { Text(it, style = PanelScan.type.label, color = colors.textSecondary) }
+            if (order.isReviewEligible) {
+                if (canLeaveFeedback) PrimaryButton(text = "Leave Feedback", onClick = onFeedback)
+                else SecondaryButton(text = "View Feedback", onClick = onFeedback)
             }
         }
     }
