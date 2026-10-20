@@ -24,6 +24,13 @@ const DEFAULT_MESSAGE_LIMIT = 30;
 const isParticipant = (room: { participants: Array<{ userId: string }> }, userId: string): boolean =>
   room.participants.some((participant) => participant.userId === userId);
 
+/** The room a CHAT notification points to (metadata.chatRoomId), if any. */
+const notificationRoomId = (metadata: Prisma.JsonValue): string | undefined => {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const roomId = (metadata as Prisma.JsonObject).chatRoomId;
+  return typeof roomId === 'string' ? roomId : undefined;
+};
+
 /**
  * Which messages count as "unread" for the requester (and which ones viewing a
  * conversation marks as read). Support is a shared staff inbox: for any
@@ -206,9 +213,7 @@ export class ChatService {
     }));
 
     if (senderRole === UserRole.CUSTOMER) {
-      // Notify first: it only fires for a conversation's very first message,
-      // which the auto-reply below would otherwise already have outnumbered.
-      await this.notifyModeratorsOfNewCustomerMessage(chatRoomId, message, otherParticipantIds);
+      await this.notifyStaffOfNewCustomerMessage(chatRoomId, message, otherParticipantIds);
       await this.autoReplyIfTeamQuiet(chatRoomId, message.sender?.firstName);
     }
 
@@ -216,22 +221,21 @@ export class ChatService {
   }
 
   /**
-   * A customer message nobody on staff has picked up yet only reaches the
-   * support team through this: until a moderator replies (and so joins the
-   * room), there is no staff participant for the "New message" notification
-   * above to go to. Sent once per conversation - for its first message - so
-   * a customer sending several messages in a row doesn't flood every
-   * moderator; once a moderator joins, normal participant notifications apply.
+   * Support is a shared inbox, so a customer message reaches every owner and
+   * moderator, not only the staff who have joined the room (they already got
+   * "New message" above). One alert per conversation at a time: a staff member
+   * who still has an unread alert for this conversation gets no second one, so
+   * a customer sending several messages in a row doesn't flood the bell.
+   * Opening the conversation marks that alert read (getMessages), and the
+   * customer's next message alerts again.
    */
-  private async notifyModeratorsOfNewCustomerMessage(chatRoomId: string, message: MessageWithSender, otherParticipantIds: string[]): Promise<void> {
+  private async notifyStaffOfNewCustomerMessage(chatRoomId: string, message: MessageWithSender, otherParticipantIds: string[]): Promise<void> {
     try {
-      const [staffParticipants, messageCount] = await Promise.all([
-        otherParticipantIds.length
-          ? prisma.user.count({ where: { id: { in: otherParticipantIds }, role: { in: [UserRole.MODERATOR, UserRole.OWNER] } } })
-          : Promise.resolve(0),
-        prisma.message.count({ where: { chatRoomId } }),
-      ]);
-      if (staffParticipants > 0 || messageCount > 1) return;
+      const unreadAlerts = await prisma.notification.findMany({
+        where: { type: NotificationType.CHAT, isRead: false, user: { role: { in: [UserRole.MODERATOR, UserRole.OWNER] } } },
+        select: { userId: true, metadata: true },
+      });
+      const alreadyAlerted = unreadAlerts.filter((alert) => notificationRoomId(alert.metadata) === chatRoomId).map((alert) => alert.userId);
 
       const preview = message.content.length > 120 ? `${message.content.slice(0, 117)}...` : message.content;
       await notifyStaff({
@@ -239,11 +243,21 @@ export class ChatService {
         title: 'New customer message',
         message: `${message.sender ? `${message.sender.firstName} ${message.sender.lastName}` : 'Customer'}: ${preview}`,
         metadata: { chatRoomId, messageId: message.id, event: 'CUSTOMER_MESSAGE' },
-        roles: [UserRole.MODERATOR],
+        excludeUserIds: [...new Set([...otherParticipantIds, ...alreadyAlerted])],
       });
     } catch (error) {
       console.error('[chat] New-customer-message notification failed:', error);
     }
+  }
+
+  /** Marks the requester's unread chat alerts for this conversation read: they are reading it now. */
+  private async markConversationAlertsRead(chatRoomId: string, userId: string): Promise<void> {
+    const unread = await prisma.notification.findMany({
+      where: { userId, type: NotificationType.CHAT, isRead: false },
+      select: { id: true, metadata: true },
+    });
+    const ids = unread.filter((alert) => notificationRoomId(alert.metadata) === chatRoomId).map((alert) => alert.id);
+    if (ids.length > 0) await prisma.notification.updateMany({ where: { id: { in: ids } }, data: { isRead: true } });
   }
 
   /** Sends the automated acknowledgement (see AUTO_REPLY_QUIET_MS) when the team has been quiet. Never fails the customer's message. */
@@ -321,6 +335,8 @@ export class ChatService {
         }),
       ]),
     ).catch((error) => console.error('[chat] Could not mark the conversation read:', error));
+    await this.markConversationAlertsRead(chatRoomId, requesterId)
+      .catch((error) => console.error('[chat] Could not mark the chat alerts read:', error));
 
     return {
       messages,

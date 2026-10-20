@@ -153,19 +153,60 @@ describe('Notification triggers', () => {
   });
 
   describe('support chat', () => {
-    it("alerts moderators to a customer's first message in a conversation no staff member has joined", async () => {
+    const sendAs = (token: string, roomId: string, content: string) =>
+      request(app).post(`/api/chat/${roomId}/messages`).set('Authorization', `Bearer ${token}`).send({ content });
+    const customerAlerts = (userId: string) =>
+      prisma.notification.findMany({ where: { userId, title: 'New customer message' }, orderBy: { createdAt: 'asc' } });
+
+    it('alerts every moderator and the owner to a customer message, once while the alert is unread', async () => {
       const customer = await createCustomer();
       const moderator = await createModerator();
       const owner = await createOwner();
       const room = await createTestChatRoom({ participantIds: [customer.user.id] });
 
-      await request(app).post(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${customer.token}`).send({ content: 'Do you install on weekends?' });
-      await request(app).post(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${customer.token}`).send({ content: 'Hello?' });
+      await sendAs(customer.token, room.id, 'Do you install on weekends?');
+      await sendAs(customer.token, room.id, 'Hello?');
 
-      const alerts = await prisma.notification.findMany({ where: { userId: moderator.user.id, title: 'New customer message' } });
-      expect(alerts).toHaveLength(1);
-      expect(alerts[0]?.message).toContain('Do you install on weekends?');
-      expect(await titlesFor(owner.user.id)).not.toContain('New customer message');
+      for (const staff of [moderator, owner]) {
+        const alerts = await customerAlerts(staff.user.id);
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0]?.message).toContain('Do you install on weekends?');
+      }
+    });
+
+    it('marks the alert read when staff open the conversation, and alerts again on the next message', async () => {
+      const customer = await createCustomer();
+      const owner = await createOwner();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+
+      await sendAs(customer.token, room.id, 'First question');
+      const opened = await request(app).get(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${owner.token}`);
+      expect(opened.status).toBe(200);
+      expect((await customerAlerts(owner.user.id)).map((alert) => alert.isRead)).toEqual([true]);
+
+      await sendAs(customer.token, room.id, 'Second question');
+      const alerts = await customerAlerts(owner.user.id);
+      expect(alerts).toHaveLength(2);
+      expect(alerts[1]?.message).toContain('Second question');
+      expect(alerts[1]?.isRead).toBe(false);
+    });
+
+    it('still alerts staff who have not joined after a moderator replies, without doubling up the one who did', async () => {
+      const customer = await createCustomer();
+      const moderator = await createModerator();
+      const owner = await createOwner();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+
+      await sendAs(customer.token, room.id, 'Hi');
+      await request(app).get(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${moderator.token}`);
+      await sendAs(moderator.token, room.id, 'Hello, how can we help?');
+      await sendAs(customer.token, room.id, 'Do you deliver to Cavite?');
+
+      // The moderator is in the room now: their alert is the participant "New message".
+      expect(await customerAlerts(moderator.user.id)).toHaveLength(1);
+      expect(await titlesFor(moderator.user.id)).toContain('New message');
+      // The owner never opened it, so the first alert is still unread: no second one.
+      expect(await customerAlerts(owner.user.id)).toHaveLength(1);
     });
   });
 
