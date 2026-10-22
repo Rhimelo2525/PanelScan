@@ -81,13 +81,19 @@ describe('Wall photo of a mobile project', () => {
     }
   });
 
-  it('is staff-only to view, and a customer can only add one to their own project', async () => {
+  it('a customer sees only their own, and can only add one to their own project', async () => {
     const customer = await createCustomer();
     const other = await createCustomer();
     const project = await saveProject(customer.token);
     await uploadPhoto(customer.token, appProject.externalProjectId, await photo(800, 600));
 
-    expect((await request(app).get(`/api/projects/${project.id}/wall-photo`).set(authHeader(customer.token))).status).toBe(403);
+    const listed = await request(app).get('/api/projects').set(authHeader(customer.token));
+    const wallPhotoUrl = listed.body.data.projects.find((item: { id: string }) => item.id === project.id).wallPhotoUrl as string;
+    const own = await binary(request(app).get(`/api${wallPhotoUrl}`).set(authHeader(customer.token)));
+    expect(own.status).toBe(200);
+    expect(own.headers['content-type']).toBe('image/jpeg');
+    // Another customer's request looks the same as a project that doesn't exist.
+    expect((await request(app).get(`/api/projects/${project.id}/wall-photo`).set(authHeader(other.token))).status).toBe(404);
     expect((await request(app).get(`/api/projects/${project.id}/wall-photo`)).status).toBe(401);
     // The public uploads mount refuses the folder outright.
     const stored = (await prisma.project.findUniqueOrThrow({ where: { id: project.id } })).arDataUrl!;

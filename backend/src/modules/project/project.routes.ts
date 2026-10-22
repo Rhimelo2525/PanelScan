@@ -46,8 +46,8 @@ router.put(
   projectController.uploadWallPhoto,
 );
 
-// GET /api/projects/:id/wall-photo - OWNER/MODERATOR only: customers see it in the app, not here.
-router.get('/:id/wall-photo', restrictTo(UserRole.OWNER, UserRole.MODERATOR), validate(idParamsSchema), projectController.viewWallPhoto);
+// GET /api/projects/:id/wall-photo - OWNER/MODERATOR: any project's. CUSTOMER: their own project's only.
+router.get('/:id/wall-photo', validate(idParamsSchema), projectController.viewWallPhoto);
 
 // GET /api/projects/customers - OWNER/MODERATOR: customers who have projects, with counts.
 // Registered before /:id so "customers" is never read as a project id.

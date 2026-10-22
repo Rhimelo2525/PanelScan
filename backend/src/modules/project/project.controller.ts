@@ -78,11 +78,12 @@ export class ProjectController {
     sendSuccess(res, 200, 'Wall photo saved successfully.', { project });
   });
 
-  /** OWNER and MODERATOR: the project's wall photo. The ?v= version names one photo, so a matching one is cached for good. */
+  /** The project's wall photo: staff see any, a customer their own. The ?v= version names one photo, so a matching one is cached for good. */
   viewWallPhoto = catchAsync(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const stored = await this.projectService.getWallPhotoFile(req.params.id as string);
+    const requester = getRequester(req);
+    const stored = await this.projectService.getWallPhotoFile(req.params.id as string, requester.id, requester.role);
     const cache = typeof req.query.v === 'string' && stored.includes(req.query.v) ? 'private, max-age=31536000, immutable' : 'private, no-cache';
-    // Blob mode: the role check already ran, so the unguessable Blob URL can be handed over.
+    // Blob mode: the access check already ran, so the unguessable Blob URL can be handed over.
     if (isWallPhotoUrl(stored)) {
       res.set('Cache-Control', cache);
       res.redirect(302, stored);

@@ -296,11 +296,15 @@ export class ProjectService {
     return withCode(updated);
   }
 
-  /** OWNER and MODERATOR: where the project's wall photo is stored (a Blob URL or a relative disk path). */
-  async getWallPhotoFile(projectId: string): Promise<string> {
-    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { arDataUrl: true } });
+  /**
+   * Where the project's wall photo is stored (a Blob URL or a relative disk path).
+   * OWNER and MODERATOR: any project's. CUSTOMER: their own (404 otherwise, so ids can't be probed).
+   */
+  async getWallPhotoFile(projectId: string, requesterId: string, requesterRole: UserRole): Promise<string> {
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { arDataUrl: true, customerId: true } });
+    const allowed = requesterRole !== UserRole.CUSTOMER || project?.customerId === requesterId;
     // The path check is a second guard: even a tampered value can't serve another project's file.
-    if (!project?.arDataUrl || !isWallPhotoPathOwnedBy(project.arDataUrl, projectId)) {
+    if (!allowed || !project?.arDataUrl || !isWallPhotoPathOwnedBy(project.arDataUrl, projectId)) {
       throw new AppError('Wall photo not found.', 404);
     }
     return project.arDataUrl;
