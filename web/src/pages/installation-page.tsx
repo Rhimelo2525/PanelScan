@@ -46,6 +46,8 @@ export function InstallationPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [scheduledDate, setScheduledDate] = useState("")
   const [address, setAddress] = useState("")
+  // As at checkout: install where the order is delivered, unless the customer types another site.
+  const [sameAsDelivery, setSameAsDelivery] = useState(true)
   const [notes, setNotes] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [cancelling, setCancelling] = useState<Booking | null>(null)
@@ -53,6 +55,9 @@ export function InstallationPage() {
   const isCustomer = isAuthenticated && user?.role === "CUSTOMER"
   const qualifyingOrders = orders.filter((order) => order.status !== "CANCELLED")
   const hasCompletedOrder = qualifyingOrders.length > 0
+  const deliveryAddress = qualifyingOrders[0]?.shippingAddress?.trim() ?? ""
+  const usesDeliveryAddress = sameAsDelivery && deliveryAddress.length > 0
+  const installationAddress = usesDeliveryAddress ? deliveryAddress : address.trim()
 
   useEffect(() => {
     if (!isCustomer) {
@@ -105,7 +110,7 @@ export function InstallationPage() {
       toast.error("Choose a preferred installation date.")
       return
     }
-    if (address.trim().length < 10) {
+    if (installationAddress.length < 10) {
       toast.error("Enter the full installation address (at least 10 characters).")
       return
     }
@@ -114,7 +119,7 @@ export function InstallationPage() {
       description: "The PanelScan team will review it and confirm your schedule.",
       details: [
         { label: "Preferred date", value: new Date(`${scheduledDate}T09:00:00`).toLocaleDateString("en-PH", { dateStyle: "medium" }) },
-        { label: "Address", value: address.trim() },
+        { label: "Address", value: installationAddress },
       ],
       confirmLabel: "Submit Request",
     }))) return
@@ -122,12 +127,12 @@ export function InstallationPage() {
     try {
       await requestInstallation({
         scheduledDate: new Date(`${scheduledDate}T09:00:00`).toISOString(),
-        address: address.trim(),
+        address: installationAddress,
         notes: notes.trim() || undefined,
         orderId: qualifyingOrders[0]?.id,
       })
       toast.success("Installation request submitted. The team will confirm your schedule.")
-      setScheduledDate(""); setAddress(""); setNotes("")
+      setScheduledDate(""); setAddress(""); setNotes(""); setSameAsDelivery(true)
       setReloadKey((value) => value + 1)
     } catch (caughtError) {
       toast.error("Request not submitted", { description: caughtError instanceof Error ? caughtError.message : "Please try again." })
@@ -196,16 +201,37 @@ export function InstallationPage() {
               <p className="text-xs text-muted-foreground">Must be a future date. The team confirms the final schedule with you.</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="installation-address">Installation address</Label>
-              <Textarea
-                id="installation-address"
-                rows={3}
-                value={address}
-                onChange={(event) => setAddress(event.target.value)}
-                placeholder="Unit / house number, street, barangay, city"
-                maxLength={500}
-                disabled={isSaving || (isCustomer && (!hasCompletedOrder || isCheckingOrders))}
-              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="installation-address">Installation address</Label>
+                {deliveryAddress && (
+                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={sameAsDelivery}
+                      onChange={(event) => setSameAsDelivery(event.target.checked)}
+                      disabled={isSaving}
+                      className="rounded border-border text-primary focus:ring-primary"
+                    />
+                    Same as delivery address
+                  </label>
+                )}
+              </div>
+              {usesDeliveryAddress ? (
+                <div className="rounded-lg border border-border/80 bg-muted/40 p-3 text-sm leading-6">
+                  <p className="flex items-start gap-2"><MapPin className="mt-1 size-3.5 shrink-0 text-primary" aria-hidden="true" />{deliveryAddress}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">The delivery address of order {qualifyingOrders[0]?.orderNumber}. Uncheck &ldquo;Same as delivery address&rdquo; to enter a different installation site.</p>
+                </div>
+              ) : (
+                <Textarea
+                  id="installation-address"
+                  rows={3}
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  placeholder="Unit / house number, street, barangay, city"
+                  maxLength={500}
+                  disabled={isSaving || (isCustomer && (!hasCompletedOrder || isCheckingOrders))}
+                />
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="installation-notes">Notes (optional)</Label>
