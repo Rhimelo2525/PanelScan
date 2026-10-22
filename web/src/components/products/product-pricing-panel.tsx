@@ -5,13 +5,13 @@ import { toast } from "sonner"
 
 import { useAuth } from "@/auth/use-auth"
 import { getCartErrorMessage } from "@/cart/cart-errors"
+import { availableQuantity as availableStock, beginDirectCheckout, orderLineDetails as lineDetails } from "@/cart/order-line"
 import { useCart } from "@/cart/use-cart"
 import { QuantityControl } from "@/components/cart/quantity-control"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useConfirm } from "@/components/confirm/use-confirm"
-import { formatMinorUnits, formatProductPrice, parsePriceToMinorUnits } from "@/lib/format-price"
-import type { CartItem } from "@/types/cart"
+import { formatProductPrice } from "@/lib/format-price"
 import type { Product } from "@/types/product"
 
 interface ProductPricingPanelProps {
@@ -25,7 +25,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
   const navigate = useNavigate()
   const confirm = useConfirm()
   const existingQuantity = getItemQuantity(product.id)
-  const availableQuantity = product.inventory ? Math.max(0, product.inventory.quantity - product.inventory.reservedQty) : 0
+  const availableQuantity = availableStock(product)
   const remainingQuantity = Math.max(0, availableQuantity - existingQuantity)
   const [quantity, setQuantity] = useState(1)
   const isPending = pendingProductIds.has(product.id)
@@ -68,15 +68,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
     }
   }
 
-  /** Product, quantity and subtotal shown before adding to the cart or checking out. */
-  function orderLineDetails() {
-    const unitPrice = parsePriceToMinorUnits(product.price)
-    return [
-      { label: "Product", value: product.name },
-      { label: "Quantity", value: `${quantity} × ${product.unit}` },
-      { label: "Subtotal", value: unitPrice === null ? formatProductPrice(product.price) : formatMinorUnits(unitPrice * quantity) },
-    ]
-  }
+  const orderLineDetails = () => lineDetails(product, quantity)
 
   async function handleProceedToCheckout() {
     if (!product.isActive || product.deletedAt || availableQuantity <= 0) {
@@ -94,31 +86,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
       confirmLabel: "Proceed to Checkout",
     }))) return
 
-    const directItem: CartItem = {
-      id: `direct-${product.id}`,
-      cartId: "direct",
-      productId: product.id,
-      quantity,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      product: {
-        id: product.id,
-        name: product.name,
-        slug: product.slug,
-        sku: product.sku,
-        price: product.price ?? "0.00",
-        unit: product.unit,
-        isActive: product.isActive,
-        deletedAt: product.deletedAt,
-        images: product.images,
-        inventory: product.inventory,
-      },
-    }
-
-    sessionStorage.setItem("panelscan_direct_checkout", JSON.stringify(directItem))
-    navigate("/checkout?direct=1", {
-      state: { directCheckout: directItem },
-    })
+    beginDirectCheckout(product, quantity, navigate)
   }
 
   if (isLoading) {

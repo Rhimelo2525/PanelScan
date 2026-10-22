@@ -28,6 +28,8 @@ export interface CustomerMeasurementProject {
   panelCategorySlug: string
   webPreviewStatus: WebPreviewStatus
   webPreviewAssetUrl: string | null
+  /** The photo of the measured wall, outlined with its size by the app; null if none was saved. */
+  wallPhotoUrl: string | null
   estimationSummary: string
 }
 

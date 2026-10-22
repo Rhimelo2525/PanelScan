@@ -41,19 +41,32 @@ function toCustomerProject(p: AdminProject): CustomerMeasurementProject {
     panelCategorySlug: meta.surfaceType === "CEILING" ? "ceiling-panels" : "wall-panels",
     webPreviewStatus: "NOT_AVAILABLE" as const,
     webPreviewAssetUrl: null,
+    wallPhotoUrl: p.wallPhotoUrl ?? null,
     estimationSummary: p.notes ?? estimate ?? p.description ?? "Saved project.",
+  }
+}
+
+const PAGE_SIZE = 100
+
+/** Every one of the customer's app projects: the page searches and filters them all, not just the first page. */
+async function fetchAllMobileProjects(signal?: AbortSignal): Promise<AdminProject[]> {
+  const projects: AdminProject[] = []
+  for (let page = 1; ; page += 1) {
+    const data = await apiRequest<{ projects: AdminProject[]; pagination: Pagination }>(`/projects?source=MOBILE_AR_3D&limit=${PAGE_SIZE}&page=${page}`, {
+      authenticated: true,
+      signal,
+    })
+    projects.push(...data.projects)
+    if (page >= data.pagination.totalPages) return projects
   }
 }
 
 export async function listCustomerProjectResults(signal?: AbortSignal): Promise<CustomerProjectResultSet> {
   try {
-    const data = await apiRequest<{ projects: AdminProject[]; pagination: Pagination }>("/projects?source=MOBILE_AR_3D", {
-      authenticated: true,
-      signal,
-    })
+    const projects = await fetchAllMobileProjects(signal)
 
     return {
-      projects: await withPanelDetails(data.projects.map(toCustomerProject), signal),
+      projects: await withPanelDetails(projects.map(toCustomerProject), signal),
       source: "API",
       notice: "",
     }
