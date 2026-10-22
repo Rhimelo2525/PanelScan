@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -24,6 +24,10 @@ interface DataTableProps<T> {
   isLoading?: boolean
   empty?: ReactNode
   rowAction?: (row: T) => ReactNode
+  /** Makes the whole row (or card) open the record: clicked, or Enter / Space when focused. */
+  onRowClick?: (row: T) => void
+  /** What a click on the row does, for screen readers ("View order PS-..."). */
+  rowLabel?: (row: T) => string
 }
 
 /**
@@ -32,9 +36,23 @@ interface DataTableProps<T> {
  * screen becomes unreadable long before it becomes scrollable, so the layout
  * changes rather than the type size.
  */
-export function DataTable<T>({ columns, rows, getRowId, caption, isLoading, empty, rowAction }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, getRowId, caption, isLoading, empty, rowAction, onRowClick, rowLabel }: DataTableProps<T>) {
   if (isLoading) return <DataTableSkeleton columns={columns.length} />
   if (rows.length === 0 && empty) return <>{empty}</>
+
+  // A clickable row behaves like a button: focusable, opened with Enter or Space.
+  const clickable = (row: T) => onRowClick ? {
+    onClick: () => onRowClick(row),
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return
+      event.preventDefault()
+      onRowClick(row)
+    },
+    tabIndex: 0,
+    role: "button",
+    "aria-label": rowLabel?.(row),
+    className: "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+  } : {}
 
   const primaryColumn = columns.find((column) => column.primary) ?? columns[0]
   const restColumns = columns.filter((column) => column !== primaryColumn)
@@ -52,7 +70,7 @@ export function DataTable<T>({ columns, rows, getRowId, caption, isLoading, empt
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={getRowId(row)}>
+              <tr key={getRowId(row)} {...clickable(row)}>
                 {columns.map((column) => <td key={column.key} className={cn(column.numeric && "is-numeric", column.secondary && "hidden lg:table-cell")}>{column.cell(row)}</td>)}
                 {rowAction && <td className="text-right">{rowAction(row)}</td>}
               </tr>
@@ -63,7 +81,7 @@ export function DataTable<T>({ columns, rows, getRowId, caption, isLoading, empt
 
       <ul className="space-y-3 md:hidden">
         {rows.map((row) => (
-          <li key={getRowId(row)} className="surface-card p-4">
+          <li key={getRowId(row)} {...clickable(row)} className={cn("surface-card p-4", onRowClick && "cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring")}>
             <div className="text-sm font-semibold break-words [overflow-wrap:anywhere]">{primaryColumn.cell(row)}</div>
             <dl className="mt-3 space-y-2 text-sm">
               {restColumns.map((column) => (

@@ -1,4 +1,4 @@
-import { ArrowRight, Eye, MapPin, RefreshCw } from "lucide-react"
+import { ArrowRight, MapPin, RefreshCw } from "lucide-react"
 import { useState } from "react"
 import { Link } from "react-router-dom"
 
@@ -71,11 +71,8 @@ export function RecentOrdersCard() {
             { key: "payment", header: "Payment", cell: (row) => <StatusBadge status={paymentStatusOf(row)} /> },
             { key: "status", header: "Status", cell: (row) => orderStatusBadge(row) },
           ]}
-          rowAction={(row) => (
-            <Button variant="ghost" size="sm" onClick={() => setSelected(row)} aria-label={`View order ${row.orderNumber}`}>
-              <Eye aria-hidden="true" />
-            </Button>
-          )}
+          onRowClick={setSelected}
+          rowLabel={(row) => `View order ${row.orderNumber}`}
         />
       )}
 
