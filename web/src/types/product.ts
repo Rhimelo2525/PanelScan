@@ -59,7 +59,7 @@ export interface PaginatedProducts {
   pagination: PaginationMeta
 }
 
-export type ProductSort = "newest" | "name-asc" | "name-desc"
+export type ProductSort = "newest" | "price-asc" | "price-desc" | "name-asc"
 
 export interface ProductQuery {
   /** Frontend preview category matching; never sent as an API parameter. */

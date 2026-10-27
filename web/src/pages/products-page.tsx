@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom"
 
 import { getCategories } from "@/api/categories"
 import { getProducts } from "@/api/products"
+import { useAuth } from "@/auth/use-auth"
 import { Container } from "@/components/layout/container"
 import { CatalogError, EmptyCatalog, ProductGridSkeleton } from "@/components/products/catalog-states"
 import { ProductCard } from "@/components/products/product-card"
@@ -17,10 +18,16 @@ import { PANEL_TYPES, inScopeCategories, inScopeProducts } from "@/products/pane
 import type { Category } from "@/types/category"
 import type { PaginatedProducts, ProductSort } from "@/types/product"
 
-const validSorts: ProductSort[] = ["newest", "name-asc", "name-desc"]
+/** Price sorts are offered only to signed-in shoppers, who are the ones shown prices. */
+const SORT_OPTIONS: { value: ProductSort; label: string; needsPrices?: boolean }[] = [
+  { value: "newest", label: "Newest arrivals" },
+  { value: "price-asc", label: "Price: Low to High", needsPrices: true },
+  { value: "price-desc", label: "Price: High to Low", needsPrices: true },
+]
 
-function getSort(value: string | null): ProductSort {
-  return validSorts.includes(value as ProductSort) ? value as ProductSort : "newest"
+function getSort(value: string | null, canSeePrices: boolean): ProductSort {
+  const option = SORT_OPTIONS.find((item) => item.value === value && (canSeePrices || !item.needsPrices))
+  return option?.value ?? "newest"
 }
 
 export function ProductsPage() {
@@ -29,7 +36,11 @@ export function ProductsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get("search")?.trim() ?? ""
   const categorySlug = searchParams.get("category") ?? ""
-  const sort = getSort(searchParams.get("sort"))
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth()
+  // While the sign-in check runs, keep a price sort from the link instead of loading the list twice.
+  const canSeePrices = isAuthenticated || isAuthLoading
+  const sort = getSort(searchParams.get("sort"), canSeePrices)
+  const sortOptions = SORT_OPTIONS.filter((item) => canSeePrices || !item.needsPrices)
   const [searchDraft, setSearchDraft] = useState(search)
   const [categories, setCategories] = useState<Category[]>([])
   const [result, setResult] = useState<PaginatedProducts | null>(null)
@@ -128,7 +139,7 @@ export function ProductsPage() {
             <div className="sm:hidden">
               <label className="sr-only" htmlFor="mobile-category-filter">Filter by category</label>
               <Select value={categorySlug || "all"} onValueChange={(value) => updateParam("category", value === "all" ? "" : value)}>
-                <SelectTrigger id="mobile-category-filter" className="h-11 w-full bg-card"><SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden="true" /><SelectValue placeholder="All categories" /></SelectTrigger>
+                <SelectTrigger id="mobile-category-filter" className="h-11 w-full bg-card data-[size=default]:h-11"><SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden="true" /><SelectValue placeholder="All categories" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All panels</SelectItem>
                   {categories.map((category) => <SelectItem key={category.id} value={category.slug}>{PANEL_TYPES.find((definition) => definition.slug === category.slug)?.label ?? category.name}</SelectItem>)}
@@ -139,11 +150,9 @@ export function ProductsPage() {
             <div>
               <label className="sr-only" htmlFor="catalog-sort">Sort products</label>
               <Select value={sort} onValueChange={(value) => updateParam("sort", value)}>
-                <SelectTrigger id="catalog-sort" className="h-11 w-full bg-card lg:w-44"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="catalog-sort" className="h-11 w-full bg-card data-[size=default]:h-11 lg:w-52"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="newest">Newest</SelectItem>
-                  <SelectItem value="name-asc">Name A–Z</SelectItem>
-                  <SelectItem value="name-desc">Name Z–A</SelectItem>
+                  {sortOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

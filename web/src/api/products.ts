@@ -10,9 +10,9 @@ function buildProductParams(query: ProductQuery): URLSearchParams {
   if (query.sort === "name-asc") {
     params.set("sortBy", "name")
     params.set("sortOrder", "asc")
-  } else if (query.sort === "name-desc") {
-    params.set("sortBy", "name")
-    params.set("sortOrder", "desc")
+  } else if (query.sort === "price-asc" || query.sort === "price-desc") {
+    params.set("sortBy", "price")
+    params.set("sortOrder", query.sort === "price-asc" ? "asc" : "desc")
   } else {
     params.set("sortBy", "createdAt")
     params.set("sortOrder", "desc")
