@@ -1,4 +1,4 @@
-import { Coins, ExternalLink, Eye, Loader2, MapPin, PackageCheck, PackageSearch, Receipt } from "lucide-react"
+import { Coins, ExternalLink, Loader2, MapPin, PackageCheck, PackageSearch, Receipt } from "lucide-react"
 import { useState } from "react"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
@@ -134,7 +134,6 @@ export function AdminSalesPage() {
       <AdminPageHeader
         eyebrow={isOwner ? "Sales review" : "Sales management"}
         title="Orders and revenue"
-        description="Every order recorded by PanelScan, with revenue summarised across the current filter."
       />
 
       {report.error ? <ErrorState message={report.error} onRetry={report.reload} /> : (
@@ -158,22 +157,15 @@ export function AdminSalesPage() {
             isLoading={report.isLoading}
             rows={orders}
             getRowId={(row) => row.id}
+            onRowClick={setDetailsOrder}
+            rowLabel={(row) => `Open order ${row.orderNumber} from ${row.customerName}`}
             empty={<EmptyState icon={PackageSearch} title="No orders match this view" description="Orders placed from the PanelScan storefront appear here as soon as they are created." />}
             columns={[
               {
                 key: "order",
                 header: "Order",
                 primary: true,
-                cell: (row) => (
-                  <button
-                    type="button"
-                    onClick={() => setDetailsOrder(row)}
-                    className="group inline-flex items-center gap-1.5 font-medium hover:text-primary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {row.orderNumber}
-                    <Eye className="size-5 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
-                  </button>
-                ),
+                cell: (row) => <span className="font-medium">{row.orderNumber}</span>,
               },
               { key: "customer", header: "Customer", cell: (row) => row.customerName },
               { key: "date", header: "Order Date", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDateTime(row.createdAt)}</span> },

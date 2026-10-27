@@ -24,7 +24,7 @@ export function AdminFeedbackPage() {
 
   return (
     <div className="space-y-6">
-      <AdminPageHeader eyebrow="Customer service" title="Feedback" description="Ratings and comments submitted by customers against their completed orders." />
+      <AdminPageHeader eyebrow="Customer service" title="Feedback" />
 
       {feedback.error ? <ErrorState message={feedback.error} onRetry={feedback.reload} /> : (
         <>

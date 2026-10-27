@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode } from "react"
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -36,13 +36,23 @@ interface DataTableProps<T> {
  * screen becomes unreadable long before it becomes scrollable, so the layout
  * changes rather than the type size.
  */
+/** Controls inside a clickable row that must not also open the row. */
+const ROW_CONTROLS = "a, button, input, select, textarea, label, [role='button'], [role='combobox'], [role='checkbox'], [role='menuitem'], [role='option']"
+
 export function DataTable<T>({ columns, rows, getRowId, caption, isLoading, empty, rowAction, onRowClick, rowLabel }: DataTableProps<T>) {
   if (isLoading) return <DataTableSkeleton columns={columns.length} />
   if (rows.length === 0 && empty) return <>{empty}</>
 
   // A clickable row behaves like a button: focusable, opened with Enter or Space.
   const clickable = (row: T) => onRowClick ? {
-    onClick: () => onRowClick(row),
+    onClick: (event: MouseEvent<HTMLElement>) => {
+      // Buttons, links and menus in the row keep their own click, and so do menus and
+      // dialogs they open (portalled outside the row, but their clicks still reach it).
+      const target = event.target as Element
+      if (!event.currentTarget.contains(target)) return
+      if (target.closest(ROW_CONTROLS) !== event.currentTarget) return
+      onRowClick(row)
+    },
     onKeyDown: (event: KeyboardEvent) => {
       if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return
       event.preventDefault()

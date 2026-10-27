@@ -206,7 +206,6 @@ export function AdminProductsPage() {
       <AdminPageHeader
         eyebrow="Catalogue"
         title="Products"
-        description="Add and maintain products that flow into the shared customer storefront."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" asChild>

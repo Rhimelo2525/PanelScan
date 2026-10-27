@@ -71,7 +71,6 @@ export function AdminInventoryPage() {
       <AdminPageHeader
         eyebrow="Stock control"
         title="Inventory"
-        description="Live stock levels, reserved quantities, and reorder thresholds for PVC wall and ceiling panels."
         actions={
           canManageStock ? (
             <Button onClick={() => setShowRecordStock(true)}>

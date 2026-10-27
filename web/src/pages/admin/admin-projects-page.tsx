@@ -86,7 +86,6 @@ export function AdminProjectsPage() {
       <AdminPageHeader
         eyebrow="Project monitoring"
         title="Customer projects"
-        description="Projects customers save in the PanelScan app, by customer. View-only: customers create and manage their own projects."
       />
 
       <CodeLookup onFound={(project) => navigate({ customer: project.customerId, project: project.id })} />

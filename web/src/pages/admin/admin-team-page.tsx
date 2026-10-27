@@ -101,7 +101,6 @@ export function AdminTeamPage() {
       <AdminPageHeader
         eyebrow="Access control"
         title="Team and accounts"
-        description="Staff and customer accounts across PanelScan, with the ability to invite moderators, restrict access, and remove restricted accounts."
         actions={user?.role === "OWNER" ? (
           <Button onClick={() => setShowAddModerator(true)}>
             <UserPlus className="size-4" data-icon="inline-start" aria-hidden="true" />

@@ -121,9 +121,6 @@ export function AdminDashboardPage() {
       <AdminPageHeader
         eyebrow={isOwner ? "Owner" : "Moderator"}
         title={`Good to see you, ${user?.firstName ?? ""}`.trim()}
-        description={isOwner
-          ? "Business performance, inventory health, and governance across PanelScan."
-          : "Operational status across projects, inventory, and customer activity. Financial figures are limited to the owner account."}
         actions={<Button variant="outline" size="sm" onClick={() => { stats.reload(); products.reload(); cycle.reload(); archived.reload(); monthOrders.reload(); inventory.reload() }}>Refresh</Button>}
       />
 

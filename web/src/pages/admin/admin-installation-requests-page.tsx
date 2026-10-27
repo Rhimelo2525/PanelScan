@@ -52,7 +52,6 @@ export function AdminInstallationRequestsPage() {
   useDocumentTitle("Installation Requests | PanelScan Admin")
   const { user } = useAuth()
   const isModerator = user?.role === "MODERATOR"
-  const isOwner = user?.role === "OWNER"
 
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState("")
@@ -100,11 +99,6 @@ export function AdminInstallationRequestsPage() {
       <AdminPageHeader
         eyebrow="Operations"
         title="Installation Requests"
-        description={
-          isOwner
-            ? "Operational work queue for customer installation requests linked to orders (view-only)."
-            : "Review customer installation requests, assign available installers, and manage schedules."
-        }
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Installation summary">

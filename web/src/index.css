@@ -534,3 +534,9 @@
 }
 
 .print-only { display: none; }
+
+/* Scrolls by wheel, trackpad, touch or keyboard, with no visible bar (the admin sidebar). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}

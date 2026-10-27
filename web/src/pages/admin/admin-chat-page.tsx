@@ -104,7 +104,6 @@ export function AdminChatPage() {
       <AdminPageHeader
         eyebrow="Customer support"
         title="Conversations"
-        description={canReply ? "Customer enquiries raised from the storefront. Replies are sent as your moderator account." : "Customer enquiries raised from the storefront. The owner account has read-only access to chat."}
       />
 
       {conversations.error ? <ErrorState message={conversations.error} onRetry={conversations.reload} /> : conversations.isLoading ? (

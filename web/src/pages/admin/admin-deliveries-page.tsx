@@ -149,7 +149,6 @@ export function AdminDeliveriesPage() {
       <AdminPageHeader
         eyebrow="Operations"
         title="Deliveries"
-        description={isModerator ? "Every order's delivery: get the shipping quote after approving the order, then book Lalamove once the customer has paid." : "Every order's delivery, payment and Lalamove booking (view-only)."}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Delivery summary">

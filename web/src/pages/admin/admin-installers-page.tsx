@@ -55,7 +55,6 @@ export function AdminInstallersPage() {
       <AdminPageHeader
         eyebrow="Installer management"
         title="Installation team"
-        description="The installer directory used when scheduling installation bookings."
         actions={<Button size="sm" onClick={() => setIsCreating(true)}><Plus data-icon="inline-start" aria-hidden="true" />Add installer</Button>}
       />
 

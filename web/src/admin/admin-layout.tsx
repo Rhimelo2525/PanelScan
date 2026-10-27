@@ -42,7 +42,7 @@ export function AdminLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const confirm = useConfirm()
   // Desktop: the sidebar is a rail of icons that opens while the pointer (or keyboard focus)
-  // is on it, or stays open when pinned.
+  // is on it, or stays open when pinned. The page narrows as it opens, so nothing is covered.
   const [isSidebarPinned, setIsSidebarPinned] = useState(readSidebarPinned)
   const [isSidebarHovered, setIsSidebarHovered] = useState(false)
   const [isSidebarFocused, setIsSidebarFocused] = useState(false)
@@ -83,8 +83,7 @@ export function AdminLayout() {
   }
 
   return (
-    <div className={cn("admin-surface min-h-screen lg:grid lg:transition-[grid-template-columns] lg:duration-200", isSidebarPinned ? "lg:grid-cols-[15.5rem_minmax(0,1fr)]" : "lg:grid-cols-[4rem_minmax(0,1fr)]")}>
-      {/* The grid keeps a 4rem column for the rail; opened unpinned, the panel slides out over the page. */}
+    <div className={cn("admin-surface min-h-screen lg:grid lg:transition-[grid-template-columns] lg:duration-200", isSidebarOpen ? "lg:grid-cols-[15.5rem_minmax(0,1fr)]" : "lg:grid-cols-[4rem_minmax(0,1fr)]")}>
       <aside
         className="sticky top-0 z-30 hidden h-screen lg:block"
         onMouseEnter={() => setIsSidebarHovered(true)}
@@ -93,9 +92,8 @@ export function AdminLayout() {
         onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsSidebarFocused(false) }}
       >
         <div className={cn(
-          "flex h-full flex-col overflow-hidden border-r border-border bg-card transition-[width,box-shadow] duration-200",
+          "flex h-full flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-200",
           isSidebarOpen ? "w-62" : "w-16",
-          isSidebarOpen && !isSidebarPinned && "shadow-xl",
         )}>
           <div className="flex items-center justify-between gap-2 border-b border-border">
             <AdminBrand compact={!isSidebarOpen} />
@@ -113,7 +111,7 @@ export function AdminLayout() {
               </Button>
             )}
           </div>
-          <nav className="flex-1 overflow-x-hidden overflow-y-auto px-3 py-4" aria-label="Admin sections">
+          <nav className="scrollbar-none flex-1 overflow-x-hidden overflow-y-auto px-3 py-4" aria-label="Admin sections">
             {groups.map((group) => (
               <div key={group.label} className="mb-5">
                 <p className={cn("px-2.5 pb-2 text-[0.65rem] font-semibold tracking-[0.12em] whitespace-nowrap text-muted-foreground uppercase", !isSidebarOpen && "invisible")}>{group.label}</p>
@@ -157,7 +155,7 @@ export function AdminLayout() {
               </SheetTrigger>
               <SheetContent side="left" className="admin-surface w-72 p-0">
                 <SheetHeader className="border-b border-border p-0"><SheetTitle className="sr-only">Admin navigation</SheetTitle><AdminBrand /></SheetHeader>
-                <nav className="overflow-y-auto px-3 pb-6" aria-label="Admin sections">
+                <nav className="scrollbar-none overflow-y-auto px-3 pb-6" aria-label="Admin sections">
                   {groups.map((group) => (
                     <div key={group.label} className="mb-5">
                       <p className="px-2.5 pb-2 text-[0.65rem] font-semibold tracking-[0.12em] text-muted-foreground uppercase">{group.label}</p>

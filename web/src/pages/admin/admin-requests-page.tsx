@@ -288,11 +288,6 @@ export function AdminRequestsPage() {
       <AdminPageHeader
         eyebrow={isOwner ? "Request approval" : "CHANGE REQUESTS"}
         title={isOwner ? "Requests awaiting your decision" : "Submitted change requests"}
-        description={
-          isOwner
-            ? "Moderators raise changes that need owner sign-off. Approving or rejecting records your decision and note against the request."
-            : "View your submitted change requests and check whether they have been approved, rejected, or remain pending owner review."
-        }
         actions={
           !isOwner ? (
             <div className="flex items-center gap-2">

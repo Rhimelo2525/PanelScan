@@ -115,7 +115,7 @@ export function NotificationsPage({ variant }: { variant: "customer" | "admin" }
   if (variant === "admin") {
     return (
       <div className="space-y-5">
-        <AdminPageHeader eyebrow="Overview" title="Notifications" description="Orders, deliveries, installations, payments, inventory and system alerts for your account." actions={markAllButton} />
+        <AdminPageHeader eyebrow="Overview" title="Notifications" actions={markAllButton} />
         {filters}
         {body}
         {pager}

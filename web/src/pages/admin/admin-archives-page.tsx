@@ -86,7 +86,6 @@ function ArchivesContent() {
       <AdminPageHeader
         eyebrow="Management"
         title="Reports"
-        description="At the end of every month, the dashboard's revenue, orders, product demand and orders by status are saved here and start again from zero on the 1st. Orders, payments and products are never changed or deleted. Times are in Philippine time."
       />
 
       <section className="surface-card flex items-start gap-3 p-4" aria-label="Current cycle">
