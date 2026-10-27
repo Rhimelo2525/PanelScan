@@ -100,10 +100,24 @@ const recordBackupFailure = async (customerId: string, addressId: string, reason
 };
 
 const syncAddressesToBackup = async (customerId: string, rows: CustomerAddress[]): Promise<void> => {
-  if (!getBackupPrisma()) return;
-  for (const row of rows) {
-    const synced = await syncRecordToBackup('customerAddress', row as unknown as Record<string, unknown>);
-    if (!synced) await recordBackupFailure(customerId, row.id, 'saved address upsert');
+  const [first] = rows;
+  if (!getBackupPrisma() || !first) return;
+  try {
+    // The backup keeps the foreign key to users, so the customer goes first: an
+    // account created since the last full backup sync isn't there yet, and its
+    // first saved address would otherwise be refused.
+    const customer = await prisma.user.findUnique({ where: { id: customerId } });
+    if (customer && !(await syncRecordToBackup('user', customer as unknown as Record<string, unknown>))) {
+      await recordBackupFailure(customerId, first.id, 'customer upsert before saved address');
+      return;
+    }
+    for (const row of rows) {
+      const synced = await syncRecordToBackup('customerAddress', row as unknown as Record<string, unknown>);
+      if (!synced) await recordBackupFailure(customerId, row.id, 'saved address upsert');
+    }
+  } catch (error) {
+    // The customer's save already committed; the next full backup sync picks this up.
+    console.error(`[addresses] Backup sync for customer ${customerId} failed:`, error);
   }
 };
 
