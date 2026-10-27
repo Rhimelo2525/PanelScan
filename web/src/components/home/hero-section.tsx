@@ -2,7 +2,6 @@ import { ArrowRight } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Container } from "@/components/layout/container"
-import { BrandMark } from "@/components/layout/brand"
 import { Button } from "@/components/ui/button"
 
 /**
@@ -16,11 +15,7 @@ export function HeroSection() {
       <Container className="py-14 sm:py-20 lg:py-26">
         <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-20">
           <div className="max-w-[38rem]">
-            <div className="flex items-center gap-3">
-              <BrandMark className="size-11" />
-              <p className="type-label text-muted-foreground">Disenyo Interior Solution</p>
-            </div>
-            <h1 className="type-display mt-8">PVC wall &amp; ceiling panels for modern interiors.</h1>
+            <h1 className="type-display">PVC wall &amp; ceiling panels for modern interiors.</h1>
             <p className="type-lead mt-7 max-w-xl">Durable, moisture-resistant panelling that installs over existing walls and ceilings. Browse the range, order online, and arrange installation with our team.</p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <Button size="lg" className="h-11 px-5" asChild>

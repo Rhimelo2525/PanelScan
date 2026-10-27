@@ -262,7 +262,7 @@ export function LoginPage({ variant = "customer" }: { variant?: "customer" | "st
           error={errors.password}
         >
           {isStaff ? (
-            <p className="mt-2 text-right text-xs text-muted-foreground">Forgot your password? Ask the PanelScan owner to send you a password reset email.</p>
+            <p className="mt-2 text-right text-xs text-pretty text-muted-foreground">Forgot your password? Ask the owner for a reset email.</p>
           ) : (
             <div className="mt-2 text-right">
               <Link to="/forgot-password" state={{ email: email.trim() }} className="text-sm font-medium text-primary underline-offset-4 hover:underline">

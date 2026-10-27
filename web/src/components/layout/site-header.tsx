@@ -17,13 +17,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useNotifications } from "@/notifications/use-notifications"
 
 /**
- * Primary navigation reflects the two things Disenyo Interior Solution actually
- * sells, plus installation and company information. Nothing here advertises AR,
- * 3D, or measurement features, which are not part of the website.
+ * Primary navigation: the product range (wall and ceiling panels, filtered on
+ * the Products page), plus installation and company information. Nothing here
+ * advertises AR, 3D, or measurement features, which are not part of the website.
  */
 const navigation = [
-  { label: "Wall panels", href: "/products?category=wall-panels" },
-  { label: "Ceiling panels", href: "/products?category=ceiling-panels" },
+  { label: "Products", href: "/products" },
   { label: "Installation", href: "/#installation" },
   { label: "How ordering works", href: "/#how-it-works" },
   { label: "About", href: "/about" },

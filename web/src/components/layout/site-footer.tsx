@@ -80,7 +80,7 @@ export function SiteFooter() {
           </div>
         </div>
         <Separator className="my-10 bg-primary-foreground/14" />
-        <div className="flex flex-col gap-2 text-xs text-primary-foreground/48 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 text-sm text-primary-foreground/65 sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 PanelScan. All rights reserved.</p>
           <p>For Disenyo Interior Solution · <Link to="/privacy" className="underline-offset-4 hover:text-primary-foreground hover:underline">Privacy</Link></p>
         </div>
