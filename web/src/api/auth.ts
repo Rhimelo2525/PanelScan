@@ -75,6 +75,11 @@ export function acceptStaffInvitation(input: { email: string; code: string; pass
 }
 
 /** `accessToken` defaults to the stored session's; pass it to revoke a session that was never stored. */
+/** A separate session for a newly opened tab, from this tab's refresh token (which is not rotated). */
+export function requestTabSession(refreshToken: string, signal?: AbortSignal) {
+  return apiRequest<{ token: string; refreshToken: string }>("/auth/session/tab", { method: "POST", body: { refreshToken }, authenticated: true, signal })
+}
+
 export function logoutCustomer(refreshToken: string, signal?: AbortSignal, accessToken?: string) {
   return apiRequest<void>("/auth/logout", { method: "POST", body: { refreshToken }, authenticated: true, retryAfterRefresh: false, accessToken, signal })
 }

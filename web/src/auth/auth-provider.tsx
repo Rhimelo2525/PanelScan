@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 
-import { getCurrentUser, loginCustomer, logoutCustomer, registerCustomer } from "@/api/auth"
-import { refreshAccessToken } from "@/api/client"
-import { ActiveAccountConflictError, LEASE_RENEW_MS, claimActiveAccount, endActiveAccount, getActiveAccountId, releaseActiveAccountTab, watchActiveAccount } from "@/auth/active-account"
+import { getCurrentUser, loginCustomer, logoutCustomer, registerCustomer, requestTabSession } from "@/api/auth"
+import { ApiRequestError, refreshAccessToken } from "@/api/client"
+import { ActiveAccountConflictError, LEASE_RENEW_MS, answerSessionRequests, claimActiveAccount, endActiveAccount, getActiveAccountId, releaseActiveAccountTab, requestSessionFromOpenTabs, watchActiveAccount } from "@/auth/active-account"
 import { AuthContext } from "@/auth/auth-context"
 import { clearSessionTokens, getSessionTokens, updateSessionTokens } from "@/auth/token-storage"
 import { clearProfilePictureCache } from "@/hooks/use-profile-picture"
@@ -25,35 +25,73 @@ async function discardTabSession() {
   }
 }
 
+/** Waits between tries when the API can't be reached while restoring a session on load. */
+const RESTORE_RETRY_DELAYS_MS = [1000, 2000, 4000]
+
+/** The API refused the session itself (expired, revoked, deactivated), as opposed to being unreachable or busy. */
+const isSessionRefused = (error: unknown) => error instanceof ApiRequestError && (error.status === 401 || error.status === 403)
+
+/**
+ * A new session for another tab, from this tab's refresh token. Tried twice:
+ * if the access token had just expired, the first call refreshes it, which
+ * rotates the refresh token it sent, so the second call sends the new one.
+ */
+async function mintTabSession() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const refreshToken = getSessionTokens()?.refreshToken
+    if (!refreshToken) return null
+    try {
+      return await requestTabSession(refreshToken)
+    } catch {
+      // Retried once with the current tokens, then given up (the new tab shows sign-in).
+    }
+  }
+  return null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const restoreSession = useCallback(async () => {
-    const tokens = getSessionTokens()
-    if (!tokens) {
-      setUser(null)
-      setIsLoading(false)
-      return
+    if (!getSessionTokens()) {
+      // A link opened in a new tab starts with no session: take one from an open,
+      // signed-in tab instead of asking to sign in again. A second answer is revoked.
+      const granted = await requestSessionFromOpenTabs((extra) => void logoutCustomer(extra.refreshToken, undefined, extra.token).catch(() => undefined))
+      if (!granted) {
+        setUser(null)
+        setIsLoading(false)
+        return
+      }
+      updateSessionTokens({ accessToken: granted.token, refreshToken: granted.refreshToken })
     }
 
     setIsLoading(true)
-    try {
-      const restoredUser = await getCurrentUser()
-      // A different account signed in elsewhere in this browser after this tab's
-      // session was stored (e.g. a restored tab): never bring the old one back.
-      if (!claimActiveAccount(restoredUser.id)) {
-        await discardTabSession()
-        setUser(null)
-        return
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const restoredUser = await getCurrentUser()
+        // A different account signed in elsewhere in this browser after this tab's
+        // session was stored (e.g. a restored tab): never bring the old one back.
+        if (!claimActiveAccount(restoredUser.id)) {
+          await discardTabSession()
+          setUser(null)
+        } else {
+          setUser(restoredUser)
+        }
+        break
+      } catch (error) {
+        // Only a refused session signs the tab out. A slow, restarting or busy API is
+        // tried again; if it still can't be reached, the session is kept for the next load.
+        if (isSessionRefused(error)) clearSessionTokens()
+        const delay = isSessionRefused(error) ? undefined : RESTORE_RETRY_DELAYS_MS[attempt]
+        if (delay === undefined) {
+          setUser(null)
+          break
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, delay))
       }
-      setUser(restoredUser)
-    } catch {
-      clearSessionTokens()
-      setUser(null)
-    } finally {
-      setIsLoading(false)
     }
+    setIsLoading(false)
   }, [])
 
   useEffect(() => {
@@ -91,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       onLeaseChange: (holderId) => { if (holderId && holderId !== userId) endSession() },
       onLogout: (loggedOutId) => { if (loggedOutId === userId) endSession() },
     })
+    const stopAnswering = answerSessionRequests(userId, mintTabSession)
 
     return () => {
       window.clearInterval(interval)
@@ -98,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("pageshow", handlePageShow)
       window.removeEventListener("pagehide", handlePageHide)
       unwatch()
+      stopAnswering()
       releaseActiveAccountTab()
     }
   }, [userId])

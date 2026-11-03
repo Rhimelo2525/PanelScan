@@ -84,6 +84,19 @@ export const loginRateLimiter = createRateLimiter({
  * per-code attempt cap and resend cooldown (verification.service.ts) are
  * what bound guessing against a single account.
  */
+/**
+ * POST /api/auth/session/tab only (a sign-in for a newly opened tab). Its own
+ * bucket, so opening tabs never uses up /refresh's tight authRateLimiter. The
+ * caller must already hold a valid access token and refresh token, so this
+ * bounds load, not guessing.
+ */
+export const tabSessionRateLimiter = createRateLimiter({
+  windowMs: env.RATE_LIMIT_TAB_SESSION_WINDOW_MS,
+  max: env.RATE_LIMIT_TAB_SESSION_MAX,
+  message: 'Too many new tabs at once. Please try again in a few minutes.',
+  skip: skipInAutomatedTests,
+});
+
 export const accountSecurityRateLimiter = createRateLimiter({
   windowMs: env.RATE_LIMIT_ACCOUNT_SECURITY_WINDOW_MS,
   max: env.RATE_LIMIT_ACCOUNT_SECURITY_MAX,

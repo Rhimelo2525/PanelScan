@@ -1,6 +1,7 @@
 import { BookingStatus, NotificationType, OrderStatus, Prisma, ProjectSource, ProjectStatus, UserRole } from '@prisma/client';
 
 import { prisma } from '../../config/database';
+import { manilaDateKey } from '../archive/archive.cycle';
 import { createNotification } from '../notifications/notification.service';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
@@ -187,6 +188,11 @@ export class BookingService {
         if (!allowedNext.includes(newStatus)) {
           throw new AppError(`Cannot change booking status from ${booking.status} to ${newStatus}.`, 400);
         }
+      }
+
+      // A confirmed schedule can be today or later (Philippine calendar days), never a day that has passed.
+      if (scheduledDate && manilaDateKey(scheduledDate) < manilaDateKey(new Date())) {
+        throw new AppError("The schedule date can't be a day that has already passed. Pick today or a later date.", 400);
       }
 
       const updateData: Prisma.BookingUpdateInput = {

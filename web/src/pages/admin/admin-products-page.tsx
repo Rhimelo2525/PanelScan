@@ -1,6 +1,6 @@
-import { Eye, Package, PackageSearch, Pencil, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Eye, Package, PackageSearch, Pencil, Plus, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import type { FormEvent } from "react"
+import type { FormEvent, KeyboardEvent } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -1001,49 +1001,105 @@ function priceInputRejection(value: string): string | null {
   return null
 }
 
+/** ArrowUp/ArrowDown in a number field step it, as the arrow buttons beside it do. */
+function stepOnArrowKey(onStep: (direction: 1 | -1) => void) {
+  return (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return
+    e.preventDefault()
+    onStep(e.key === "ArrowUp" ? 1 : -1)
+  }
+}
+
+/**
+ * Small up and down arrows inside a field's right edge. Out of the tab order:
+ * ArrowUp/ArrowDown in the field do the same. `amount` reads like "by 1 cm".
+ */
+function StepperButtons({ label, amount, onStep }: { label: string; amount: string; onStep: (direction: 1 | -1) => void }) {
+  const button = "flex flex-1 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground"
+  return (
+    <div className="absolute inset-y-0.5 right-0.5 flex w-7 flex-col">
+      <button type="button" tabIndex={-1} onClick={() => onStep(1)} className={button} aria-label={`Increase ${label} ${amount}`}>
+        <ChevronUp className="size-3.5" aria-hidden="true" />
+      </button>
+      <button type="button" tabIndex={-1} onClick={() => onStep(-1)} className={button} aria-label={`Decrease ${label} ${amount}`}>
+        <ChevronDown className="size-3.5" aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
 /**
  * Price field limited to 5 digits of pesos and 2 of centavos. A keystroke or
  * paste that would break that is refused whole (the field keeps its value)
- * and the reason is shown under it.
+ * and the reason is shown under it. The arrows step it by ₱1.
  */
 function PriceInput({ id, value, onChange, placeholder }: { id: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   const [notice, setNotice] = useState<string | null>(null)
   const noticeId = `${id}-notice`
 
+  // ₱1 at a time, never below ₱1; centavos are kept ("1850.50" -> "1851.50").
+  function stepBy(direction: 1 | -1) {
+    const next = Math.round(((Number.parseFloat(value) || 0) + direction) * 100) / 100
+    if (next < 1) return
+    const text = value.includes(".") ? next.toFixed(2) : String(next)
+    const rejection = priceInputRejection(text)
+    setNotice(rejection)
+    if (!rejection) onChange(text)
+  }
+
   return (
     <>
-      <Input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        value={value}
-        onChange={(e) => {
-          const next = e.target.value.trim()
-          const rejection = priceInputRejection(next)
-          setNotice(rejection)
-          if (!rejection) onChange(next)
-        }}
-        onBlur={() => setNotice(null)}
-        placeholder={placeholder}
-        required
-        aria-invalid={Boolean(notice)}
-        aria-describedby={notice ? noticeId : undefined}
-        className="mt-1.5"
-      />
+      <div className="relative mt-1.5">
+        <Input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={value}
+          onChange={(e) => {
+            const next = e.target.value.trim()
+            const rejection = priceInputRejection(next)
+            setNotice(rejection)
+            if (!rejection) onChange(next)
+          }}
+          onKeyDown={stepOnArrowKey(stepBy)}
+          onBlur={() => setNotice(null)}
+          placeholder={placeholder}
+          required
+          aria-invalid={Boolean(notice)}
+          aria-describedby={notice ? noticeId : undefined}
+          className="pr-9"
+        />
+        <StepperButtons label="price" amount="by ₱1" onStep={stepBy} />
+      </div>
       {notice && <p id={noticeId} className="mt-1 text-xs text-destructive">{notice}</p>}
     </>
   )
 }
+
+/** What one arrow press (or ArrowUp/ArrowDown in the field) adds or takes away, in cm. */
+const DIMENSION_STEP: Record<DimensionField, number> = { width: 1, height: 1, thickness: 0.1 }
 
 /**
  * Dimension field that only takes digits and one decimal point, up to the
  * field's digit limit. A keystroke or paste that would break that is refused
  * whole (the field keeps its value) and the reason is shown under it.
  */
+
 function DimensionInput({ id, field, label, value, onChange, placeholder }: { id: string; field: DimensionField; label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   const [notice, setNotice] = useState<string | null>(null)
   const noticeId = `${id}-notice`
+  const step = DIMENSION_STEP[field]
+
+  // Steps by one unit, never below one step; the digit limit still applies (e.g. width stops at 99).
+  function stepBy(direction: 1 | -1) {
+    const next = Math.round(((Number.parseFloat(value) || 0) + direction * step) * 10) / 10
+    if (next < step) return
+    const text = String(next)
+    const rejection = dimensionInputRejection(field, text)
+    setNotice(rejection)
+    if (!rejection) onChange(text)
+  }
 
   return (
     <div>
@@ -1061,13 +1117,15 @@ function DimensionInput({ id, field, label, value, onChange, placeholder }: { id
             setNotice(rejection)
             if (!rejection) onChange(next)
           }}
+          onKeyDown={stepOnArrowKey(stepBy)}
           onBlur={() => setNotice(null)}
           placeholder={placeholder}
           aria-invalid={Boolean(notice)}
           aria-describedby={notice ? noticeId : undefined}
-          className="pr-10"
+          className="pr-16"
         />
-        <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground" aria-hidden="true">{DIMENSION_UNIT}</span>
+        <span className="pointer-events-none absolute top-1/2 right-9 -translate-y-1/2 text-xs text-muted-foreground" aria-hidden="true">{DIMENSION_UNIT}</span>
+        <StepperButtons label={label.toLowerCase()} amount={`by ${step} ${DIMENSION_UNIT}`} onStep={stepBy} />
       </div>
       {notice && <p id={noticeId} className="mt-1 text-xs text-destructive">{notice}</p>}
     </div>

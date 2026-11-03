@@ -54,26 +54,34 @@ function announceSessionEnd() {
   window.dispatchEvent(new Event("panelscan:session-ended"))
 }
 
+/**
+ * Trades the refresh token for a new pair. Only the API refusing the token
+ * (401/403: expired, revoked, account deactivated) ends the session; when the
+ * API can't be reached, is rate limiting or errors, the session is kept and
+ * null is returned so a later request tries again.
+ */
 async function performTokenRefresh(): Promise<string | null> {
   const refreshToken = getSessionTokens()?.refreshToken
   if (!refreshToken || !isApiConfigured) return null
 
+  let response: Response
   try {
-    const response = await fetch(`${apiBaseUrl}/auth/refresh`, {
+    response = await fetch(`${apiBaseUrl}/auth/refresh`, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
     })
-    const body = (await response.json()) as ApiSuccessResponse<RefreshPayload> | ApiErrorResponse
-
-    if (!response.ok || !body.success || !body.data) throw new Error("Refresh failed")
-    updateSessionTokens({ accessToken: body.data.token, refreshToken: body.data.refreshToken })
-    return body.data.token
   } catch {
-    clearSessionTokens()
-    announceSessionEnd()
     return null
   }
+  const body = (await response.json().catch(() => null)) as ApiSuccessResponse<RefreshPayload> | ApiErrorResponse | null
+
+  if (response.ok && body?.success && body.data) {
+    updateSessionTokens({ accessToken: body.data.token, refreshToken: body.data.refreshToken })
+    return body.data.token
+  }
+  if (response.status === 401 || response.status === 403) clearSessionTokens()
+  return null
 }
 
 export function refreshAccessToken(): Promise<string | null> {
@@ -121,6 +129,9 @@ async function request<T>(path: string, options: ApiRequestOptions, accessToken?
   if (response.status === 401 && options.authenticated && options.retryAfterRefresh !== false) {
     const refreshedToken = await refreshAccessToken()
     if (refreshedToken) return request<T>(path, { ...options, retryAfterRefresh: false }, refreshedToken)
+    // A refresh token still held means the refresh only failed to get through: keep the
+    // session and report a connection problem. Otherwise the session is over.
+    if (getSessionTokens()?.refreshToken) throw new ApiRequestError("We couldn't connect to PanelScan right now. Please try again.", 0)
     clearSessionTokens()
     announceSessionEnd()
   }

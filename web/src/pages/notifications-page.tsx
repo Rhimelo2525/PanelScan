@@ -9,6 +9,7 @@ import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { Container } from "@/components/layout/container"
 import { NotificationListItem } from "@/components/notifications/notification-list-item"
 import { Button } from "@/components/ui/button"
+import { PageNumbers } from "@/components/ui/page-numbers"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { notificationHref, notificationTypeLabels } from "@/notifications/notification-format"
@@ -105,10 +106,8 @@ export function NotificationsPage({ variant }: { variant: "customer" | "admin" }
   )
 
   const pager = pagination && pagination.totalPages > 1 && (
-    <nav className="mt-6 flex items-center justify-between" aria-label="Notification pages">
-      <Button variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>
-      <p className="text-sm text-muted-foreground">Page {pagination.page} of {pagination.totalPages}</p>
-      <Button variant="outline" disabled={page >= pagination.totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button>
+    <nav className="mt-6 flex justify-center" aria-label="Notification pages">
+      <PageNumbers page={pagination.page} totalPages={pagination.totalPages} onPageChange={setPage} size="default" />
     </nav>
   )
 

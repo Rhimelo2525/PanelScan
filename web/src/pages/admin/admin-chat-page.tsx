@@ -154,7 +154,8 @@ export function AdminChatPage() {
                 (messages.data ?? []).map((message) => {
                   const isMine = message.senderId === user?.id
                   return (
-                    <div key={message.id} className={cn("max-w-[85%] rounded-lg border border-border px-3 py-2 text-sm", isMine ? "ml-auto bg-secondary" : "bg-background")}>
+                    // Your own replies are tinted a shade darker, so they never look like the customer's.
+                    <div key={message.id} className={cn("max-w-[85%] rounded-lg border px-3 py-2 text-sm", isMine ? "ml-auto border-primary/25 bg-primary/15" : "border-border bg-background")}>
                       <p className="text-xs text-muted-foreground">{message.sender ? `${message.sender.firstName} ${message.sender.lastName}` : message.senderId === null ? "PanelScan Support · Auto-reply" : "Unknown"} · {formatDateTime(message.createdAt)}</p>
                       <p className="mt-1 leading-6 whitespace-pre-wrap"><MessageContent content={message.content} projectLink={(code) => `/admin/projects?code=${code}`} /></p>
                     </div>

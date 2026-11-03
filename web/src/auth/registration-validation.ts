@@ -52,6 +52,8 @@ export function sanitizeNameInput(field: string, value: string): string {
 // periods/spaces only as separators. Stored as the bare letters ("M", "DC").
 const middleInitialPattern = /^(\p{L}\.?\s?){1,3}$/u
 export const MIDDLE_INITIAL_MESSAGE = "Enter a middle initial using letters only (e.g. M or M.)."
+/** Characters a middle initial field takes, periods included ("M.", "DC", "D.C"). */
+export const MIDDLE_INITIAL_MAX_LENGTH = 3
 
 export function isValidMiddleInitial(value: string): boolean {
   return middleInitialPattern.test(value.trim())

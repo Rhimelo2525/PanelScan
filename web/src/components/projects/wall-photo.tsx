@@ -1,13 +1,9 @@
-import { ExternalLink, ImageOff } from "lucide-react"
+import { ImageOff, ZoomIn } from "lucide-react"
 import { useEffect, useState } from "react"
-import type { PointerEvent } from "react"
 
 import { fetchProjectWallPhoto } from "@/api/admin"
+import { ImageViewer } from "@/components/ui/image-viewer"
 import { Skeleton } from "@/components/ui/skeleton"
-import { cn } from "@/lib/utils"
-
-/** How much the photo magnifies under the mouse. */
-const ZOOM = 2.5
 
 interface LoadedPhoto {
   url: string
@@ -48,11 +44,6 @@ export function WallPhoto({ url, name }: { url: string | null; name: string }) {
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-xs font-semibold tracking-[0.1em] text-muted-foreground uppercase">Measured wall</h3>
-        {current?.src && (
-          <a href={current.src} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-            Open full size<ExternalLink className="size-3" aria-hidden="true" />
-          </a>
-        )}
       </div>
       {!url ? (
         <p className="mt-2 flex items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
@@ -61,7 +52,7 @@ export function WallPhoto({ url, name }: { url: string | null; name: string }) {
       ) : !current ? (
         <Skeleton className="mt-2 aspect-[3/4] w-full rounded-lg" />
       ) : current.src ? (
-        <ZoomableWallPhoto src={current.src} alt={`The wall measured for ${name}, with its outline, width and height`} />
+        <WallPhotoPreview src={current.src} alt={`The wall measured for ${name}, with its outline, width and height`} name={name} />
       ) : (
         <p className="mt-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">The wall photo could not be loaded. Close and open the project to try again.</p>
       )}
@@ -70,39 +61,27 @@ export function WallPhoto({ url, name }: { url: string | null; name: string }) {
 }
 
 /**
- * Hover zoom inside the frame: with a mouse, the part of the photo under the
- * pointer shows magnified and follows it. A click (or a tap) opens it full size.
+ * The photo in a framed box. A click (or a tap) opens it in the full-screen
+ * viewer, where it can be zoomed and moved to read the outline and sizes.
  */
-function ZoomableWallPhoto({ src, alt }: { src: string; alt: string }) {
-  // Pointer position within the photo, in %, or null while the mouse is away.
-  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null)
-
-  function track(event: PointerEvent<HTMLAnchorElement>) {
-    if (event.pointerType !== "mouse") return
-    const box = event.currentTarget.getBoundingClientRect()
-    setOrigin({
-      x: Math.min(Math.max(((event.clientX - box.left) / box.width) * 100, 0), 100),
-      y: Math.min(Math.max(((event.clientY - box.top) / box.height) * 100, 0), 100),
-    })
-  }
-
+function WallPhotoPreview({ src, alt, name }: { src: string; alt: string; name: string }) {
+  const [open, setOpen] = useState(false)
   return (
-    <a
-      href={src}
-      target="_blank"
-      rel="noreferrer"
-      className={cn("mt-2 block overflow-hidden rounded-lg border border-border bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none", origin ? "cursor-crosshair" : "cursor-zoom-in")}
-      onPointerEnter={track}
-      onPointerMove={track}
-      onPointerLeave={() => setOrigin(null)}
-      title="Hover to zoom, click to open full size"
-    >
-      <img
-        src={src}
-        alt={alt}
-        className="block max-h-[32rem] w-full object-contain transition-transform duration-150 ease-out motion-reduce:transition-none"
-        style={origin ? { transform: `scale(${ZOOM})`, transformOrigin: `${origin.x}% ${origin.y}%` } : undefined}
-      />
-    </a>
+    <>
+      <div className="mt-2 flex justify-center rounded-lg border border-border bg-muted p-3">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="group relative block w-fit max-w-full cursor-zoom-in overflow-hidden rounded-md shadow-sm ring-1 ring-border focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-label={`View the measured wall for ${name} full screen`}
+        >
+          <img src={src} alt={alt} className="block h-auto max-h-[32rem] w-auto max-w-full" />
+          <span className="pointer-events-none absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-xs font-medium text-white opacity-90 transition-opacity group-hover:opacity-100" aria-hidden="true">
+            <ZoomIn className="size-3.5" />Click to zoom
+          </span>
+        </button>
+      </div>
+      <ImageViewer src={src} alt={alt} title={`Measured wall · ${name}`} open={open} onOpenChange={setOpen} />
+    </>
   )
 }

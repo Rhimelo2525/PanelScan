@@ -6,7 +6,7 @@ import { getDashboardArchive, getDashboardCycle, getDashboardStats, getInventory
 import { formatCount, formatDate, formatManilaDate, formatManilaDateTime, formatMoney, fullName, manilaDayKey } from "@/admin/admin-format"
 import { dayKey, daysInMonth, getMonthOrders } from "@/admin/month-orders"
 import { MONTHS } from "@/components/admin/month-colors"
-import { MonthSelector } from "@/components/admin/month-selector"
+import { MonthSelector, type CalendarMonth } from "@/components/admin/month-selector"
 import { RecentOrdersCard } from "@/components/admin/recent-orders-card"
 import { useAdminResource } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -26,6 +26,9 @@ import type { CycleProductDemand, DashboardArchiveDetail, DashboardCycle } from 
  * this page renders whatever arrived and marks absent figures as role-restricted
  * instead of guessing or showing zero.
  */
+/** The Revenue/Orders over time chart offers the current month and the five before it. */
+const RECENT_MONTHS = 6
+
 export function AdminDashboardPage() {
   useDocumentTitle("Dashboard | PanelScan Admin")
   const { user } = useAuth()
@@ -61,25 +64,31 @@ export function AdminDashboardPage() {
   const cycleSince = shownCycle ? (isArchiveView ? cycleLabel : `Cycle #${shownCycle.cycleNumber} · since ${formatManilaDate(shownCycle.startTimestamp)}`) : undefined
 
   // Revenue over time: one calendar month at a time (Philippine time), picked
-  // with the month boxes under the chart; each month has its own colour.
+  // with the month boxes under the chart from the current month and the five
+  // before it; each month has its own colour.
   const today = manilaDayKey(new Date().toISOString())
   const currentYear = Number(today.slice(0, 4))
   const currentMonth = Number(today.slice(5, 7)) - 1
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth)
-  const monthOrders = useAdminResource((signal) => getMonthOrders(currentYear, selectedMonth, signal), [currentYear, selectedMonth], { pollIntervalMs: 45_000 })
+  const recentMonths = Array.from({ length: RECENT_MONTHS }, (_, index): CalendarMonth => {
+    const monthsSinceYearZero = currentYear * 12 + currentMonth - (RECENT_MONTHS - 1 - index)
+    return { year: Math.floor(monthsSinceYearZero / 12), month: monthsSinceYearZero % 12 }
+  })
+  const [selected, setSelected] = useState<CalendarMonth>({ year: currentYear, month: currentMonth })
+  const { year: selectedYear, month: selectedMonth } = selected
+  const monthOrders = useAdminResource((signal) => getMonthOrders(selectedYear, selectedMonth, signal), [selectedYear, selectedMonth], { pollIntervalMs: 45_000 })
   const month = MONTHS[selectedMonth]
-  const monthName = `${month.long} ${currentYear}`
+  const monthName = `${month.long} ${selectedYear}`
   // Cancelled orders are not revenue (same rule as the cycle archives).
   const countedOrders = (monthOrders.data ?? []).filter((row) => row.status !== "CANCELLED")
   const monthTotal = countedOrders.reduce((sum, row) => sum + (row.totalAmount ?? 0), 0)
-  const lastDay = selectedMonth === currentMonth ? Number(today.slice(8, 10)) : daysInMonth(currentYear, selectedMonth)
+  const lastDay = selectedYear === currentYear && selectedMonth === currentMonth ? Number(today.slice(8, 10)) : daysInMonth(selectedYear, selectedMonth)
   const valueByDay = new Map<string, number>()
   for (const row of countedOrders) {
     const key = manilaDayKey(row.createdAt)
     valueByDay.set(key, (valueByDay.get(key) ?? 0) + (isOwner ? row.totalAmount ?? 0 : 1))
   }
   const dayLabel = (day: number) => `${month.short} ${String(day).padStart(2, "0")}`
-  const trendPoints = Array.from({ length: lastDay }, (_, index) => ({ label: dayLabel(index + 1), value: valueByDay.get(dayKey(currentYear, selectedMonth, index + 1)) ?? 0 }))
+  const trendPoints = Array.from({ length: lastDay }, (_, index) => ({ label: dayLabel(index + 1), value: valueByDay.get(dayKey(selectedYear, selectedMonth, index + 1)) ?? 0 }))
   const monthSummary = isOwner
     ? `${formatMoney(monthTotal)} from ${formatCount(countedOrders.length)} order${countedOrders.length === 1 ? "" : "s"} · ${monthName}`
     : `${formatCount(countedOrders.length)} order${countedOrders.length === 1 ? "" : "s"} · ${monthName}`
@@ -163,7 +172,7 @@ export function AdminDashboardPage() {
                 axisLabels={[dayLabel(1), dayLabel(Math.min(15, Math.ceil(lastDay / 2))), dayLabel(lastDay)]}
               />
             )}
-            {!isArchiveView && <MonthSelector value={selectedMonth} onChange={setSelectedMonth} lastSelectableMonth={currentMonth} year={currentYear} />}
+            {!isArchiveView && <MonthSelector months={recentMonths} value={selected} onChange={setSelected} />}
           </section>
 
           {/* Live orders have no place in a look back at an archived cycle. */}

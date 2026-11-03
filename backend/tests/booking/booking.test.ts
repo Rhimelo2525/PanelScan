@@ -295,6 +295,23 @@ describe('Booking module', () => {
       },
     );
 
+    it("refuses a confirmed schedule on a day that has passed, but accepts today", async () => {
+      const { token } = await createModerator();
+      const booking = await createTestBooking({ customerId: (await createCustomer()).user.id, status: BookingStatus.PENDING });
+      const before = (await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } })).scheduledDate;
+      const schedule = (scheduledDate: string) => request(app)
+        .patch(`/api/bookings/${booking.id}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: BookingStatus.APPROVED, scheduledDate });
+
+      expectApiError(await schedule(futureDateIso(-2)), 400, /already passed/);
+      expect((await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } })).scheduledDate).toEqual(before);
+
+      const today = new Date().toISOString();
+      expectApiSuccess(await schedule(today), 200);
+      expect((await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } })).scheduledDate.toISOString()).toBe(today);
+    });
+
     it('rejects the invalid transition COMPLETED -> PENDING with 400, database unchanged', async () => {
       const { token } = await createModerator();
       const booking = await createTestBooking({ customerId: (await createCustomer()).user.id, status: BookingStatus.COMPLETED });

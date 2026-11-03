@@ -36,7 +36,7 @@ export function OrderItemsCell({ items }: { items: OrderReportItem[] | undefined
             className="size-10 shrink-0 rounded-md"
           />
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-foreground" title={item.productName}>
+            <p className="line-clamp-2 text-xs font-medium text-foreground" title={item.productName}>
               {item.productName}
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">

@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react"
 
-import { Button } from "@/components/ui/button"
+import { PageNumbers } from "@/components/ui/page-numbers"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import type { Pagination } from "@/types/admin"
@@ -131,11 +131,7 @@ export function TablePagination({ pagination, onPageChange, isLoading }: { pagin
   return (
     <nav className="flex flex-wrap items-center justify-between gap-3 pt-1" aria-label="Table pages">
       <p className="text-xs text-muted-foreground">Showing {start}–{end} of {pagination.total}</p>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" disabled={isLoading || pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>Previous</Button>
-        <span className="text-xs text-muted-foreground">Page {pagination.page} of {pagination.totalPages}</span>
-        <Button variant="outline" size="sm" disabled={isLoading || pagination.page >= pagination.totalPages} onClick={() => onPageChange(pagination.page + 1)}>Next</Button>
-      </div>
+      <PageNumbers page={pagination.page} totalPages={pagination.totalPages} onPageChange={onPageChange} disabled={isLoading} />
     </nav>
   )
 }

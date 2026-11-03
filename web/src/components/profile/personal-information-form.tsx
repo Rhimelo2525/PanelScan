@@ -7,7 +7,7 @@ import { updateProfile } from "@/api/auth"
 import { getAccountErrorMessage } from "@/auth/errors"
 import { ADDRESS_MAX_LENGTH, validateProfile } from "@/auth/profile-validation"
 import type { ProfileErrors, ProfileField, ProfileValues } from "@/auth/profile-validation"
-import { calculateAge, dateInputValue, formatMiddleInitial, normalizeMiddleInitial, sanitizeNameInput } from "@/auth/registration-validation"
+import { calculateAge, dateInputValue, formatMiddleInitial, MIDDLE_INITIAL_MAX_LENGTH, normalizeMiddleInitial, sanitizeNameInput } from "@/auth/registration-validation"
 import { useAuth } from "@/auth/use-auth"
 import { BirthdateInput } from "@/components/auth/birthdate-input"
 import { FormError } from "@/components/auth/form-error"
@@ -127,7 +127,7 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
       <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
         <TextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={35} />
         <TextField field="lastName" label="Last name" value={values.lastName} error={errors.lastName} onChange={updateValue} autoComplete="family-name" maxLength={35} />
-        <TextField field="middleInitial" label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={6} />
+        <TextField field="middleInitial" label="Middle initial" value={values.middleInitial} error={errors.middleInitial} onChange={updateValue} autoComplete="additional-name" maxLength={MIDDLE_INITIAL_MAX_LENGTH} />
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">

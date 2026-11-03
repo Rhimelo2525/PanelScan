@@ -385,6 +385,35 @@ export class AuthService {
   }
 
   /**
+   * A sign-in for another browser tab of a signed-in user. The web app keeps
+   * each tab's session in that tab only, so a link opened in a new tab asks an
+   * open tab, which calls this with its own refresh token. That token is
+   * checked like a refresh (live, not revoked, the caller's own) but NOT
+   * rotated, and the new tab gets an independent pair: two tabs never share
+   * one refresh token, so neither's rotation can sign the other out. Needing
+   * the refresh token as well as the access token means a leaked access token
+   * alone can't be turned into a long-lived session.
+   */
+  async issueTabSession(userId: string, plainToken: string): Promise<RefreshResult> {
+    const existing = await prisma.refreshToken.findUnique({ where: { tokenHash: hashRefreshToken(plainToken) } });
+    // Someone else's token answers like a missing one (never confirm it exists).
+    if (!existing || existing.userId !== userId || existing.revokedAt || existing.expiresAt < new Date()) {
+      throw new AppError('Invalid refresh token.', 401);
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.deletedAt) {
+      throw new AppError('The user belonging to this token no longer exists.', 401);
+    }
+    if (!user.isActive) {
+      throw new AppError('This user account has been deactivated.', 403);
+    }
+
+    const token = signToken({ userId: user.id, role: user.role });
+    return { token, refreshToken: await this.issueRefreshToken(user.id) };
+  }
+
+  /**
    * Revokes exactly one refresh token - the one the client is holding - not
    * every session belonging to the user, so logging out on one device never
    * signs the user out of others. Unknown-or-someone-else's-token is

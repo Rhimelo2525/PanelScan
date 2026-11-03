@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { assignBookingInstaller, getBookings, getInstallers, updateBookingStatus } from "@/api/admin"
-import { formatDate, formatDateTime, fullName } from "@/admin/admin-format"
+import { formatDate, formatDateTime, fullName, manilaDayKey } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
 import { useAuth } from "@/auth/use-auth"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
@@ -275,9 +275,13 @@ function InstallationDetailSheet({ booking, isModerator, onClose, onUpdated }: I
   if (!booking) return null
 
   const orderItems = booking.order?.items ?? []
+  // A new schedule can be today or later (Philippine time); a past date already saved may stay as it is.
+  const today = manilaDayKey(new Date().toISOString())
+  const savedDateKey = booking.scheduledDate ? new Date(booking.scheduledDate).toISOString().slice(0, 10) : ""
+  const isPastSchedule = scheduledDateInput !== "" && scheduledDateInput !== savedDateKey && scheduledDateInput < today
 
   async function handleSaveModeratorChanges() {
-    if (!booking) return
+    if (!booking || isPastSchedule) return
     const statusLabel = (value: string) => value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
     if (!(await confirm({
       title: "Save changes to this installation request?",
@@ -492,13 +496,22 @@ function InstallationDetailSheet({ booking, isModerator, onClose, onUpdated }: I
                 <Input
                   id="schedule-date"
                   type="date"
+                  min={today}
                   className="h-9 text-xs bg-background"
                   value={scheduledDateInput}
                   onChange={(e) => setScheduledDateInput(e.target.value)}
+                  aria-invalid={isPastSchedule}
+                  aria-describedby={isPastSchedule ? "schedule-date-past" : undefined}
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  The final schedule will be confirmed by the iDISENYO team.
-                </p>
+                {isPastSchedule ? (
+                  <p id="schedule-date-past" className="text-[11px] text-destructive">
+                    That day has already passed. Pick today or a later date.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    The final schedule will be confirmed by the iDISENYO team.
+                  </p>
+                )}
               </div>
 
               {/* Installation Status */}
@@ -527,7 +540,7 @@ function InstallationDetailSheet({ booking, isModerator, onClose, onUpdated }: I
                 <Button variant="outline" size="sm" onClick={onClose} disabled={isSaving}>
                   Close
                 </Button>
-                <Button size="sm" onClick={() => void handleSaveModeratorChanges()} disabled={isSaving}>
+                <Button size="sm" onClick={() => void handleSaveModeratorChanges()} disabled={isSaving || isPastSchedule}>
                   {isSaving ? (
                     <>
                       <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />

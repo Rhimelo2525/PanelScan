@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PhoneInput } from "@/components/ui/phone-input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { formatMiddleInitial, isValidMiddleInitial, isValidPersonName, MIDDLE_INITIAL_MESSAGE, normalizeMiddleInitial, personNameMessage, registerSpaceRejection, sanitizeNameInput } from "@/auth/registration-validation"
+import { formatMiddleInitial, isValidMiddleInitial, isValidPersonName, MIDDLE_INITIAL_MAX_LENGTH, MIDDLE_INITIAL_MESSAGE, normalizeMiddleInitial, personNameMessage, registerSpaceRejection, sanitizeNameInput } from "@/auth/registration-validation"
 import { registerEmailErrorMessage } from "@/auth/errors"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { PHILIPPINE_PHONE_MESSAGE, formatPhoneForDisplay, isValidPhilippinePhone } from "@/lib/phone"
@@ -210,7 +210,7 @@ function CreateInstallerSheet({ open, onClose, onCreated }: { open: boolean; onC
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6.5rem] gap-3">
             <div className="space-y-2"><Label htmlFor="installer-first">First name</Label><Input id="installer-first" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} maxLength={NAME_MAX_LENGTH} {...spaceGuard("firstName")} /></div>
             <div className="space-y-2"><Label htmlFor="installer-last">Last name</Label><Input id="installer-last" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} maxLength={NAME_MAX_LENGTH} {...spaceGuard("lastName")} /></div>
-            <div className="space-y-2"><Label htmlFor="installer-middle" className="whitespace-nowrap">M.I. (optional)</Label><Input id="installer-middle" value={form.middleInitial} onChange={(event) => update("middleInitial", event.target.value)} maxLength={6} {...spaceGuard("middleInitial")} /></div>
+            <div className="space-y-2"><Label htmlFor="installer-middle" className="whitespace-nowrap">M.I. (optional)</Label><Input id="installer-middle" value={form.middleInitial} onChange={(event) => update("middleInitial", event.target.value)} maxLength={MIDDLE_INITIAL_MAX_LENGTH} {...spaceGuard("middleInitial")} /></div>
           </div>
           {(errors.firstName || errors.lastName || errors.middleInitial || nameLimitNotes.length > 0) && (
             <div className="-mt-2 space-y-1">

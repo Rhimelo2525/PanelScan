@@ -133,6 +133,10 @@ const envSchema = z.object({
   // lockout guards each account; this guards against one IP spraying many.
   RATE_LIMIT_LOGIN_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(30),
+  // POST /api/auth/session/tab: one per browser tab opened while signed in, so
+  // it needs more room than authRateLimiter (which /refresh also draws on).
+  RATE_LIMIT_TAB_SESSION_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_TAB_SESSION_MAX: z.coerce.number().int().positive().default(30),
   RATE_LIMIT_API_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(100),
   // Account-security bucket: change password, email verification and the

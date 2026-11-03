@@ -21,16 +21,18 @@ function getPrimaryImage(product: Product) {
 
 /**
  * Cards lead with the image and carry only what a customer choosing a panel
- * needs: which line it belongs to, its size, availability, and price. The card
- * chrome is deliberately light - a border and the image, not a raised white box.
+ * needs: which line it belongs to, its size, availability, and price. The
+ * whole card opens the product: the name's link stretches over all of it
+ * (one link, read once by screen readers), while the sign-in-for-price link
+ * sits above it and keeps its own target.
  */
 export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) {
   const Heading = headingLevel
   const dimensions = formatDimensions(product.width, product.height, product.thickness)
 
   return (
-    <article className="group flex flex-col">
-      <Link to={`/products/${product.id}`} className="card-interactive relative block overflow-hidden rounded-xl border border-transparent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={`View ${product.name}`}>
+    <article className="card-interactive group relative flex flex-col rounded-xl border border-border bg-card p-3 shadow-xs has-[a:focus-visible]:ring-3 has-[a:focus-visible]:ring-ring/50 sm:p-4">
+      <div className="relative overflow-hidden rounded-lg">
         <ProductImage
           image={getPrimaryImage(product)}
           productName={product.name}
@@ -38,14 +40,14 @@ export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) 
           className="media-zoom aspect-[4/3]"
         />
         {product.isFeatured && <Badge className="absolute top-3 left-3">Featured</Badge>}
-      </Link>
+      </div>
 
       <div className="mt-4 flex flex-1 flex-col">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="type-label text-primary">{panelTypeLabel(product) ?? product.category.name}</p>
             <Heading className="mt-2 text-lg leading-snug font-semibold tracking-[-0.025em]">
-              <Link to={`/products/${product.id}`} className="outline-none transition-colors duration-(--motion-fast) hover:text-primary focus-visible:underline">{product.name}</Link>
+              <Link to={`/products/${product.id}`} className="outline-none transition-colors duration-(--motion-fast) group-hover:text-primary after:absolute after:inset-0 after:rounded-xl after:content-['']">{product.name}</Link>
             </Heading>
           </div>
           <ArrowUpRight className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-(--motion-fast) ease-(--ease-standard) group-hover:translate-x-0.5 group-hover:-translate-y-0.5" aria-hidden="true" />
@@ -56,7 +58,7 @@ export function ProductCard({ product, headingLevel = "h2" }: ProductCardProps) 
 
         <div className="mt-auto pt-4">
           <StockStatus inventory={product.inventory} compact />
-          <ProductPrice price={product.price} returnTo={`/products/${product.id}`} />
+          <ProductPrice price={product.price} returnTo={`/products/${product.id}`} className="relative z-10" />
         </div>
       </div>
     </article>

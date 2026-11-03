@@ -111,6 +111,15 @@ export class AuthController {
     sendSuccess(res, 200, 'Token refreshed successfully.', { token, refreshToken });
   });
 
+  /** Authenticated: a separate session for a newly opened browser tab (see AuthService.issueTabSession). */
+  tabSession = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) {
+      throw new AppError('Authentication required.', 401);
+    }
+    const { token, refreshToken } = await this.authService.issueTabSession(req.user.id, req.body.refreshToken);
+    sendSuccess(res, 200, 'Tab session created successfully.', { token, refreshToken });
+  });
+
   logout = catchAsync(async (req: Request, res: Response): Promise<void> => {
     if (!req.user) {
       throw new AppError('Authentication required.', 401);

@@ -1,14 +1,14 @@
-import { ArrowRight, Package, Truck } from "lucide-react"
-import { useState } from "react"
+import { ArrowRight, Truck } from "lucide-react"
 import { Link } from "react-router-dom"
 
+import { ItemThumbnail } from "@/components/orders/item-thumbnail"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { Button } from "@/components/ui/button"
 import { formatProductPrice } from "@/lib/format-price"
 import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
 import { formatOrderDate } from "@/orders/order-format"
 import { isShippingQuoted } from "@/orders/order-workflow"
-import type { Order, OrderItem } from "@/types/order"
+import type { Order } from "@/types/order"
 
 // Longer orders show the first few lines; the rest are one click away.
 const VISIBLE_ITEMS = 3
@@ -90,28 +90,5 @@ export function OrderCard({ order }: { order: Order }) {
         </div>
       </footer>
     </article>
-  )
-}
-
-/** The product's picture, or a neutral package tile when it has none (or it fails to load). */
-function ItemThumbnail({ item }: { item: OrderItem }) {
-  const image = item.product?.images[0]
-  const [failed, setFailed] = useState(false)
-
-  if (!image || failed) {
-    return (
-      <div className="flex size-16 shrink-0 items-center justify-center rounded-md border border-border bg-secondary" aria-hidden="true">
-        <Package className="size-5 text-primary" />
-      </div>
-    )
-  }
-  return (
-    <img
-      src={image.url}
-      alt={image.altText?.trim() || item.productName}
-      className="size-16 shrink-0 rounded-md border border-border bg-muted object-cover"
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
   )
 }

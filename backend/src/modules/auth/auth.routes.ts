@@ -2,7 +2,7 @@ import { UserRole } from '@prisma/client';
 import { Router } from 'express';
 
 import { authenticate } from '../../middleware/auth.middleware';
-import { accountSecurityRateLimiter, authRateLimiter, loginRateLimiter } from '../../middleware/rateLimit.middleware';
+import { accountSecurityRateLimiter, authRateLimiter, loginRateLimiter, tabSessionRateLimiter } from '../../middleware/rateLimit.middleware';
 import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { authController } from './auth.controller';
@@ -95,6 +95,10 @@ router.post('/staff-reset-password', accountSecurityRateLimiter, validate(staffR
 // POST /api/auth/refresh - no access token required (that's the point of a refresh token), so
 // it's public but shares the same brute-force protection as login/register.
 router.post('/refresh', authRateLimiter, validate(refreshTokenSchema), authController.refresh);
+
+// POST /api/auth/session/tab - a signed-in tab gets a separate session for a newly opened tab.
+// Needs the access token AND that tab's refresh token (same body shape as /refresh), which is not rotated.
+router.post('/session/tab', tabSessionRateLimiter, authenticate, validate(refreshTokenSchema), authController.tabSession);
 
 // POST /api/auth/logout - requires a valid (not-yet-expired) access token; revokes only the one
 // refresh token supplied in the body, not every session belonging to the user.

@@ -1,4 +1,4 @@
-import { ChevronRight, ExternalLink, LogOut, Menu, Pin, PinOff } from "lucide-react"
+import { ExternalLink, LogOut, Menu, Pin, PinOff } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 
@@ -175,12 +175,7 @@ export function AdminLayout() {
               </SheetContent>
             </Sheet>
 
-            <nav aria-label="Breadcrumb" className="min-w-0">
-              <ol className="flex items-center gap-1.5 text-sm">
-                <li className="text-muted-foreground">Admin</li>
-                {currentItem && <><li aria-hidden="true"><ChevronRight className="size-3.5 text-muted-foreground" /></li><li className="truncate font-medium" aria-current="page">{currentItem.label}</li></>}
-              </ol>
-            </nav>
+            {currentItem && <p className="min-w-0 truncate text-sm font-medium">{currentItem.label}</p>}
           </div>
 
           <div className="flex items-center gap-2">

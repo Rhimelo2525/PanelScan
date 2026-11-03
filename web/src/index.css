@@ -439,7 +439,11 @@
    padding above reads as cramped. Scoped to any ancestor carrying this class
    (DataTable itself doesn't expose a className prop for its <table>), so
    every other Admin table keeps its current density. */
-.admin-table-roomy .admin-table th, .admin-table-roomy .admin-table td { padding: 1rem 1.1rem; }
+/* Roomy where the screen allows; tighter on laptops so wide tables still fit without scrolling. */
+.admin-table-roomy .admin-table th, .admin-table-roomy .admin-table td { padding: 0.85rem 0.7rem; }
+@media (min-width: 96rem) {
+  .admin-table-roomy .admin-table th, .admin-table-roomy .admin-table td { padding: 1rem 1.1rem; }
+}
 .admin-table-roomy .admin-table { font-size: 0.85rem; }
 
 

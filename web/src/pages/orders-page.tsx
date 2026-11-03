@@ -7,6 +7,7 @@ import { getOrders } from "@/api/orders"
 import { Container } from "@/components/layout/container"
 import { OrderCard } from "@/components/orders/order-card"
 import { Button } from "@/components/ui/button"
+import { PageNumbers } from "@/components/ui/page-numbers"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
@@ -140,7 +141,7 @@ export function OrdersPage() {
         )}
       </div>
 
-      {pagination && pagination.totalPages > 1 && !isLoading && !error && <nav className="mt-8 flex items-center justify-between" aria-label="Order history pages"><Button variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><p className="text-sm text-muted-foreground">Page {pagination.page} of {pagination.totalPages}</p><Button variant="outline" disabled={page >= pagination.totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button></nav>}
+      {pagination && pagination.totalPages > 1 && !isLoading && !error && <nav className="mt-8 flex justify-center" aria-label="Order history pages"><PageNumbers page={pagination.page} totalPages={pagination.totalPages} onPageChange={setPage} size="default" /></nav>}
     </Container>
   )
 }

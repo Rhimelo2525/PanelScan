@@ -6,7 +6,7 @@ import { toast } from "sonner"
 
 import { approveOrder, getSalesReport, updateOrderStatus } from "@/api/admin"
 import { useConfirm } from "@/components/confirm/use-confirm"
-import { formatCount, formatDateTime, formatMoney } from "@/admin/admin-format"
+import { formatCount, formatDateTime, formatManilaDate, formatMoney } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
 import { AdminPageHeader } from "@/components/admin/admin-page-header"
 import { DataTable, TablePagination } from "@/components/admin/data-table"
@@ -15,6 +15,7 @@ import { FilterBar, FilterSelect } from "@/components/admin/filter-bar"
 import { MetricCard } from "@/components/admin/metric-card"
 import { OrderItemsCell } from "@/components/admin/order-items-cell"
 import { StatusBadge } from "@/components/admin/status-badge"
+import { statusBadgeClassName } from "@/components/admin/status-badge-style"
 import { StatusMixBar } from "@/components/admin/trend-chart"
 import { ProductImage } from "@/components/products/product-image"
 import { useAuth } from "@/auth/use-auth"
@@ -25,10 +26,12 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { formatPhoneForDisplay } from "@/lib/phone"
 import { getDeliveryStatusLabel } from "@/lib/delivery/status-label"
+import { cn } from "@/lib/utils"
 import type { OrderReportRow } from "@/types/admin"
 
 const ORDER_STATUSES = ["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"]
 const TRANSITIONABLE = ["PENDING", "PROCESSING", "SHIPPED"]
+const statusLabel = (value: string) => value.charAt(0) + value.slice(1).toLowerCase()
 
 /** Shared by the table's Delivery cell and the details sheet, so the two never drift out of sync. */
 function deliveryStatusContent(row: OrderReportRow): ReactNode {
@@ -165,33 +168,30 @@ export function AdminSalesPage() {
                 key: "order",
                 header: "Order",
                 primary: true,
-                cell: (row) => <span className="font-medium">{row.orderNumber}</span>,
+                cell: (row) => <span className="text-[0.78rem] font-medium whitespace-nowrap">{row.orderNumber}</span>,
               },
               { key: "customer", header: "Customer", cell: (row) => row.customerName },
-              { key: "date", header: "Order Date", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDateTime(row.createdAt)}</span> },
+              { key: "date", header: "Order Date", secondary: true, cell: (row) => <span className="whitespace-nowrap text-muted-foreground" title={formatDateTime(row.createdAt)}>{formatManilaDate(row.createdAt)}</span> },
               { key: "items", header: "Items", cell: (row) => <OrderItemsCell items={row.items} /> },
               { key: "amount", header: "Amount", numeric: true, cell: (row) => formatMoney(row.totalAmount) },
               {
                 key: "approval",
                 header: "Approval",
-                cell: (row) => (
-                  <div className="flex flex-nowrap items-center gap-2">
-                    {row.moderatorApproved ? (
-                      <StatusBadge status="APPROVED" label="Approved" />
-                    ) : (
-                      <StatusBadge status="PENDING" label="Awaiting Approval" />
-                    )}
-                    {!row.moderatorApproved && row.status !== "CANCELLED" && isModerator && (
-                      <Button
-                        size="sm"
-                        className="h-6 px-2 text-[11px] font-medium"
-                        onClick={() => void handleApprove(row)}
-                        disabled={approvingId === row.id}
-                      >
-                        {approvingId === row.id ? <Loader2 className="size-3 animate-spin" /> : "Approve"}
-                      </Button>
-                    )}
-                  </div>
+                // One box per cell: the Approve button while the order can be approved, otherwise its badge.
+                cell: (row) => !row.moderatorApproved && row.status !== "CANCELLED" && isModerator ? (
+                  <Button
+                    size="sm"
+                    className="h-6 px-2.5 text-[11px] font-medium"
+                    onClick={() => void handleApprove(row)}
+                    disabled={approvingId === row.id}
+                    aria-label={`Approve order ${row.orderNumber}`}
+                  >
+                    {approvingId === row.id ? <Loader2 className="size-3 animate-spin" /> : "Approve"}
+                  </Button>
+                ) : row.moderatorApproved ? (
+                  <StatusBadge status="APPROVED" label="Approved" />
+                ) : (
+                  <StatusBadge status="PENDING" label="Awaiting Approval" />
                 ),
               },
               {
@@ -205,26 +205,26 @@ export function AdminSalesPage() {
               {
                 key: "delivery",
                 header: "Delivery",
-                cell: (row) => (
-                  <div className="flex flex-nowrap items-center gap-2">
-                    {deliveryStatusContent(row)}
-                    {isModerator && <DeliveriesLink row={row} compact />}
-                  </div>
-                ),
+                cell: (row) => isModerator && deliveryNextStep(row) ? <DeliveriesLink row={row} compact /> : deliveryStatusContent(row),
               },
               {
                 key: "status",
                 header: "Status",
-                cell: (row) => (
-                  <div className="flex flex-nowrap items-center gap-2">
-                    <StatusBadge status={row.status} />
-                    {isModerator && TRANSITIONABLE.includes(row.status) && (
-                      <Select value="" onValueChange={(next) => void handleStatusChange(row, next)} disabled={pendingId === row.id}>
-                        <SelectTrigger size="sm" className="h-6 w-24 shrink-0 text-[11px]" aria-label={`Update status for ${row.orderNumber}`}><SelectValue placeholder="Update" /></SelectTrigger>
-                        <SelectContent>{ORDER_STATUSES.filter((value) => value !== row.status).map((value) => <SelectItem key={value} value={value}>{value.charAt(0) + value.slice(1).toLowerCase()}</SelectItem>)}</SelectContent>
-                      </Select>
-                    )}
-                  </div>
+                // The status badge is itself the dropdown that changes it, so the cell holds one box.
+                cell: (row) => isModerator && TRANSITIONABLE.includes(row.status) ? (
+                  <Select value={row.status} onValueChange={(next) => { if (next !== row.status) void handleStatusChange(row, next) }} disabled={pendingId === row.id}>
+                    <SelectTrigger
+                      size="sm"
+                      className={cn(statusBadgeClassName(row.status), "h-auto cursor-pointer gap-1 py-0.5 pr-1.5 shadow-none data-[size=sm]:h-auto [&_svg]:size-3.5 [&_svg]:opacity-70")}
+                      aria-label={`Status of ${row.orderNumber}: ${statusLabel(row.status)}. Change status`}
+                    >
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>{ORDER_STATUSES.map((value) => <SelectItem key={value} value={value}>{statusLabel(value)}</SelectItem>)}</SelectContent>
+                  </Select>
+                ) : (
+                  <StatusBadge status={row.status} />
                 ),
               },
             ]}
