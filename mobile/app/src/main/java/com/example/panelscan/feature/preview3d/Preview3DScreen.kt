@@ -27,6 +27,12 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.AddToPhotos
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
@@ -87,7 +93,9 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import androidx.core.graphics.drawable.toBitmap
+import com.google.android.filament.LightManager
 import com.google.android.filament.Texture
+import com.google.android.filament.View as FilamentView
 import com.google.android.filament.TextureSampler
 import io.github.sceneview.SceneView
 import io.github.sceneview.geometries.Geometry
@@ -96,6 +104,7 @@ import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
 import io.github.sceneview.node.CubeNode
 import io.github.sceneview.node.GeometryNode
+import io.github.sceneview.node.LightNode
 import io.github.sceneview.node.Node
 import io.github.sceneview.texture.ImageTexture
 import dev.romainguy.kotlin.math.Float2
@@ -138,6 +147,9 @@ fun Preview3DScreen(
     var cartAdded by remember { mutableStateOf(false) }
     var cartProblem by remember { mutableStateOf<String?>(null) }
     var panMode by remember { mutableStateOf(false) }
+    // View-only copies of the measured panels, as (column, row) steps from it; never in the estimate.
+    var copies by remember { mutableStateOf(listOf<Pair<Int, Int>>()) }
+    var showDuplicate by remember { mutableStateOf(false) }
 
     var yaw by remember { mutableStateOf(-18f) }
     var pitch by remember { mutableStateOf(10f) }
@@ -189,17 +201,22 @@ fun Preview3DScreen(
     val inPhoto = photoView && photo != null && placement != null && wallBitmap != null
 
     // Rebuild the surface whenever the panel, its photo, joint overlay, inspection mode or view changes.
-    LaunchedEffect(sceneView, selectedPanel, facePhoto, showGrid, isInspectionMode, inPhoto) {
+    LaunchedEffect(sceneView, selectedPanel, facePhoto, showGrid, isInspectionMode, inPhoto, copies) {
         val view = sceneView ?: return@LaunchedEffect
         surfaceNode?.let { view.removeChildNodes(listOf(it)) }
         val node = if (inPhoto) {
-            buildPhotoScene(view, project, selectedPanel, facePhoto, textures, showGrid, photo!!, wallBitmap!!, placement!!)
+            buildPhotoScene(view, project, selectedPanel, facePhoto, textures, showGrid, photo!!, wallBitmap!!, placement!!, copies)
         } else {
-            buildSurfaceNode(view, project, selectedPanel, facePhoto, textures, showGrid, isInspectionMode)
+            buildSurfaceNode(view, project, selectedPanel, facePhoto, textures, showGrid, isInspectionMode, copies = copies, centreCopies = true)
         }
         view.addChildNodes(listOf(node))
         surfaceNode = node
         usePhotoCamera(view, if (inPhoto) photo else null)
+    }
+
+    // 3D view: step back far enough to see the copies too.
+    LaunchedEffect(copies) {
+        distance = maxOf(distance, defaultDistance(project, copies)).coerceAtMost(18f)
     }
 
     // 3D view: orbit and zoom move the surface rather than the camera.
@@ -248,6 +265,7 @@ fun Preview3DScreen(
                     // Gestures here move the surface (3D) or nudge the panels (photo); the
                     // camera itself must stay put, above all where it matches the photo.
                     cameraManipulator = null
+                    setUpLighting(this, ceiling = project.measurement.surfaceType == com.example.panelscan.core.model.SurfaceType.CEILING)
                     sceneView = this
                 }
             },
@@ -313,6 +331,14 @@ fun Preview3DScreen(
                     },
                     size = 42.dp,
                     containerColor = Color(0xFF1B1E22)
+                )
+                OverlayIconButton(
+                    icon = Icons.Rounded.AddToPhotos,
+                    contentDescription = if (showDuplicate) "Close duplicate" else "Duplicate panels",
+                    onClick = { showDuplicate = !showDuplicate },
+                    size = 42.dp,
+                    containerColor = if (showDuplicate) Color.White else Color(0xFF1B1E22),
+                    contentColor = if (showDuplicate) Color(0xFF16181B) else Color.White
                 )
                 OverlayIconButton(
                     icon = Icons.Rounded.Palette,
@@ -388,6 +414,24 @@ fun Preview3DScreen(
                     )
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = showDuplicate,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = Spacing.md),
+            enter = fadeIn(PanelScanMotion.spec(PanelScanMotion.Standard)) +
+                slideInHorizontally(PanelScanMotion.spec(PanelScanMotion.Standard)) { -it / 3 },
+            exit = fadeOut(PanelScanMotion.spec(PanelScanMotion.Fast))
+        ) {
+            DuplicatePad(
+                copyCount = copies.size,
+                panelsEach = estimation.finalQuantity,
+                onAdd = { dx, dy -> copies = copies + nextCopy(copies, dx, dy) },
+                onRemove = { copies = copies.dropLast(1) },
+                onClear = { copies = emptyList() }
+            )
         }
 
         // Dimension read-out, kept small so it never covers the scene.
@@ -579,10 +623,13 @@ private fun PanelSwatch(
 }
 
 /** Frames the whole surface with real headroom, whatever its size. */
-private fun defaultDistance(project: SavedProject): Float {
+private fun defaultDistance(project: SavedProject, copies: List<Pair<Int, Int>> = emptyList()): Float {
+    val tiles = listOf(0 to 0) + copies
+    val across = tiles.maxOf { it.first } - tiles.minOf { it.first } + 1
+    val up = tiles.maxOf { it.second } - tiles.minOf { it.second } + 1
     val largest = maxOf(
-        project.measurement.widthMeters,
-        project.measurement.heightMeters,
+        project.measurement.widthMeters * across,
+        project.measurement.heightMeters * up,
         0.5
     ).toFloat()
     return (largest * 2.3f).coerceIn(1.6f, 16f)
@@ -605,7 +652,11 @@ private fun buildSurfaceNode(
     textures: MutableMap<Bitmap, Texture>,
     showJoints: Boolean,
     isInspectionMode: Boolean,
-    withBacking: Boolean = true
+    withBacking: Boolean = true,
+    /** View-only copies beside the measured surface, as (column, row) steps of its own size. */
+    copies: List<Pair<Int, Int>> = emptyList(),
+    /** Centre the whole group (3D view) rather than keep the measured surface in place (photo view). */
+    centreCopies: Boolean = false
 ): Node {
     val engine = sceneView.engine
     val materialLoader = sceneView.materialLoader
@@ -620,90 +671,155 @@ private fun buildSurfaceNode(
 
     val relief = PanelShape.relief(panel.profile, panel.grooveCount, panel.widthMeters.toFloat(), panel.thicknessMm)
 
-    // 1. Substrate backing (concrete / drywall behind the panels)
-    val backingAlpha = if (isInspectionMode) 0.28f else 1.0f
-    val backingColor = if (isInspectionMode) Color(0xFF334155) else Color(0xFF64748B)
-    val backingMaterial = materialLoader.createColorInstance(
-        backingColor.toArgbInt(), 0.0f, 0.85f, backingAlpha
-    )
-    if (withBacking) root.addChildNode(
-        CubeNode(
-            engine = engine,
-            size = Float3(totalWidth * 1.04f, totalHeight * 1.04f, 0.024f),
-            center = Float3(0f, 0f, if (isInspectionMode) -0.09f else -0.0121f),
-            materialInstance = backingMaterial
+    // The measured surface at (0, 0), then any copies; each a full set of panels of its own.
+    val tiles = listOf(0 to 0) + copies
+    val centreX = if (centreCopies) (tiles.minOf { it.first } + tiles.maxOf { it.first }) / 2f * totalWidth else 0f
+    val centreY = if (centreCopies) (tiles.minOf { it.second } + tiles.maxOf { it.second }) / 2f * totalHeight else 0f
+    for ((column, row) in tiles) {
+        val tile = Node(engine).apply { position = Position(column * totalWidth - centreX, row * totalHeight - centreY, 0f) }
+        root.addChildNode(tile)
+
+        // 1. Substrate backing (concrete / drywall behind the panels)
+        val backingAlpha = if (isInspectionMode) 0.28f else 1.0f
+        val backingColor = if (isInspectionMode) Color(0xFF334155) else Color(0xFF64748B)
+        val backingMaterial = materialLoader.createColorInstance(
+            backingColor.toArgbInt(), 0.0f, 0.85f, backingAlpha
         )
-    )
-
-    // 2. The panels: one mesh for the faces, one for the groove bottoms.
-    val panelWidth = panel.widthMeters.toFloat().coerceAtLeast(0.05f)
-    val panelHeight = panel.heightMeters.toFloat().coerceAtLeast(0.05f)
-    // The photo repeats every 10 cm across and 30 cm along the grain (mirrored, so no seams show).
-    val mesh = WallMesh.build(
-        totalWidth, totalHeight, panelWidth, panelHeight,
-        panel.profile, panel.grooveCount, relief,
-        tileWidth = 0.10f, tileHeight = 0.30f
-    )
-    val roughness = if (panel.textureResource == "gloss_white") 0.25f else 0.6f
-    val faceMaterial = if (facePhoto != null) {
-        val texture = textures.getOrPut(facePhoto) { ImageTexture.Builder().bitmap(facePhoto).build(engine) }
-        materialLoader.createTextureInstance(texture, isOpaque = true, metallic = 0f, roughness = roughness, reflectance = 0.35f).apply {
-            setTexture(
-                texture,
-                TextureSampler(TextureSampler.MinFilter.LINEAR_MIPMAP_LINEAR, TextureSampler.MagFilter.LINEAR, TextureSampler.WrapMode.MIRRORED_REPEAT)
-            )
-        }
-    } else {
-        materialLoader.createColorInstance(palette.base.toArgbInt(), 0f, roughness, 1f)
-    }
-    root.addChildNode(GeometryNode(engine, mesh.face.toGeometry(engine), faceMaterial))
-    if (mesh.recess.vertexCount > 0) {
-        val recessColor = facePhoto?.let { darkened(averageColor(it), 0.45f) } ?: palette.detail
-        val recessMaterial = materialLoader.createColorInstance(recessColor.toArgbInt(), 0f, 0.8f, 1f)
-        root.addChildNode(GeometryNode(engine, mesh.recess.toGeometry(engine), recessMaterial))
-    }
-
-    // 3. Joints between panels, standing just proud of the face.
-    if (showJoints || isInspectionMode) {
-        val jointColor = if (isInspectionMode) Color(0xFF38BDF8) else palette.detail
-        val jointMaterial = materialLoader.createColorInstance(
-            jointColor.toArgbInt(),
-            if (isInspectionMode) 0.8f else 0.0f,
-            0.3f,
-            if (isInspectionMode) 1.0f else 0.6f
+        if (withBacking) tile.addChildNode(
+            CubeNode(
+                engine = engine,
+                size = Float3(totalWidth * 1.04f, totalHeight * 1.04f, 0.024f),
+                center = Float3(0f, 0f, if (isInspectionMode) -0.09f else -0.0121f),
+                materialInstance = backingMaterial
+            ).apply { isShadowReceiver = true }
         )
-        val jointThickness = if (isInspectionMode) 0.009f else 0.004f
-        val jointDepth = relief * 2f + if (isInspectionMode) 0.012f else 0.003f
 
-        val columnCount = kotlin.math.ceil(totalWidth / panelWidth).toInt().coerceAtLeast(1)
-        val rowCount = kotlin.math.ceil(totalHeight / panelHeight).toInt().coerceAtLeast(1)
-        for (index in 1 until columnCount) {
-            val x = -totalWidth / 2f + panelWidth * index
-            if (abs(x) >= totalWidth / 2f) continue
-            root.addChildNode(
-                CubeNode(
-                    engine = engine,
-                    size = Float3(jointThickness, totalHeight, jointDepth),
-                    center = Float3(x, 0f, 0f),
-                    materialInstance = jointMaterial
+        // 2. The panels: one mesh for the faces, one for the groove bottoms.
+        val panelWidth = panel.widthMeters.toFloat().coerceAtLeast(0.05f)
+        val panelHeight = panel.heightMeters.toFloat().coerceAtLeast(0.05f)
+        // The photo repeats every 10 cm across and 30 cm along the grain (mirrored, so no seams show).
+        val mesh = WallMesh.build(
+            totalWidth, totalHeight, panelWidth, panelHeight,
+            panel.profile, panel.grooveCount, relief,
+            tileWidth = 0.10f, tileHeight = 0.30f
+        )
+        val roughness = if (panel.textureResource == "gloss_white") 0.25f else 0.6f
+        val faceMaterial = if (facePhoto != null) {
+            val texture = textures.getOrPut(facePhoto) { ImageTexture.Builder().bitmap(facePhoto).build(engine) }
+            materialLoader.createTextureInstance(texture, isOpaque = true, metallic = 0f, roughness = roughness, reflectance = 0.35f).apply {
+                setTexture(
+                    texture,
+                    TextureSampler(TextureSampler.MinFilter.LINEAR_MIPMAP_LINEAR, TextureSampler.MagFilter.LINEAR, TextureSampler.WrapMode.MIRRORED_REPEAT)
                 )
-            )
+            }
+        } else {
+            materialLoader.createColorInstance(palette.base.toArgbInt(), 0f, roughness, 1f)
         }
-        for (index in 1 until rowCount) {
-            val y = -totalHeight / 2f + panelHeight * index
-            if (abs(y) >= totalHeight / 2f) continue
-            root.addChildNode(
-                CubeNode(
-                    engine = engine,
-                    size = Float3(totalWidth, jointThickness, jointDepth),
-                    center = Float3(0f, y, 0f),
-                    materialInstance = jointMaterial
-                )
+        tile.addChildNode(GeometryNode(engine, mesh.face.toGeometry(engine), faceMaterial).castsAndReceivesShadows())
+        if (mesh.recess.vertexCount > 0) {
+            // Real shadows and ambient occlusion now darken the grooves, so the colour itself is only a little darker.
+            val recessColor = facePhoto?.let { darkened(averageColor(it), 0.72f) } ?: palette.detail
+            val recessMaterial = materialLoader.createColorInstance(recessColor.toArgbInt(), 0f, 0.8f, 1f)
+            tile.addChildNode(GeometryNode(engine, mesh.recess.toGeometry(engine), recessMaterial).castsAndReceivesShadows())
+        }
+
+        // 3. Joints between panels, standing just proud of the face.
+        if (showJoints || isInspectionMode) {
+            val jointColor = if (isInspectionMode) Color(0xFF38BDF8) else palette.detail
+            val jointMaterial = materialLoader.createColorInstance(
+                jointColor.toArgbInt(),
+                if (isInspectionMode) 0.8f else 0.0f,
+                0.3f,
+                if (isInspectionMode) 1.0f else 0.6f
             )
+            val jointThickness = if (isInspectionMode) 0.009f else 0.004f
+            val jointDepth = relief * 2f + if (isInspectionMode) 0.012f else 0.003f
+
+            val columnCount = kotlin.math.ceil(totalWidth / panelWidth).toInt().coerceAtLeast(1)
+            val rowCount = kotlin.math.ceil(totalHeight / panelHeight).toInt().coerceAtLeast(1)
+            for (index in 1 until columnCount) {
+                val x = -totalWidth / 2f + panelWidth * index
+                if (abs(x) >= totalWidth / 2f) continue
+                tile.addChildNode(
+                    CubeNode(
+                        engine = engine,
+                        size = Float3(jointThickness, totalHeight, jointDepth),
+                        center = Float3(x, 0f, 0f),
+                        materialInstance = jointMaterial
+                    )
+                )
+            }
+            for (index in 1 until rowCount) {
+                val y = -totalHeight / 2f + panelHeight * index
+                if (abs(y) >= totalHeight / 2f) continue
+                tile.addChildNode(
+                    CubeNode(
+                        engine = engine,
+                        size = Float3(totalWidth, jointThickness, jointDepth),
+                        center = Float3(0f, y, 0f),
+                        materialInstance = jointMaterial
+                    )
+                )
+            }
         }
     }
 
     return root
+}
+
+/**
+ * Light for the panels: one soft sun-like light coming across the face at a
+ * low angle, as from a window or ceiling lamp to one side, so every ridge
+ * casts a shadow into the groove next to it, plus ambient occlusion to darken
+ * the inside corners of the grooves. On a ceiling the light comes from below.
+ */
+private fun setUpLighting(view: SceneView, ceiling: Boolean) {
+    view.view.apply {
+        setShadowingEnabled(true)
+        setShadowType(FilamentView.ShadowType.PCF)
+        ambientOcclusionOptions = ambientOcclusionOptions.apply {
+            enabled = true
+            // Grooves are millimetres to a few centimetres deep.
+            radius = 0.025f
+            intensity = 1.1f
+            power = 1.2f
+            quality = FilamentView.QualityLevel.MEDIUM
+            upsampling = FilamentView.QualityLevel.MEDIUM
+        }
+        multiSampleAntiAliasingOptions = multiSampleAntiAliasingOptions.apply {
+            enabled = true
+            sampleCount = 4
+        }
+    }
+    val previous = view.mainLightNode
+    view.mainLightNode = LightNode(view.engine, LightManager.Type.SUN) {
+        // Slightly warm indoor light.
+        color(1.0f, 0.96f, 0.9f)
+        intensity(SceneView.DEFAULT_MAIN_LIGHT_INTENSITY)
+        // From the upper left (lower left on a ceiling) and a little in front, raking across the face.
+        direction(0.62f, if (ceiling) 0.42f else -0.5f, -0.6f)
+        sunAngularRadius(1.2f)
+        castShadows(true)
+        shadowOptions(LightManager.ShadowOptions().apply {
+            mapSize = 2048
+            shadowCascades = 2
+            // The panels sit within a few metres of the camera; the shadow map is spent there.
+            shadowFar = 20f
+            constantBias = 0.0005f
+            normalBias = 0.6f
+            // Fine shadows inside grooves too shallow for the shadow map.
+            screenSpaceContactShadows = true
+            stepCount = 12
+            maxShadowDistance = 0.04f
+        })
+    }
+    previous?.takeIf { it !== view.mainLightNode }?.let { runCatching { it.destroy() } }
+}
+
+private fun GeometryNode.castsAndReceivesShadows(): GeometryNode = apply {
+    isShadowCaster = true
+    isShadowReceiver = true
+    setScreenSpaceContactShadows(true)
 }
 
 private fun WallMesh.Mesh.toGeometry(engine: com.google.android.filament.Engine): Geometry {
@@ -748,6 +864,89 @@ private fun darkened(color: Color, factor: Float): Color =
 
 private const val WALL_NODE = "wall"
 
+/**
+ * The next free spot for a copy: one step from the last copy (or the measured
+ * surface) in the chosen direction, skipping spots already taken.
+ */
+private fun nextCopy(copies: List<Pair<Int, Int>>, dx: Int, dy: Int): Pair<Int, Int> {
+    val taken = (listOf(0 to 0) + copies).toSet()
+    var (x, y) = copies.lastOrNull() ?: (0 to 0)
+    do {
+        x += dx
+        y += dy
+    } while ((x to y) in taken)
+    return x to y
+}
+
+/**
+ * Adds view-only copies of the measured panels beside them, to see how the
+ * rest of the wall would look. The estimate, count and cart stay as measured.
+ */
+@Composable
+private fun DuplicatePad(
+    copyCount: Int,
+    panelsEach: Int,
+    onAdd: (dx: Int, dy: Int) -> Unit,
+    onRemove: () -> Unit,
+    onClear: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(156.dp)
+            .clip(PanelScan.shapes.cardCompact)
+            .background(Color(0xF01B1E22))
+            .padding(Spacing.xs),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(text = "Duplicate", style = PanelScan.type.cardTitle, color = Color.White)
+        Text(
+            text = "Add a copy of these $panelsEach panels",
+            style = PanelScan.type.label,
+            color = Color.White.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center
+        )
+        DuplicateArrow(Icons.Rounded.KeyboardArrowUp, "Add copy above") { onAdd(0, 1) }
+        Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+            DuplicateArrow(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, "Add copy on the left") { onAdd(-1, 0) }
+            DuplicateArrow(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Add copy on the right") { onAdd(1, 0) }
+        }
+        DuplicateArrow(Icons.Rounded.KeyboardArrowDown, "Add copy below") { onAdd(0, -1) }
+        if (copyCount > 0) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                DuplicateChip("Undo", onRemove)
+                DuplicateChip("Clear all", onClear)
+            }
+        }
+        Text(
+            text = (if (copyCount == 0) "" else "$copyCount ${if (copyCount == 1) "copy" else "copies"} · ") +
+                "For viewing only. Your estimate stays the same.",
+            style = PanelScan.type.label,
+            color = Color.White.copy(alpha = 0.6f),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun DuplicateArrow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    OverlayIconButton(icon = icon, contentDescription = label, onClick = onClick, size = 40.dp, containerColor = Color(0xFF2A2E33))
+}
+
+@Composable
+private fun DuplicateChip(text: String, onClick: () -> Unit) {
+    Text(
+        text = text,
+        style = PanelScan.type.label,
+        color = Color.White,
+        modifier = Modifier
+            .clip(PanelScan.shapes.chip)
+            .background(Color(0xFF2A2E33))
+            .pressScale(onClick = onClick)
+            .padding(horizontal = Spacing.xs, vertical = 4.dp)
+    )
+}
+
 /** "Photo" or "3D", as two joined buttons. */
 @Composable
 private fun ViewSwitch(photoView: Boolean, onChange: (Boolean) -> Unit) {
@@ -787,7 +986,8 @@ private fun buildPhotoScene(
     showJoints: Boolean,
     photo: WallPhoto,
     wallBitmap: Bitmap,
-    placement: WallPhotoGeometry.Placement
+    placement: WallPhotoGeometry.Placement,
+    copies: List<Pair<Int, Int>>
 ): Node {
     val engine = sceneView.engine
     val root = Node(engine)
@@ -807,7 +1007,7 @@ private fun buildPhotoScene(
     val measured = project.copy(
         measurement = project.measurement.copy(widthMeters = placement.width.toDouble(), heightMeters = placement.height.toDouble())
     )
-    val wall = buildSurfaceNode(sceneView, measured, panel, facePhoto, textures, showJoints, isInspectionMode = false, withBacking = false)
+    val wall = buildSurfaceNode(sceneView, measured, panel, facePhoto, textures, showJoints, isInspectionMode = false, withBacking = false, copies = copies)
     wall.name = WALL_NODE
     wall.transform = placementTransform(placement, 0f, 0f)
     root.addChildNode(wall)

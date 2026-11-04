@@ -70,6 +70,13 @@ fun arCopy(state: ArUiState): ArCopy {
     }
     if ((state.step == MeasureStep.Complete || phase == ArPhase.MeasurementComplete) &&
         phase !is ArPhase.TrackingLimited && state.issue != ScanIssue.SURFACE_TRACKING_LOST) {
+        if (!state.measuredAreaInView) {
+            return ArCopy(
+                headline = "Point the camera at the measured area",
+                instruction = "Keep all the dots on screen. The photo for your project is taken from this view.",
+                tone = ArTone.Caution
+            )
+        }
         return ArCopy(
             headline = "Measurement ready",
             instruction = "Check the numbers, then continue to your estimate.",

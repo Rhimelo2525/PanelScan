@@ -202,7 +202,12 @@ data class ArUiState(
     val autofocus: Boolean = true,
     val referenceConfigured: Boolean = false,
     val referenceStatus: String = "Reference image off",
-    val replaying: Boolean = false
+    val replaying: Boolean = false,
+    /**
+     * Every placed point is on screen. The wall photo is taken from the live camera when the
+     * customer confirms, so it only matches the measurement while the dots are in view.
+     */
+    val measuredAreaInView: Boolean = true
 ) {
     val areaSquareMeters: Double get() = widthMeters * heightMeters
 
@@ -213,7 +218,8 @@ data class ArUiState(
 
     val canConfirm: Boolean
         get() = step == MeasureStep.Complete && widthMeters > 0.0 && heightMeters > 0.0 &&
-            surfaceLocked && phase !is ArPhase.TrackingLimited && issue != ScanIssue.SURFACE_TRACKING_LOST && !replaying
+            surfaceLocked && phase !is ArPhase.TrackingLimited && issue != ScanIssue.SURFACE_TRACKING_LOST && !replaying &&
+            measuredAreaInView
 
     val reticle: ReticleState
         get() = when {

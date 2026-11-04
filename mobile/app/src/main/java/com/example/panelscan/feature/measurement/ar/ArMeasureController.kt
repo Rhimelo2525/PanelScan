@@ -415,6 +415,8 @@ class ArMeasureController(
         val started = System.nanoTime()
         try {
             sample(session, frame, now)
+            val inView = measuredAreaInView(frame)
+            update { if (it.measuredAreaInView == inView) it else it.copy(measuredAreaInView = inView) }
             recorder.sample(session, frame, _state.value, pendingRecordEvent)
             pendingRecordEvent = null
             if (playbackFile != null && session.playbackStatus == com.google.ar.core.PlaybackStatus.FINISHED) {
@@ -2144,6 +2146,32 @@ class ArMeasureController(
 
     // ---------------------------------------------------------------- helpers
 
+    /**
+     * Whether every placed point projects inside the screen, in front of the camera. Uses a
+     * small inset going out and a larger one coming back in so a dot right at the edge does
+     * not flicker the confirm button on and off.
+     */
+    private fun measuredAreaInView(frame: Frame): Boolean {
+        if (placed.isEmpty()) return true
+        val camera = frame.camera
+        if (camera.trackingState != TrackingState.TRACKING) return false
+        val view = FloatArray(16).also { camera.getViewMatrix(it, 0) }
+        val projection = FloatArray(16).also { camera.getProjectionMatrix(it, 0, PHOTO_NEAR, PHOTO_FAR) }
+        val viewProjection = FloatArray(16)
+        android.opengl.Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
+        val limit = if (_state.value.measuredAreaInView) 1f - VIEW_EXIT_INSET else 1f - VIEW_ENTER_INSET
+        val world = FloatArray(4)
+        val clip = FloatArray(4)
+        return placed.all { point ->
+            if (point.anchor.trackingState != TrackingState.TRACKING) return@all false
+            val pose = point.anchor.pose
+            world[0] = pose.tx(); world[1] = pose.ty(); world[2] = pose.tz(); world[3] = 1f
+            android.opengl.Matrix.multiplyMV(clip, 0, viewProjection, 0, world, 0)
+            val w = clip[3]
+            w > 0f && kotlin.math.abs(clip[0] / w) <= limit && kotlin.math.abs(clip[1] / w) <= limit
+        }
+    }
+
     private inline fun update(block: (ArUiState) -> ArUiState) {
         val next = block(_state.value)
         // Structural equality means an unchanged frame costs nothing downstream.
@@ -2288,6 +2316,8 @@ class ArMeasureController(
         const val MARKER_POINT_B = 0xFF38BDF8.toInt()
         const val MARKER_HEIGHT = 0xFF6FBF95.toInt()
         /** Clip planes for the wall photo's projection; the 3D preview uses the same. */
+        const val VIEW_EXIT_INSET = 0.0f
+        const val VIEW_ENTER_INSET = 0.06f
         const val PHOTO_NEAR = 0.05f
         const val PHOTO_FAR = 100f
         /** Longest side of the saved wall photo, in pixels. */
