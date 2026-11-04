@@ -35,7 +35,10 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   }),
 );
-app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+// CORS_ORIGIN may list several sites, comma separated (e.g. the custom domain,
+// its www form and the vercel.app address); "*" or a single origin work as before.
+const corsOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim().replace(/\/+$/, '')).filter(Boolean);
+app.use(cors({ origin: corsOrigins.length > 1 ? corsOrigins : corsOrigins[0] ?? '*', credentials: true }));
 // Gzips JSON/text responses; already-compressed formats (images, etc.) are
 // skipped automatically via the default `compressible` mime check. Works
 // identically on every Node host (Vercel, Render, Railway, VPS, Docker) -
