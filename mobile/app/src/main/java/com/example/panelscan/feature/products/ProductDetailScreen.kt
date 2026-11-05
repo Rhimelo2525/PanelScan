@@ -146,21 +146,18 @@ fun ProductDetailScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Text(text = panel.name, style = PanelScan.type.title, color = colors.textPrimary)
                     if (showPrice) {
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = panel.pricePerUnit?.let { formatCurrency(it) } ?: "Price on request",
                                 style = PanelScan.type.metric,
                                 color = colors.accent
                             )
                             if (panel.pricePerUnit != null) {
+                                // Same wording as the website's product price.
                                 Text(
-                                    text = "per panel",
+                                    text = "Price per panel, 12% VAT included",
                                     style = PanelScan.type.supporting,
-                                    color = colors.textSecondary,
-                                    modifier = Modifier.padding(bottom = 4.dp)
+                                    color = colors.textSecondary
                                 )
                             }
                         }

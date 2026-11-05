@@ -101,7 +101,7 @@ export function ProductPricingPanel({ product, returnTo }: ProductPricingPanelPr
           <div>
             <p className="text-xs font-semibold tracking-[0.13em] text-muted-foreground uppercase">Customer pricing</p>
             <h2 id="authenticated-pricing-title" className="type-metric mt-1">{formatProductPrice(product.price)}</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">Price per {product.unit}, 12% VAT included. Cart quantities are checked against current available inventory.</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">Price per {product.unit}, 12% VAT included.</p>
           </div>
         </div>
 
