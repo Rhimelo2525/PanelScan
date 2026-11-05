@@ -1,4 +1,4 @@
-import { Building2, Mail, MapPin, MessageSquare, Phone } from "lucide-react"
+import { Building2, Download, Mail, MapPin, MessageSquare, Phone, Smartphone } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Container } from "@/components/layout/container"
@@ -122,6 +122,20 @@ export function AboutPage() {
                   </span>
                 </li>
               </ul>
+            </section>
+
+            <section className="surface-card p-6" aria-labelledby="get-app">
+              <div className="flex items-center gap-2">
+                <Smartphone className="size-4 text-primary" aria-hidden="true" />
+                <h2 id="get-app" className="font-semibold text-foreground">Get the PanelScan app</h2>
+              </div>
+              {/* The code opens www.panelscan.shop/app, which always points at the latest APK (vercel.json). */}
+              <div className="mt-5 flex justify-center">
+                <img src="/images/app-download-qr.svg" alt="QR code to download the PanelScan Android app" width={176} height={176} className="size-44 rounded-xl border border-border bg-white p-2" />
+              </div>
+              <Button className="mt-5 w-full" asChild>
+                <a href="/app" download><Download data-icon="inline-start" aria-hidden="true" />Download for Android</a>
+              </Button>
             </section>
 
             <section className="walnut-band rounded-lg border border-border bg-primary p-6 text-primary-foreground" aria-labelledby="start">

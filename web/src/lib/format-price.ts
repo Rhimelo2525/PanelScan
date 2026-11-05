@@ -32,6 +32,14 @@ export function formatMinorUnits(minorUnits: number): string {
   return Number.isSafeInteger(minorUnits) ? formatPesos(minorUnits / 100) : "Pricing unavailable"
 }
 
+/** Philippine VAT rate. Product prices are VAT-inclusive. */
+export const VAT_RATE = 0.12
+
+/** The VAT already inside a VAT-inclusive amount (12/112 of it), in minor units. */
+export function vatIncludedMinorUnits(totalMinorUnits: number): number {
+  return Math.round((totalMinorUnits * VAT_RATE) / (1 + VAT_RATE))
+}
+
 export function calculateLineTotal(price: string, quantity: number): number | null {
   const unitPrice = parsePriceToMinorUnits(price)
   if (unitPrice === null || !Number.isSafeInteger(quantity) || quantity < 0) return null

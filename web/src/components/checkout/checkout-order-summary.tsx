@@ -2,7 +2,7 @@ import { Loader2, LockKeyhole } from "lucide-react"
 
 import { ProductImage } from "@/components/products/product-image"
 import { Button } from "@/components/ui/button"
-import { calculateLineTotal, formatMinorUnits, formatProductPrice } from "@/lib/format-price"
+import { calculateLineTotal, formatMinorUnits, formatProductPrice, vatIncludedMinorUnits } from "@/lib/format-price"
 import type { CartItem } from "@/types/cart"
 
 interface CheckoutOrderSummaryProps {
@@ -43,6 +43,7 @@ export function CheckoutOrderSummary({ items, itemCount, isSubmitting, canSubmit
         <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd className="font-medium tabular-nums">{subtotal === null ? "Unavailable" : formatMinorUnits(subtotal)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Shipping fee</dt><dd className="font-medium">{formatProductPrice("0.00")}</dd></div>
         <div className="flex items-end justify-between gap-4 border-t border-border pt-4"><dt className="font-semibold">Estimated total</dt><dd className="text-xl font-semibold tabular-nums">{subtotal === null ? "Unavailable" : formatMinorUnits(subtotal)}</dd></div>
+        {subtotal !== null && subtotal > 0 && <div className="flex justify-between gap-4 text-xs text-muted-foreground"><dt>Includes 12% VAT</dt><dd className="tabular-nums">{formatMinorUnits(vatIncludedMinorUnits(subtotal))}</dd></div>}
       </dl>
 
       <p className="mt-4 text-xs leading-5 text-muted-foreground">The server recalculates the final order total and validates inventory when you place the order. Delivery coordination follows afterward.</p>

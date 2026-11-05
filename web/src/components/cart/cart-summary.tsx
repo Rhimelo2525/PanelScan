@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { useConfirm } from "@/components/confirm/use-confirm"
 import { Button } from "@/components/ui/button"
 import { getCartProductWarning } from "@/cart/cart-utils"
-import { calculateLineTotal, formatMinorUnits } from "@/lib/format-price"
+import { calculateLineTotal, formatMinorUnits, vatIncludedMinorUnits } from "@/lib/format-price"
 import type { CartItem } from "@/types/cart"
 
 export function CartSummary({
@@ -55,6 +55,7 @@ export function CartSummary({
           <dt className="text-muted-foreground">Subtotal</dt>
           <dd className="text-xl font-semibold tabular-nums">{subtotal === null ? "Unavailable" : formatMinorUnits(subtotal)}</dd>
         </div>
+        {subtotal !== null && subtotal > 0 && <div className="flex justify-between gap-4 text-xs text-muted-foreground"><dt>Includes 12% VAT</dt><dd className="tabular-nums">{formatMinorUnits(vatIncludedMinorUnits(subtotal))}</dd></div>}
       </dl>
 
       {!hasSelected ? (

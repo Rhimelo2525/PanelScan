@@ -18,7 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { formatProductPrice } from "@/lib/format-price"
+import { formatProductPrice, parsePriceToMinorUnits, formatMinorUnits, vatIncludedMinorUnits } from "@/lib/format-price"
 import { getOrderErrorMessage } from "@/orders/order-errors"
 import { formatOrderDate } from "@/orders/order-format"
 import { getOrderStage, isShippingQuoted } from "@/orders/order-workflow"
@@ -244,6 +244,8 @@ function OrderTotalCard({ order, payment }: { order: Order; payment: PaymentList
       <h2 id="order-total-title" className="text-lg font-semibold">Order total</h2>
       <dl className="mt-5 space-y-3 text-sm">
         <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Subtotal</dt><dd className="tabular-nums">{formatProductPrice(order.subtotal)}</dd></div>
+        {/* Product prices are VAT-inclusive: the VAT inside the products' subtotal. */}
+        {(() => { const minor = parsePriceToMinorUnits(order.subtotal); return minor ? <div className="flex justify-between gap-4 text-xs text-muted-foreground"><dt>Includes 12% VAT</dt><dd className="tabular-nums">{formatMinorUnits(vatIncludedMinorUnits(minor))}</dd></div> : null })()}
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">{isBooked ? "Shipping fee" : "Estimated shipping fee"}</dt>
           <dd className="text-right tabular-nums">
