@@ -1693,10 +1693,17 @@ class ArMeasureController(
             quickPlane = planeThrough(session, placed[0].anchor.pose.toFloat3())
         }
 
-        val hit = quickHitOnPlane(origin, ray)
+        val found = quickHitOnPlane(origin, ray)
             ?: quickPlaneHit(frame, view, camPose.ty())
             ?: session?.let { runCatching { projectCentreRayToTrackedPlane(it, frame) }.getOrNull() }
             ?: quickPointHit(frame, view, dir)
+        // Only the chosen surface takes points: a wall measurement never lands on
+        // the floor or ceiling, a ceiling measurement never on a wall or the floor.
+        val hit = found?.takeIf { it.confidence == HitConfidence.Good }
+        val wrongKind = if (hit != null) null else {
+            found?.kind?.takeIf { it != HitKind.None && it != HitKind.Other }
+                ?: centrePlaneKind(frame, view, camPose.ty())?.takeIf { !matchesSurface(it) }
+        }
         currentHit = hit
         if (hit == null) {
             quickSamples.clear()
@@ -1711,7 +1718,12 @@ class ArMeasureController(
                 quickMode = true,
                 step = step,
                 phase = if (step == MeasureStep.Complete) ArPhase.MeasurementComplete else ArPhase.Ready,
-                confidence = if (hit != null) HitConfidence.Good else HitConfidence.None,
+                confidence = when {
+                    hit != null -> HitConfidence.Good
+                    wrongKind != null -> HitConfidence.Mismatched
+                    else -> HitConfidence.None
+                },
+                hitKind = hit?.kind ?: wrongKind ?: HitKind.None,
                 surfaceDetected = hit != null,
                 surfaceLocked = true,
                 pointCount = placed.size,
@@ -1721,7 +1733,7 @@ class ArMeasureController(
                 torchAvailable = torchAvailable,
                 torchEnabled = torchEnabled,
                 scanStage = ScanStageResolver.resolve(true, true, true, placed.size),
-                issue = ScanIssue.NONE,
+                issue = if (wrongKind != null) ScanIssue.WRONG_ORIENTATION else ScanIssue.NONE,
                 canChangeSurface = false,
                 diagnostics = null
             )
@@ -1786,7 +1798,29 @@ class ArMeasureController(
             ?: return@runCatching null
         val pose = hit.hitPose
         val facing = PlaneSignature(-dir[0], -dir[1], -dir[2], pose.tx(), pose.ty(), pose.tz())
-        ValidatedHit(hit, null, Float3(pose.tx(), pose.ty(), pose.tz()), HitKind.None, HitConfidence.Good, hit.distance, facing)
+        // The surface it lies on: its own normal when ARCore estimated one (depth
+        // points, oriented feature points), else where the camera is pointed.
+        val trackable = hit.trackable
+        val hasNormal = trackable is com.google.ar.core.DepthPoint ||
+            (trackable is com.google.ar.core.Point && trackable.orientationMode == com.google.ar.core.Point.OrientationMode.ESTIMATED_SURFACE_NORMAL)
+        val kind = if (hasNormal) {
+            val normal = FloatArray(3)
+            pose.getTransformedAxis(1, 1f, normal, 0)
+            ArMeasurementGeometry.classifyNormal(normal[1])
+        } else {
+            ArMeasurementGeometry.classifyViewDirection(surfaceType, dir[1])
+        }
+        val confidence = if (matchesSurface(kind)) HitConfidence.Good else HitConfidence.Mismatched
+        ValidatedHit(hit, null, Float3(pose.tx(), pose.ty(), pose.tz()), kind, confidence, hit.distance, facing)
+    }.getOrNull()
+
+    /** The kind of the first tracked plane under the reticle, whatever surface was chosen. */
+    private fun centrePlaneKind(frame: Frame, view: ARSceneView, cameraY: Float): HitKind? = runCatching {
+        frame.hitTest(view.width / 2f, view.height / 2f).firstNotNullOfOrNull { hit ->
+            val plane = hit.trackable as? Plane ?: return@firstNotNullOfOrNull null
+            if (plane.trackingState != TrackingState.TRACKING || !plane.isPoseInPolygon(hit.hitPose)) return@firstNotNullOfOrNull null
+            planeKind(plane, cameraY)
+        }
     }.getOrNull()
 
     /** A tracked plane of the chosen surface that [point] lies on (within QUICK_PLANE_TOLERANCE_M), if any. */

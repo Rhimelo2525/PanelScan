@@ -1,5 +1,15 @@
 package com.example.panelscan.feature.auth
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -364,7 +374,12 @@ fun SignUpScreen(
                             )
                         )
 
-                        // Password requirements list
+                        // Password requirements: shown once the customer starts typing a password.
+                        AnimatedVisibility(
+                            visible = state.password.isNotEmpty(),
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
                             modifier = Modifier.padding(top = Spacing.xxs)
@@ -384,6 +399,7 @@ fun SignUpScreen(
                                 PasswordRuleRow(text = "Passwords match", satisfied = passwordsMatch)
                             }
                         }
+                        }
 
                         // Terms & Privacy Agreement Checkbox (Required)
                         Row(
@@ -400,39 +416,21 @@ fun SignUpScreen(
                                     checkmarkColor = colors.accentContrast
                                 )
                             )
-                            Spacer(modifier = Modifier.width(Spacing.xs))
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "I agree to the ",
-                                    style = PanelScan.type.supporting,
-                                    color = colors.textSecondary
-                                )
-                                Text(
-                                    text = "Privacy Policy",
-                                    style = PanelScan.type.supporting.copy(fontWeight = FontWeight.Bold),
-                                    color = colors.accent,
-                                    modifier = Modifier.pressScale(onClick = onNavigateToPrivacyPolicy)
-                                )
-                                Text(
-                                    text = " and ",
-                                    style = PanelScan.type.supporting,
-                                    color = colors.textSecondary
-                                )
-                                Text(
-                                    text = "Terms & Conditions",
-                                    style = PanelScan.type.supporting.copy(fontWeight = FontWeight.Bold),
-                                    color = colors.accent,
-                                    modifier = Modifier.pressScale(onClick = onNavigateToTerms)
-                                )
-                                Text(
-                                    text = ".",
-                                    style = PanelScan.type.supporting,
-                                    color = colors.textSecondary
-                                )
-                            }
+                            Spacer(modifier = Modifier.width(Spacing.xxs))
+                            // One sentence that wraps naturally, with the two documents as links.
+                            val linkStyle = TextLinkStyles(SpanStyle(color = colors.accent, fontWeight = FontWeight.SemiBold))
+                            Text(
+                                text = buildAnnotatedString {
+                                    append("I agree to the ")
+                                    withLink(LinkAnnotation.Clickable("privacy", linkStyle) { onNavigateToPrivacyPolicy() }) { append("Privacy Policy") }
+                                    append(" and ")
+                                    withLink(LinkAnnotation.Clickable("terms", linkStyle) { onNavigateToTerms() }) { append("Terms & Conditions") }
+                                    append(".")
+                                },
+                                style = PanelScan.type.body,
+                                color = colors.textSecondary,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
 
                         PrimaryButton(

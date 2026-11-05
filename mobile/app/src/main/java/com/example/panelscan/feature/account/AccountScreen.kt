@@ -37,6 +37,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.rounded.LightMode
+import com.example.panelscan.core.design.Appearance
+import com.example.panelscan.core.design.AppearancePreference
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -356,11 +360,7 @@ fun AccountScreen(
                 }
 
                 SettingsGroup(title = "Settings") {
-                    SettingsRow(
-                        icon = Icons.Rounded.DarkMode,
-                        title = "Appearance",
-                        supporting = "Follows your system light and dark setting"
-                    )
+                    AppearanceRow()
                 }
 
                 SettingsGroup(title = "Privacy") {
@@ -546,6 +546,54 @@ private fun SettingsRow(
                 tint = colors.textTertiary,
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+/** Appearance: Light or Dark, picked here (the app no longer follows the phone's setting once picked). */
+@Composable
+private fun AppearanceRow() {
+    val colors = PanelScan.colors
+    val picked by AppearancePreference.appearance.collectAsState()
+    val current = picked ?: if (androidx.compose.foundation.isSystemInDarkTheme()) Appearance.DARK else Appearance.LIGHT
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+    ) {
+        Icon(
+            imageVector = if (current == Appearance.DARK) Icons.Rounded.DarkMode else Icons.Rounded.LightMode,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = "Appearance",
+            style = PanelScan.type.body,
+            color = colors.textPrimary,
+            modifier = Modifier.weight(1f)
+        )
+        Row(
+            modifier = Modifier
+                .clip(PanelScan.shapes.chip)
+                .background(colors.surfaceMuted)
+                .padding(3.dp)
+        ) {
+            listOf(Appearance.LIGHT to "Light", Appearance.DARK to "Dark").forEach { (option, label) ->
+                val selected = current == option
+                Text(
+                    text = label,
+                    style = PanelScan.type.label,
+                    color = if (selected) colors.textPrimary else colors.textSecondary,
+                    modifier = Modifier
+                        .clip(PanelScan.shapes.chip)
+                        .background(if (selected) colors.surface else Color.Transparent)
+                        .clickable { AppearancePreference.set(option) }
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
         }
     }
 }

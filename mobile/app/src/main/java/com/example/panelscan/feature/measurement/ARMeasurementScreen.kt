@@ -275,9 +275,6 @@ fun ARMeasurementScreen(
             TopControls(
                 state = arState,
                 onClose = { controller.stopRecording(); onClose() },
-                onSelectSurface = { type ->
-                    if (controller.setSurfaceType(type) && !arState.replaying) viewModel.setSurfaceType(type)
-                },
                 onToggleTorch = { toggleTorch() },
                 onOpenAdvanced = { showAdvanced = true },
                 onOpenHelp = { showHelpDialog = true },
@@ -416,7 +413,6 @@ fun ARMeasurementScreen(
 private fun TopControls(
     state: ArUiState,
     onClose: () -> Unit,
-    onSelectSurface: (SurfaceType) -> Unit,
     onToggleTorch: () -> Unit,
     onOpenAdvanced: () -> Unit,
     onOpenHelp: () -> Unit,
@@ -439,11 +435,7 @@ private fun TopControls(
         )
 
         Box(modifier = Modifier.weight(1f)) {
-            SurfaceToggle(
-                selected = state.surfaceType,
-                enabled = state.canChangeSurface,
-                onSelect = onSelectSurface
-            )
+            SurfaceLabel(surfaceType = state.surfaceType)
         }
 
         ArIconButton(
@@ -463,57 +455,26 @@ private fun TopControls(
 }
 
 /**
- * [ Wall | Ceiling ]. The scanner only accepts surfaces of the selected orientation, so the
- * choice is shown where the scanning happens. Locked once a point is placed — a measurement
- * cannot change surface halfway through.
+ * "Wall" or "Ceiling": the surface chosen before starting, shown as a plain label. It is
+ * not a switch here; the scanner only accepts that surface for the whole measurement.
  */
 @Composable
-private fun SurfaceToggle(
-    selected: SurfaceType,
-    enabled: Boolean,
-    onSelect: (SurfaceType) -> Unit
-) {
-    Row(
+private fun SurfaceLabel(surfaceType: SurfaceType) {
+    Box(
         modifier = Modifier
             .height(40.dp)
             .clip(PanelScan.shapes.controlCompact)
             .background(ChromeSurface)
             .border(1.dp, ChromeBorder, PanelScan.shapes.controlCompact)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
     ) {
-        listOf(SurfaceType.WALL to "Wall", SurfaceType.CEILING to "Ceiling").forEach { (type, label) ->
-            val isSelected = type == selected
-            val container by animateColorAsState(
-                targetValue = if (isSelected) ChromeOn else Color.Transparent,
-                animationSpec = PanelScanMotion.spec(PanelScanMotion.Fast),
-                label = "surfaceToggle"
-            )
-            Box(
-                modifier = Modifier
-                    .height(34.dp)
-                    .clip(PanelScan.shapes.controlCompact)
-                    .background(container)
-                    .pressScale(
-                        enabled = enabled && !isSelected,
-                        onClick = if (enabled && !isSelected) ({ onSelect(type) }) else null
-                    )
-                    .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    style = PanelScan.type.label,
-                    color = when {
-                        isSelected -> ChromeInk
-                        enabled -> Color.White
-                        else -> Color.White.copy(alpha = 0.35f)
-                    },
-                    maxLines = 1
-                )
-            }
-        }
+        Text(
+            text = if (surfaceType == SurfaceType.WALL) "Wall" else "Ceiling",
+            style = PanelScan.type.label,
+            color = Color.White,
+            maxLines = 1
+        )
     }
 }
 

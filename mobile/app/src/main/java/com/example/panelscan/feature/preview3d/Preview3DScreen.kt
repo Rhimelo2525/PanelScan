@@ -33,7 +33,6 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.HorizontalDivider
@@ -140,7 +139,8 @@ fun Preview3DScreen(
 
     // The catalogue's current copy: a project saved earlier may predate the panel's 3D shape and photos.
     var selectedPanel by remember { mutableStateOf(ProductCatalog.findById(project.selectedPanel.id) ?: project.selectedPanel) }
-    var showGrid by remember { mutableStateOf(true) }
+    // Panel joints always show; the on/off button was removed.
+    val showGrid = true
     var isInspectionMode by remember { mutableStateOf(false) }
     var showPanelPicker by remember { mutableStateOf(false) }
     var showDimensions by remember { mutableStateOf(true) }
@@ -308,14 +308,6 @@ fun Preview3DScreen(
                     size = 42.dp,
                     containerColor = if (isInspectionMode) Color(0xFF38BDF8) else Color(0xFF1B1E22),
                     contentColor = if (isInspectionMode) Color(0xFF0F172A) else Color.White
-                )
-                OverlayIconButton(
-                    icon = Icons.Rounded.GridOn,
-                    contentDescription = if (showGrid) "Hide panel joints" else "Show panel joints",
-                    onClick = { showGrid = !showGrid },
-                    size = 42.dp,
-                    containerColor = if (showGrid) Color.White else Color(0xFF1B1E22),
-                    contentColor = if (showGrid) Color(0xFF16181B) else Color.White
                 )
                 OverlayIconButton(
                     icon = Icons.Rounded.CenterFocusStrong,

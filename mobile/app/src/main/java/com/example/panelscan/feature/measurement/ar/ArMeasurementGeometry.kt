@@ -22,6 +22,33 @@ object ArMeasurementGeometry {
     private const val MAX_PLANE_SEPARATION_METRES = 0.08f
     private val minNormalDot = kotlin.math.cos(Math.toRadians(MAX_NORMAL_DELTA_DEGREES)).toFloat()
 
+    /**
+     * What a surface is from its (unit) normal: facing up is the floor, facing
+     * down the ceiling, sideways a wall. Steep in-between slopes are [HitKind.Other],
+     * which neither a wall nor a ceiling measurement accepts.
+     */
+    fun classifyNormal(normalY: Float): HitKind = when {
+        normalY > 0.75f -> HitKind.HorizontalUpward
+        normalY < -0.75f -> HitKind.HorizontalDownward
+        abs(normalY) < 0.35f -> HitKind.VerticalPlane
+        else -> HitKind.Other
+    }
+
+    /**
+     * What the camera is pointed at when a hit has no surface direction of its
+     * own, judged for the surface being measured. A wall is accepted unless the
+     * phone points steeply up or down (its bottom corners are seen looking down
+     * at an angle); a ceiling needs the phone tilted clearly upwards.
+     */
+    fun classifyViewDirection(surfaceType: SurfaceType, directionY: Float): HitKind {
+        val steep = if (surfaceType == SurfaceType.WALL) 0.85f else 0.35f
+        return when {
+            directionY > steep -> HitKind.HorizontalDownward
+            directionY < -steep -> HitKind.HorizontalUpward
+            else -> HitKind.VerticalPlane
+        }
+    }
+
     fun acceptsSurface(surfaceType: SurfaceType, hitKind: HitKind): Boolean = when (surfaceType) {
         SurfaceType.WALL -> hitKind == HitKind.VerticalPlane
         SurfaceType.CEILING -> hitKind == HitKind.HorizontalDownward

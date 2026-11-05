@@ -4,6 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.example.panelscan.core.design.Appearance
+import com.example.panelscan.core.design.AppearancePreference
 import com.example.panelscan.core.design.PanelScanTheme
 import com.example.panelscan.core.navigation.PanelScanNavHost
 
@@ -14,9 +19,12 @@ import com.example.panelscan.core.navigation.PanelScanNavHost
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppearancePreference.init(this)
         enableEdgeToEdge()
         setContent {
-            PanelScanTheme {
+            // Light or dark as picked in Account → Appearance; the phone's setting until then.
+            val appearance by AppearancePreference.appearance.collectAsState()
+            PanelScanTheme(darkTheme = appearance?.let { it == Appearance.DARK } ?: isSystemInDarkTheme()) {
                 PanelScanNavHost()
             }
         }

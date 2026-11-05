@@ -35,6 +35,9 @@ fun arCopy(state: ArUiState): ArCopy {
     }
 
     if (state.quickMode && state.phase == ArPhase.Ready && state.step != MeasureStep.Complete) {
+        if (!state.surfaceDetected && state.issue == ScanIssue.WRONG_ORIENTATION) {
+            issueCopy(state, if (state.surfaceType == SurfaceType.WALL) "wall" else "ceiling")?.let { return it }
+        }
         if (!state.surfaceDetected) {
             val surface = if (state.surfaceType == SurfaceType.WALL) "wall" else "ceiling"
             return ArCopy("Finding the $surface",

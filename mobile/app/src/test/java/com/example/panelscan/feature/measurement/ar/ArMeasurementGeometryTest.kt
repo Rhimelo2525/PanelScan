@@ -31,6 +31,35 @@ class ArMeasurementGeometryTest {
     }
 
     @Test
+    fun `wall measurement rejects floor and ceiling, ceiling rejects wall and floor`() {
+        assertFalse(ArMeasurementGeometry.acceptsSurface(SurfaceType.WALL, HitKind.HorizontalUpward))
+        assertFalse(ArMeasurementGeometry.acceptsSurface(SurfaceType.WALL, HitKind.HorizontalDownward))
+        assertFalse(ArMeasurementGeometry.acceptsSurface(SurfaceType.WALL, HitKind.None))
+        assertFalse(ArMeasurementGeometry.acceptsSurface(SurfaceType.CEILING, HitKind.VerticalPlane))
+        assertFalse(ArMeasurementGeometry.acceptsSurface(SurfaceType.CEILING, HitKind.None))
+    }
+
+    @Test
+    fun `surface normals classify floor, ceiling and wall`() {
+        assertEquals(HitKind.HorizontalUpward, ArMeasurementGeometry.classifyNormal(0.98f))
+        assertEquals(HitKind.HorizontalDownward, ArMeasurementGeometry.classifyNormal(-0.95f))
+        assertEquals(HitKind.VerticalPlane, ArMeasurementGeometry.classifyNormal(0.1f))
+        assertEquals(HitKind.Other, ArMeasurementGeometry.classifyNormal(0.55f))
+    }
+
+    @Test
+    fun `camera direction is judged for the surface being measured`() {
+        // Wall: looking down at a bottom corner (~-0.68) is still the wall; straight down is the floor.
+        assertEquals(HitKind.VerticalPlane, ArMeasurementGeometry.classifyViewDirection(SurfaceType.WALL, -0.68f))
+        assertEquals(HitKind.HorizontalUpward, ArMeasurementGeometry.classifyViewDirection(SurfaceType.WALL, -0.9f))
+        assertEquals(HitKind.HorizontalDownward, ArMeasurementGeometry.classifyViewDirection(SurfaceType.WALL, 0.9f))
+        // Ceiling: needs the phone tilted up; level is a wall, down is the floor.
+        assertEquals(HitKind.HorizontalDownward, ArMeasurementGeometry.classifyViewDirection(SurfaceType.CEILING, 0.5f))
+        assertEquals(HitKind.VerticalPlane, ArMeasurementGeometry.classifyViewDirection(SurfaceType.CEILING, 0.1f))
+        assertEquals(HitKind.HorizontalUpward, ArMeasurementGeometry.classifyViewDirection(SurfaceType.CEILING, -0.5f))
+    }
+
+    @Test
     fun `free measurement computes middle section without a corner`() {
         val a = WorldPoint3(2f, 1f, -3f)
         val b = WorldPoint3(5f, 1f, -3f)

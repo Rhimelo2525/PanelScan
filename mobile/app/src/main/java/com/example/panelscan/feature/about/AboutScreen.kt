@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Info
@@ -251,23 +254,31 @@ fun AboutScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Contact Information",
+                                text = "iDISENYO Interior Solutions",
                                 style = PanelScan.type.sectionTitle,
                                 color = colors.textPrimary
                             )
                         }
 
+                        // Same details, in the same order, as the website's About page.
+                        val uriHandler = LocalUriHandler.current
                         ContactItem(
                             icon = Icons.Rounded.LocationOn,
-                            text = "iDISENYO Interior Solutions - 1 M. Villarica Rd, San Jose Del Monte City, Bulacan, Philippines , 3023"
+                            text = "1 M. Villarica Rd\nSan Jose Del Monte City, Bulacan\nPhilippines 3023"
                         )
                         ContactItem(
                             icon = Icons.Rounded.Phone,
-                            text = "0968 687 6753"
+                            text = "0968 687 6753",
+                            onClick = { runCatching { uriHandler.openUri("tel:09686876753") } }
                         )
                         ContactItem(
                             icon = Icons.Rounded.Email,
-                            text = "idisenyo.interiors2024@gmail.com"
+                            text = "idisenyo.interiors2024@gmail.com",
+                            onClick = { runCatching { uriHandler.openUri("mailto:idisenyo.interiors2024@gmail.com") } }
+                        )
+                        ContactItem(
+                            icon = Icons.AutoMirrored.Rounded.Chat,
+                            text = "Idisenyo Interior Solutions"
                         )
                     }
                 }
@@ -299,12 +310,14 @@ private fun CoreValueItem(
 @Composable
 private fun ContactItem(
     icon: ImageVector,
-    text: String
+    text: String,
+    onClick: (() -> Unit)? = null
 ) {
     val colors = PanelScan.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         verticalAlignment = Alignment.Top

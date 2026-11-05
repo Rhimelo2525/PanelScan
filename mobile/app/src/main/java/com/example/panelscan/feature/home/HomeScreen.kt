@@ -125,10 +125,7 @@ fun HomeScreen(
 
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    SectionHeader(
-                        title = "Shop by category",
-                        subtitle = "Two ranges, measured and estimated the same way"
-                    )
+                    SectionHeader(title = "Shop by category")
                     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         CategoryShortcut(
                             title = "Wall Panels",
@@ -229,11 +226,6 @@ private fun HomeHeader(
                 color = colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "PVC wall and ceiling panels, measured in your own room.",
-                style = PanelScan.type.supporting,
-                color = colors.textSecondary
             )
         }
         Box {
@@ -455,10 +447,7 @@ private fun CustomerServicesSection(
 ) {
     val colors = PanelScan.colors
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        SectionHeader(
-            title = "Dashboard",
-            subtitle = "Installation, order tracking and direct support"
-        )
+        SectionHeader(title = "Dashboard")
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -467,21 +456,18 @@ private fun CustomerServicesSection(
             ServiceQuickTile(
                 icon = Icons.Rounded.Build,
                 title = "Installation",
-                subtitle = "Request fitting",
                 onClick = onOpenInstallation,
                 modifier = Modifier.weight(1f)
             )
             ServiceQuickTile(
                 icon = Icons.Rounded.LocalShipping,
                 title = "My Orders",
-                subtitle = "Live tracking",
                 onClick = onOpenOrders,
                 modifier = Modifier.weight(1f)
             )
             ServiceQuickTile(
                 icon = Icons.Rounded.Chat,
                 title = "Live Chat",
-                subtitle = "Consultants",
                 onClick = onOpenChat,
                 modifier = Modifier.weight(1f)
             )
@@ -494,21 +480,18 @@ private fun CustomerServicesSection(
             ServiceQuickTile(
                 icon = Icons.Rounded.ViewInAr,
                 title = "Projects",
-                subtitle = "Saved rooms",
                 onClick = onOpenProjects,
                 modifier = Modifier.weight(1f)
             )
             ServiceQuickTile(
                 icon = Icons.Rounded.RateReview,
                 title = "Reviews",
-                subtitle = "Verified feedback",
                 onClick = onOpenFeedback,
                 modifier = Modifier.weight(1f)
             )
             ServiceQuickTile(
                 icon = Icons.Rounded.Info,
                 title = "About Us",
-                subtitle = "Disenyo Solution",
                 onClick = onOpenAbout,
                 modifier = Modifier.weight(1f)
             )
@@ -520,7 +503,6 @@ private fun CustomerServicesSection(
 private fun ServiceQuickTile(
     icon: ImageVector,
     title: String,
-    subtitle: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -542,12 +524,6 @@ private fun ServiceQuickTile(
             text = title,
             style = PanelScan.type.cardTitle,
             color = colors.textPrimary,
-            maxLines = 1
-        )
-        Text(
-            text = subtitle,
-            style = PanelScan.type.supporting,
-            color = colors.textSecondary,
             maxLines = 1
         )
     }

@@ -99,8 +99,7 @@ fun ProductsScreen(
     ScreenScaffold(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             PanelScanTopBar(
-                title = "Panels",
-                subtitle = "PVC cladding for walls and ceilings",
+                title = "Products",
                 large = true,
                 actions = {
                     IconAffordance(onClick = onOpenCart) {
