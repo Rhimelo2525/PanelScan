@@ -86,13 +86,12 @@ export function AboutPage() {
             <section className="surface-card p-6" aria-labelledby="contact">
               <div className="flex items-center gap-2">
                 <Building2 className="size-4 text-primary" aria-hidden="true" />
-                <h2 id="contact" className="font-semibold text-foreground">Contact</h2>
+                <h2 id="contact" className="font-semibold text-foreground">iDISENYO Interior Solutions</h2>
               </div>
               <ul className="mt-5 space-y-4 text-sm">
                 <li className="flex items-start gap-2.5">
                   <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                   <div className="text-muted-foreground">
-                    <p className="font-medium text-foreground">iDISENYO Interior Solutions</p>
                     <p>1 M. Villarica Rd</p>
                     <p>San Jose Del Monte City, Bulacan</p>
                     <p>Philippines 3023</p>
@@ -125,7 +124,7 @@ export function AboutPage() {
               </ul>
             </section>
 
-            <section className="rounded-lg border border-border bg-primary p-6 text-primary-foreground" aria-labelledby="start">
+            <section className="walnut-band rounded-lg border border-border bg-primary p-6 text-primary-foreground" aria-labelledby="start">
               <h2 id="start" className="text-xl font-medium tracking-[-0.03em]">Browse the range</h2>
               <p className="mt-3 text-sm leading-6 text-primary-foreground/70">PVC wall and ceiling panels, with current sizes and availability.</p>
               <Button variant="secondary" className="mt-5 w-full" asChild><Link to="/products">View panels</Link></Button>

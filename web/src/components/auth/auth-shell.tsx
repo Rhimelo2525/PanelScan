@@ -18,7 +18,7 @@ export function AuthShell({ eyebrow, title, description, asideTitle, asideDescri
     <section className="border-b border-border bg-background py-10 sm:py-14 lg:py-20">
       <Container>
         <div className="mx-auto grid max-w-xl overflow-hidden rounded-xl border border-border bg-card lg:mx-0 lg:max-w-none lg:grid-cols-[0.9fr_1.1fr]">
-          <aside className="auth-material-panel relative hidden min-h-[42rem] overflow-hidden bg-primary p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-end xl:p-14">
+          <aside className="walnut-band auth-material-panel relative hidden min-h-[42rem] overflow-hidden bg-primary p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-end xl:p-14">
             <div className="relative z-10 max-w-md">
               <span className="mb-8 block w-24 overflow-hidden rounded-lg bg-[#f2e3d5] p-1.5"><BrandLogo /></span>
               <p className="text-xs font-semibold tracking-[0.17em] text-primary-foreground/55 uppercase">PanelScan account</p>

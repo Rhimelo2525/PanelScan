@@ -7,11 +7,13 @@ import { exchangeGoogleTicket } from "@/api/auth"
 import { apiBaseUrl } from "@/api/client"
 import { CUSTOMER_LOGIN_ONLY_MESSAGE, DISPOSABLE_EMAIL_MESSAGE, LEGACY_STAFF_LOGIN_ONLY_MESSAGE, STAFF_LOGIN_ONLY_MESSAGE, formatLockoutWait, getLoginErrorMessage, loginLockoutSeconds } from "@/auth/errors"
 import { getSafeRedirect, resolveLoginDestination } from "@/auth/redirect"
+import { getRememberMe, setRememberMe } from "@/auth/saved-session"
 import { useAuth } from "@/auth/use-auth"
 import { AuthShell } from "@/components/auth/auth-shell"
 import { FormError } from "@/components/auth/form-error"
 import { PasswordInput } from "@/components/auth/password-input"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -68,6 +70,8 @@ export function LoginPage({ variant = "customer" }: { variant?: "customer" | "st
   // Set when the account belongs on the other sign-in page.
   const [wrongPage, setWrongPage] = useState<"staff" | "customer" | null>(null)
   const [password, setPassword] = useState("")
+  // Kept in this browser; also applies to Google sign-in, which leaves the page and comes back.
+  const [remember, setRemember] = useState(getRememberMe)
   const [errors, setErrors] = useState<LoginErrors>({})
   const [submissionError, setSubmissionError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -260,17 +264,29 @@ export function LoginPage({ variant = "customer" }: { variant?: "customer" | "st
           onChange={setPassword}
           autoComplete="current-password"
           error={errors.password}
-        >
+        />
+        {/* Unchecked: signed in for an hour after the last tab closes. Checked: stays signed in on this device. */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="login-remember"
+              checked={remember}
+              onCheckedChange={(checked) => {
+                const next = checked === true
+                setRemember(next)
+                setRememberMe(next)
+              }}
+            />
+            <Label htmlFor="login-remember" className="text-sm font-medium">Remember me</Label>
+          </div>
           {isStaff ? (
-            <p className="mt-2 text-right text-xs text-pretty text-muted-foreground">Forgot your password? Ask the owner for a reset email.</p>
+            <p className="text-right text-xs text-pretty text-muted-foreground">Forgot password? Ask the owner.</p>
           ) : (
-            <div className="mt-2 text-right">
-              <Link to="/forgot-password" state={{ email: email.trim() }} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
-                Forgot password?
-              </Link>
-            </div>
+            <Link to="/forgot-password" state={{ email: email.trim() }} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+              Forgot password?
+            </Link>
           )}
-        </PasswordInput>
+        </div>
         <Button type="submit" size="lg" className="h-11 w-full" disabled={isSubmitting || isGoogleSubmitting || isLocked}>
           {isSubmitting && <LoaderCircle className="animate-spin" aria-hidden="true" />}
           {isSubmitting ? "Signing in…" : "Log in"}

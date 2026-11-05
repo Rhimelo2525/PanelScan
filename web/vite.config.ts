@@ -26,18 +26,19 @@ export default defineConfig({
     cssMinify: false,
     rollupOptions: {
       output: {
-        // The built site is laid out like a plain website: index.html, css/,
-        // js/, images/ and fonts/. The short hash in each name changes with
-        // its content, so visitors never get a stale file after an update.
-        entryFileNames: 'js/script-[hash].js',
-        chunkFileNames: (chunk) => `js/${chunkName(chunk)}-[hash].js`,
+        // The built site is laid out like a plain website: index.html,
+        // css/style.css, js/script.js, images/ and fonts/, with plain names
+        // (no content hash). vercel.json makes browsers re-check these files
+        // on every visit, so nobody keeps an old copy after an update.
+        entryFileNames: 'js/script.js',
+        chunkFileNames: (chunk) => `js/${chunkName(chunk)}.js`,
         assetFileNames(asset) {
           const name = asset.names[0] ?? ''
           // The site's stylesheet is style.css; the address map's own stylesheet loads only with the map.
-          if (name.endsWith('.css')) return name === 'index.css' ? 'css/style-[hash][extname]' : 'css/[name]-[hash][extname]'
-          if (/\.(png|jpe?g|gif|svg|webp|avif|ico)$/i.test(name)) return 'images/[name]-[hash][extname]'
-          if (/\.(woff2?|ttf|otf)$/i.test(name)) return 'fonts/[name]-[hash][extname]'
-          return 'assets/[name]-[hash][extname]'
+          if (name.endsWith('.css')) return name === 'index.css' ? 'css/style[extname]' : 'css/[name][extname]'
+          if (/\.(png|jpe?g|gif|svg|webp|avif|ico)$/i.test(name)) return 'images/[name][extname]'
+          if (/\.(woff2?|ttf|otf)$/i.test(name)) return 'fonts/[name][extname]'
+          return 'assets/[name][extname]'
         },
         manualChunks(id) {
           if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/react-router-dom/')) {

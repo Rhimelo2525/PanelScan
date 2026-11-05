@@ -8,6 +8,7 @@ import { useAuth } from "@/auth/use-auth"
 import { useConfirm } from "@/components/confirm/use-confirm"
 import { BrandMark } from "@/components/layout/brand"
 import { NotificationBell } from "@/components/notifications/notification-bell"
+import { ThemeToggle } from "@/components/layout/theme-toggle"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -180,6 +181,7 @@ export function AdminLayout() {
 
           <div className="flex items-center gap-2">
             <span className="hidden rounded-full border border-border bg-secondary px-2.5 py-1 text-xs font-medium sm:inline">{roleLabels[user.role] ?? user.role}</span>
+            <ThemeToggle size="icon-sm" />
             <NotificationBell size="icon-sm" className="mr-1" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

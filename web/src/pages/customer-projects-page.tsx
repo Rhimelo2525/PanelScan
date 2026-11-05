@@ -124,7 +124,7 @@ export function CustomerProjectsPage() {
           </>
         )}
 
-        <section className="mt-10 rounded-xl bg-primary p-6 text-primary-foreground sm:p-8" aria-labelledby="measurement-guidance-title">
+        <section className="walnut-band mt-10 rounded-xl bg-primary p-6 text-primary-foreground sm:p-8" aria-labelledby="measurement-guidance-title">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div><p className="text-xs font-semibold tracking-[0.15em] text-primary-foreground/55 uppercase">Measurement guidance</p><h2 id="measurement-guidance-title" className="mt-3 text-2xl font-semibold tracking-[-0.03em]">Verify before ordering, cutting, or installation.</h2><p className="mt-3 max-w-3xl text-sm leading-7 text-primary-foreground/70">Mobile AR and 3D estimates are assistive planning tools. Device capability, calibration, lighting, surface detection, obstructions, and user input can affect results. Confirm dimensions and material coverage with the installation team before final work.</p></div>
             <Button variant="secondary" asChild><Link to="/products">Browse PVC panels</Link></Button>

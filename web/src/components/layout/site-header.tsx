@@ -9,6 +9,7 @@ import { useConfirm } from "@/components/confirm/use-confirm"
 import { Brand } from "@/components/layout/brand"
 import { Container } from "@/components/layout/container"
 import { NotificationBell } from "@/components/notifications/notification-bell"
+import { ThemeToggle } from "@/components/layout/theme-toggle"
 import { CustomerAvatar } from "@/components/profile/customer-avatar"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -83,6 +84,7 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="hidden min-w-44 items-center justify-end gap-2 lg:flex">
+          <ThemeToggle />
           {isLoading && <div className="flex items-center gap-2" aria-label="Checking account session"><Skeleton className="h-9 w-16" /><Skeleton className="h-9 w-28" /></div>}
           {!isLoading && !isAuthenticated && <><Button variant="ghost" size="lg" asChild><Link to="/login">Log in</Link></Button>{offersSignUp && <Button size="lg" asChild><Link to="/register">Create account</Link></Button>}</>}
           {!isLoading && user && <>
@@ -117,6 +119,7 @@ export function SiteHeader() {
         </div>
 
         <div className="flex items-center gap-1.5 lg:hidden">
+          <ThemeToggle />
           {!isLoading && user?.role === "CUSTOMER" && <NotificationBell />}
           <Sheet>
             <SheetTrigger asChild>

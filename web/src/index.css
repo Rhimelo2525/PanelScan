@@ -97,38 +97,42 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Dark mode (header sun/moon button, theme.ts): the same warm storefront in
+   a dark register - walnut surfaces, cream text, a lighter brown accent. */
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    color-scheme: dark;
+    --background: #171411;
+    --foreground: #efe9e1;
+    --card: #201c18;
+    --card-foreground: #efe9e1;
+    --popover: #221d19;
+    --popover-foreground: #efe9e1;
+    --primary: #c9a68b;
+    --primary-foreground: #1d1712;
+    --secondary: #2a241f;
+    --secondary-foreground: #ece5dc;
+    --muted: #26211c;
+    --muted-foreground: #a99d91;
+    --accent: #332a23;
+    --accent-foreground: #efe9e1;
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+    --border: #3a322b;
+    --input: #443a32;
+    --ring: #b08f76;
+    --unread-dot: #c9a68b;
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar: #1c1814;
+    --sidebar-foreground: #efe9e1;
+    --sidebar-primary: #c9a68b;
+    --sidebar-primary-foreground: #1d1712;
+    --sidebar-accent: #2a241f;
+    --sidebar-accent-foreground: #efe9e1;
+    --sidebar-border: #3a322b;
+    --sidebar-ring: #b08f76;
 }
 
 @layer base {
@@ -367,6 +371,19 @@
   --status-neutral-surface: #eeecea;
 }
 
+.dark {
+  --status-positive: #74c79b;
+  --status-positive-surface: #18301f;
+  --status-warning: #e2b25c;
+  --status-warning-surface: #33270f;
+  --status-critical: #f08a8a;
+  --status-critical-surface: #3a1a1a;
+  --status-info: #7fb6dc;
+  --status-info-surface: #152a39;
+  --status-neutral: #c9c4be;
+  --status-neutral-surface: #2b2724;
+}
+
 /* ================================================================
    PanelScan Admin surface
    The Admin is the same design system in a different register: cooler, denser
@@ -400,6 +417,48 @@
 
   background-color: var(--background);
   color: var(--foreground);
+}
+
+/* Sections drawn in reverse colours on the light site (the closing call to
+   action is dark, the footer walnut brown) stay dark in dark mode instead of
+   flipping to light: their own colours are redefined inside them. */
+.dark .inverse-band {
+  --foreground: #0e0c0a;
+  --background: #efe9e1;
+  --secondary: #efe9e1;
+  --secondary-foreground: #1d1712;
+  --border: #2b241e;
+}
+
+.dark .walnut-band {
+  --primary: #2a2019;
+  --primary-foreground: #efe9e1;
+  --secondary: #efe9e1;
+  --secondary-foreground: #1d1712;
+}
+
+/* Admin in dark mode: the same cool, dense register on dark graphite. */
+.dark .admin-surface {
+  --background: #111215;
+  --foreground: #ececef;
+  --card: #1a1b1f;
+  --card-foreground: #ececef;
+  --popover: #1d1e23;
+  --popover-foreground: #ececef;
+  --primary: #ececef;
+  --primary-foreground: #17181c;
+  --secondary: #24262b;
+  --secondary-foreground: #ececef;
+  --muted: #1f2125;
+  --muted-foreground: #9a9ea6;
+  --accent: #2a2c32;
+  --accent-foreground: #ececef;
+  --border: #2c2e34;
+  --input: #34363d;
+  --ring: #8b8f98;
+
+  --status-neutral: #b9bcc3;
+  --status-neutral-surface: #26282d;
 }
 
 .admin-surface .admin-nav-link {

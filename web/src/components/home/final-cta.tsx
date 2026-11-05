@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 
 export function FinalCta() {
   return (
-    <section id="final-cta" className="scroll-mt-24 border-t border-border bg-foreground text-background">
+    <section id="final-cta" className="inverse-band scroll-mt-24 border-t border-border bg-foreground text-background">
       <Container className="section-space-tight">
         <div className="grid items-end gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20">
           <div>

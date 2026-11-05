@@ -5,6 +5,8 @@ import { getCurrentUser, loginCustomer, logoutCustomer, registerCustomer, reques
 import { ApiRequestError, refreshAccessToken } from "@/api/client"
 import { ActiveAccountConflictError, LEASE_RENEW_MS, answerSessionRequests, claimActiveAccount, endActiveAccount, getActiveAccountId, releaseActiveAccountTab, requestSessionFromOpenTabs, watchActiveAccount } from "@/auth/active-account"
 import { AuthContext } from "@/auth/auth-context"
+import { clearSavedSession, getRememberMe, hasSavedSession, storeSavedSession, takeSavedSession, touchSavedSession } from "@/auth/saved-session"
+import type { SavedSession } from "@/auth/saved-session"
 import { clearSessionTokens, getSessionTokens, updateSessionTokens } from "@/auth/token-storage"
 import { clearProfilePictureCache } from "@/hooks/use-profile-picture"
 import { clearPaymentHandoff } from "@/payments/payment-handoff"
@@ -23,6 +25,11 @@ async function discardTabSession() {
     clearPaymentHandoff()
     window.sessionStorage.removeItem("panelscan_direct_checkout")
   }
+}
+
+/** Revokes a saved session nobody will use (best effort). */
+function revokeSaved(session: SavedSession | null) {
+  if (session) void logoutCustomer(session.refreshToken, undefined, session.accessToken).catch(() => undefined)
 }
 
 /** Waits between tries when the API can't be reached while restoring a session on load. */
@@ -54,16 +61,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
 
   const restoreSession = useCallback(async () => {
+    // The saved session this tab took over, put back if the API can't be reached.
+    let fromSaved: SavedSession | null = null
     if (!getSessionTokens()) {
       // A link opened in a new tab starts with no session: take one from an open,
       // signed-in tab instead of asking to sign in again. A second answer is revoked.
       const granted = await requestSessionFromOpenTabs((extra) => void logoutCustomer(extra.refreshToken, undefined, extra.token).catch(() => undefined))
-      if (!granted) {
-        setUser(null)
-        setIsLoading(false)
-        return
+      if (granted) {
+        updateSessionTokens({ accessToken: granted.token, refreshToken: granted.refreshToken })
+      } else {
+        // No tab is open: pick up the session kept when the last one closed, unless
+        // it was not "Remember me" and has been unused for over an hour.
+        const saved = takeSavedSession()
+        if (saved && "expired" in saved) revokeSaved(saved.expired)
+        if (!saved || !("session" in saved)) {
+          setUser(null)
+          setIsLoading(false)
+          return
+        }
+        fromSaved = saved.session
+        updateSessionTokens({ accessToken: fromSaved.accessToken, refreshToken: fromSaved.refreshToken })
       }
-      updateSessionTokens({ accessToken: granted.token, refreshToken: granted.refreshToken })
     }
 
     setIsLoading(true)
@@ -85,6 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isSessionRefused(error)) clearSessionTokens()
         const delay = isSessionRefused(error) ? undefined : RESTORE_RETRY_DELAYS_MS[attempt]
         if (delay === undefined) {
+          // Unreachable rather than refused: keep the saved session for the next visit.
+          if (fromSaved && !isSessionRefused(error)) {
+            clearSessionTokens()
+            storeSavedSession(fromSaved)
+          }
           setUser(null)
           break
         }
@@ -114,14 +137,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Renewing also re-checks: if another account took the browser while this
     // tab's lease had lapsed (sleep, frozen tab), this tab signs itself out.
+    let minting = false
+    // Keeps a spare session for when every tab is closed (see saved-session.ts).
+    const keepSavedSession = async () => {
+      if (hasSavedSession(userId)) {
+        touchSavedSession(userId)
+        return
+      }
+      if (minting) return
+      minting = true
+      try {
+        const minted = await mintTabSession()
+        if (minted && getSessionTokens()) {
+          revokeSaved(storeSavedSession({ userId, accessToken: minted.token, refreshToken: minted.refreshToken, remember: getRememberMe() }))
+        } else if (minted) {
+          void logoutCustomer(minted.refreshToken, undefined, minted.token).catch(() => undefined)
+        }
+      } finally {
+        minting = false
+      }
+    }
     const renew = () => {
-      if (getSessionTokens() && !claimActiveAccount(userId)) endSession()
+      if (getSessionTokens() && !claimActiveAccount(userId)) {
+        endSession()
+        return
+      }
+      if (getSessionTokens()) void keepSavedSession()
     }
     renew()
     const interval = window.setInterval(renew, LEASE_RENEW_MS)
     const handleVisibility = () => { if (document.visibilityState === "visible") renew() }
     const handlePageShow = (event: PageTransitionEvent) => { if (event.persisted) renew() }
-    const handlePageHide = () => releaseActiveAccountTab()
+    const handlePageHide = () => {
+      touchSavedSession(userId)
+      releaseActiveAccountTab()
+    }
     document.addEventListener("visibilitychange", handleVisibility)
     window.addEventListener("pageshow", handlePageShow)
     window.addEventListener("pagehide", handlePageHide)
@@ -155,6 +205,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new ActiveAccountConflictError()
     }
     updateSessionTokens({ accessToken: result.token, refreshToken: result.refreshToken })
+    // A fresh sign-in starts a fresh saved session, with the current "Remember me" choice.
+    revokeSaved(clearSavedSession())
     claimActiveAccount(result.user.id)
     setUser(result.user)
     return result.user
@@ -180,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const signedOutId = user?.id
     try {
+      revokeSaved(clearSavedSession())
       await discardTabSession()
     } finally {
       // Ends the account in every tab of this browser, freeing it for another sign-in.

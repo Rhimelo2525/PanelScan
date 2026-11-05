@@ -28,8 +28,7 @@ export function PanelLinesSection() {
                 />
               </figure>
               <div className="max-w-xl">
-                <p className="type-label text-primary">0{index + 1} — {panel.shortLabel}</p>
-                <h2 className="type-h2 mt-5">{panel.label}</h2>
+                <h2 className="type-h2">{panel.label}</h2>
                 <p className="type-body mt-5">{panel.description}</p>
                 <p className="mt-4 text-sm leading-6 text-muted-foreground">{panel.tagline}</p>
                 <Button className="mt-8" asChild>

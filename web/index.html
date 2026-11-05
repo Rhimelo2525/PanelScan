@@ -8,6 +8,16 @@
     <title>PanelScan | PVC Wall &amp; Ceiling Panels</title>
     <link rel="icon" type="image/png" sizes="64x64" href="/brand/favicon-64.png" />
     <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
+    <script>
+      // Saved light/dark choice (theme.ts), applied before the page paints.
+      try {
+        if (localStorage.getItem("panelscan.theme") === "dark") {
+          document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = "dark";
+          document.querySelector('meta[name="theme-color"]').setAttribute("content", "#171411");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
