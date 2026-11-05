@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 
 import { Container } from "@/components/layout/container"
 import { Button } from "@/components/ui/button"
+import { stagger } from "@/hooks/use-scroll-reveal"
 
 export function FinalCta() {
   return (
@@ -10,12 +11,12 @@ export function FinalCta() {
       <Container className="section-space-tight">
         <div className="grid items-end gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20">
           <div>
-            <p className="type-label text-background/55">Disenyo Interior Solution</p>
-            <h2 className="type-h1 mt-5 max-w-2xl">Ready to panel a wall or ceiling?</h2>
-            <p className="mt-6 max-w-xl text-base leading-7 text-background/65">Browse the range and create an account to see pricing, place an order, and arrange installation with the team.</p>
+            <p className="type-label text-background/55" data-rv>Disenyo Interior Solution</p>
+            <h2 className="type-h1 mt-5 max-w-2xl" data-rv style={stagger(1)}>Ready to panel a wall or ceiling?</h2>
+            <p data-rv style={stagger(2)} className="mt-6 max-w-xl text-base leading-7 text-background/65">Browse the range and create an account to see pricing, place an order, and arrange installation with the team.</p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-            <Button variant="secondary" size="lg" className="h-11 px-5" asChild>
+          <div className="flex flex-col gap-3 sm:flex-row lg:justify-end" data-rv style={stagger(3)}>
+            <Button variant="secondary" size="lg" className="arrow-nudge h-11 px-5" asChild>
               <Link to="/products">Browse panels <ArrowRight data-icon="inline-end" aria-hidden="true" /></Link>
             </Button>
             <Button

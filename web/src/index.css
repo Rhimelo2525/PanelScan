@@ -321,6 +321,99 @@
   backdrop-filter: blur(7px);
 }
 
+/* ================================================================
+   Landing page motion
+   The hero plays once on load (words, photo, copy, in that order); below it,
+   each [data-rv] element reveals the first time it is scrolled to
+   (use-scroll-reveal.ts). Hidden states exist only under .rv-pending, which
+   script adds once it can reveal them again, so content never stays hidden.
+   ================================================================ */
+
+@keyframes hero-word {
+  from { opacity: 0; transform: translateY(0.42em); filter: blur(10px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes hero-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hero-open {
+  from { clip-path: inset(100% 0 0 0 round 1rem); }
+  to { clip-path: inset(0 0 0 0 round 1rem); }
+}
+@keyframes hero-zoom {
+  from { transform: scale(1.24); }
+  to { transform: translate3d(0, 0, 0) scale(1.06); }
+}
+
+.hero-word {
+  display: inline-block;
+  animation: hero-word 900ms var(--ease-enter) backwards;
+  animation-delay: calc(120ms + var(--i, 0) * 70ms);
+}
+.hero-rise {
+  animation: hero-rise 900ms var(--ease-enter) backwards;
+  animation-delay: var(--d, 0ms);
+}
+.hero-media {
+  animation: hero-open 1300ms cubic-bezier(0.7, 0, 0.2, 1) backwards;
+  animation-delay: 150ms;
+}
+.hero-photo {
+  transform: translate3d(0, var(--parallax, 0px), 0) scale(1.06);
+  animation: hero-zoom 1900ms var(--ease-enter) backwards;
+  animation-delay: 150ms;
+  will-change: transform;
+}
+
+/* Scroll reveal: text fades and rises; images open upwards and zoom out. */
+.rv-pending { opacity: 0; transform: translateY(32px); }
+.rv-pending[data-rv="media"] { opacity: 1; transform: none; clip-path: inset(22% 0 0 0 round 1rem); }
+.rv-pending[data-rv="media"] img { transform: scale(1.2); }
+.rv-in {
+  transition:
+    opacity 900ms var(--ease-enter),
+    transform 900ms var(--ease-enter),
+    clip-path 1200ms cubic-bezier(0.7, 0, 0.2, 1);
+  transition-delay: calc(var(--i, 0) * 90ms);
+}
+
+/* Images: a slow zoom-out as they reveal, a slight zoom on hover. */
+.media-hover img:not(.hero-photo) { transition: transform 1600ms var(--ease-enter); }
+@media (hover: hover) {
+  .media-hover:hover img:not(.hero-photo) { transform: scale(1.045); transition-duration: 900ms; }
+}
+
+/* Button arrows nudge forward on hover. */
+.arrow-nudge [data-icon="inline-end"] { transition: transform var(--motion-base) var(--ease-standard); }
+@media (hover: hover) {
+  .arrow-nudge:hover [data-icon="inline-end"] { transform: translateX(3px); }
+}
+
+/* "Why" icons sit in a soft tile that lifts with its card on hover. */
+.icon-tile { transition: transform var(--motion-base) var(--ease-standard), background-color var(--motion-base) var(--ease-standard); }
+@media (hover: hover) {
+  .group:hover .icon-tile { transform: translateY(-3px); background-color: var(--accent); }
+}
+
+/* How-it-works steps: the rule above each step draws from left to right. */
+.step-line::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: var(--border);
+  transform-origin: left center;
+}
+.step-line.rv-pending { transform: none; }
+.step-line.rv-pending::before { transform: scaleX(0); }
+.step-line.rv-in::before { transition: transform 1100ms var(--ease-enter); transition-delay: calc(var(--i, 0) * 120ms); }
+.step-line.rv-pending > * { opacity: 0; transform: translateY(14px); }
+.step-line.rv-in > * {
+  transition: opacity 800ms var(--ease-enter), transform 800ms var(--ease-enter);
+  transition-delay: calc(200ms + var(--i, 0) * 120ms);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 
@@ -339,6 +432,10 @@
   }
 
   .reveal, .reveal-in { opacity: 1 !important; transform: none !important; }
+  .hero-word, .hero-rise, .hero-media, .hero-photo { animation: none !important; }
+  .hero-photo { transform: none !important; }
+  .rv-pending, .rv-pending img, .step-line.rv-pending > * { opacity: 1 !important; transform: none !important; clip-path: none !important; }
+  .step-line.rv-pending::before { transform: none !important; }
 
   .card-interactive:hover,
   .card-interactive:hover .media-zoom,

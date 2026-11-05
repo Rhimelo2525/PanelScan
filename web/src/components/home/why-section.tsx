@@ -1,6 +1,7 @@
 import { Droplets, Hammer, PackageCheck, Wrench } from "lucide-react"
 
 import { Container } from "@/components/layout/container"
+import { stagger } from "@/hooks/use-scroll-reveal"
 
 /**
  * Reasons stated in terms of what PVC panelling and this business actually offer
@@ -35,13 +36,15 @@ export function WhySection() {
     <section className="section-space bg-background">
       <Container>
         <div className="max-w-2xl">
-          <p className="section-eyebrow">Why Disenyo</p>
-          <h2 className="type-h2 mt-5">A practical way to finish a room.</h2>
+          <p className="section-eyebrow" data-rv>Why Disenyo</p>
+          <h2 className="type-h2 mt-5" data-rv style={stagger(1)}>A practical way to finish a room.</h2>
         </div>
         <div className="mt-14 grid gap-x-12 gap-y-12 sm:grid-cols-2">
-          {reasons.map((reason) => (
-            <div key={reason.title} className="max-w-md">
-              <reason.icon className="size-5 text-primary" aria-hidden="true" />
+          {reasons.map((reason, index) => (
+            <div key={reason.title} className="group max-w-md" data-rv style={stagger(index)}>
+              <span className="icon-tile inline-grid size-11 place-items-center rounded-xl bg-secondary text-primary">
+                <reason.icon className="size-5" aria-hidden="true" />
+              </span>
               <h3 className="mt-5 text-lg font-semibold tracking-[-0.02em]">{reason.title}</h3>
               <p className="mt-3 text-sm leading-7 text-muted-foreground">{reason.body}</p>
             </div>

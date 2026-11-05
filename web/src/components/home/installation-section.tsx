@@ -2,6 +2,7 @@ import { Hammer, Package } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Container } from "@/components/layout/container"
+import { stagger } from "@/hooks/use-scroll-reveal"
 
 /**
  * Two genuine ways to buy: materials only, or materials with installation
@@ -14,7 +15,7 @@ export function InstallationSection() {
     <section id="installation" className="section-space scroll-mt-24 bg-background">
       <Container>
         <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-20">
-          <figure className="relative">
+          <figure className="media-hover relative overflow-hidden rounded-xl" data-rv="media">
             <img
               src="/images/interiors/panel-installation.webp"
               alt="Representative view of panelling being aligned against a prepared interior wall"
@@ -26,16 +27,16 @@ export function InstallationSection() {
           </figure>
 
           <div className="max-w-xl">
-            <p className="section-eyebrow">Installation</p>
-            <h2 className="type-h2 mt-5">Buy the panels, or have us fit them.</h2>
-            <p className="type-body mt-5">Some customers order materials and handle the work themselves. Others prefer the panels fitted properly the first time. Both are fine — installation is arranged separately from your order, with a date confirmed by the team.</p>
+            <p className="section-eyebrow" data-rv>Installation</p>
+            <h2 className="type-h2 mt-5" data-rv style={stagger(1)}>Buy the panels, or have us fit them.</h2>
+            <p className="type-body mt-5" data-rv style={stagger(2)}>Some customers order materials and handle the work themselves. Others prefer the panels fitted properly the first time. Both are fine — installation is arranged separately from your order, with a date confirmed by the team.</p>
 
             <dl className="mt-9 grid gap-8 sm:grid-cols-2">
-              <div>
+              <div data-rv style={stagger(3)}>
                 <dt className="flex items-center gap-2 font-semibold"><Package className="size-4 text-primary" aria-hidden="true" />Materials only</dt>
                 <dd className="mt-2 text-sm leading-7 text-muted-foreground">Order panels online and collect or receive them for your own installer.</dd>
               </div>
-              <div>
+              <div data-rv style={stagger(4)}>
                 <dt className="flex items-center gap-2 font-semibold"><Hammer className="size-4 text-primary" aria-hidden="true" />With installation</dt>
                 <dd className="mt-2 text-sm leading-7 text-muted-foreground">Submit an installation request with your preferred date and address; the team confirms and assigns an installer.</dd>
                 <div className="mt-3">
