@@ -42,6 +42,8 @@ export const listInstallersSchema = z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     search: listSearchQuery,
+    // Which installers to list; active only unless asked (the booking picker relies on that).
+    status: z.enum(['active', 'inactive', 'all']).optional(),
   }),
 });
 

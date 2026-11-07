@@ -22,7 +22,7 @@ import type { SavedAddress } from "@/types/address"
 const GENERIC_ERROR = "Please try again in a moment."
 
 /** Profile "Shipping Addresses": the customer's saved delivery destinations, chosen from at checkout. */
-export function ShippingAddressesSection() {
+export function ShippingAddressesSection({ isLocked = false }: { isLocked?: boolean }) {
   const [addresses, setAddresses] = useState<SavedAddress[] | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [dialog, setDialog] = useState<{ open: boolean; address: SavedAddress | null }>({ open: false, address: null })
@@ -81,9 +81,11 @@ export function ShippingAddressesSection() {
           <h2 id="shipping-addresses-title" className="text-xl font-semibold tracking-[-0.025em]">Shipping addresses</h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">Save where you'd like deliveries to go, then just choose one at checkout.</p>
         </div>
-        <Button variant="outline" onClick={() => setDialog({ open: true, address: null })}>
-          <MapPinPlus data-icon="inline-start" aria-hidden="true" />Add new address
-        </Button>
+        {!isLocked && (
+          <Button variant="outline" onClick={() => setDialog({ open: true, address: null })}>
+            <MapPinPlus data-icon="inline-start" aria-hidden="true" />Add new address
+          </Button>
+        )}
       </div>
 
       <div className="mt-6">
@@ -99,29 +101,37 @@ export function ShippingAddressesSection() {
         ) : addresses && addresses.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-secondary/35 px-6 py-10 text-center">
             <p className="text-sm font-medium">No shipping address saved yet.</p>
-            <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">Pin your location on the map once, and checkout will be a single tap from then on.</p>
-            <Button className="mt-5" onClick={() => setDialog({ open: true, address: null })}>
-              <MapPinPlus data-icon="inline-start" aria-hidden="true" />Add shipping address
-            </Button>
+            {isLocked ? (
+              <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">Verify your email to add one.</p>
+            ) : (
+              <>
+                <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">Pin your location on the map once, and checkout will be a single tap from then on.</p>
+                <Button className="mt-5" onClick={() => setDialog({ open: true, address: null })}>
+                  <MapPinPlus data-icon="inline-start" aria-hidden="true" />Add shipping address
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <ul className="grid gap-4 sm:grid-cols-2">
             {addresses?.map((address) => (
               <li key={address.id} className={address.isDefault ? "flex flex-col justify-between gap-4 rounded-lg border border-primary/40 bg-primary/5 p-4" : "flex flex-col justify-between gap-4 rounded-lg border border-border p-4"}>
                 <SavedAddressSummary address={address} />
-                <div className="flex flex-wrap gap-2">
-                  {!address.isDefault && (
-                    <Button variant="outline" size="sm" disabled={busyId === address.id} onClick={() => void handleSetDefault(address)}>
-                      <Star className="size-3.5" data-icon="inline-start" aria-hidden="true" />Set as default
+                {!isLocked && (
+                  <div className="flex flex-wrap gap-2">
+                    {!address.isDefault && (
+                      <Button variant="outline" size="sm" disabled={busyId === address.id} onClick={() => void handleSetDefault(address)}>
+                        <Star className="size-3.5" data-icon="inline-start" aria-hidden="true" />Set as default
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" disabled={busyId === address.id} onClick={() => setDialog({ open: true, address })} aria-label={`Edit ${address.label || "address"}`}>
+                      <Pencil className="size-3.5" data-icon="inline-start" aria-hidden="true" />Edit
                     </Button>
-                  )}
-                  <Button variant="outline" size="sm" disabled={busyId === address.id} onClick={() => setDialog({ open: true, address })} aria-label={`Edit ${address.label || "address"}`}>
-                    <Pencil className="size-3.5" data-icon="inline-start" aria-hidden="true" />Edit
-                  </Button>
-                  <Button variant="outline" size="sm" disabled={busyId === address.id} onClick={() => setPendingDelete(address)} aria-label={`Delete ${address.label || "address"}`} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                    <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />Delete
-                  </Button>
-                </div>
+                    <Button variant="outline" size="sm" disabled={busyId === address.id} onClick={() => setPendingDelete(address)} aria-label={`Delete ${address.label || "address"}`} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                      <Trash2 className="size-3.5" data-icon="inline-start" aria-hidden="true" />Delete
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

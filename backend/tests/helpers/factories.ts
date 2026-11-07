@@ -72,7 +72,7 @@ export const createTestUser = async (options: CreateTestUserOptions = {}): Promi
       password: hashedPassword,
       role: options.role ?? UserRole.CUSTOMER,
       isActive: options.isActive ?? true,
-      emailVerified: options.emailVerified ?? false,
+      emailVerified: options.emailVerified ?? true,
     },
   });
 

@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import type { AuthUser } from "@/types/auth"
 
 /** The customer's photo with Upload / Change / Remove, at the top of the Profile tab. */
-export function ProfilePictureSection({ user }: { user: AuthUser }) {
+export function ProfilePictureSection({ user, isLocked = false }: { user: AuthUser; isLocked?: boolean }) {
   const { updateUser } = useAuth()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isConfirmingRemove, setIsConfirmingRemove] = useState(false)
@@ -49,19 +49,23 @@ export function ProfilePictureSection({ user }: { user: AuthUser }) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-lg font-semibold">{user.firstName} {user.lastName}</p>
           <p className="mt-0.5 text-sm break-all text-muted-foreground">{user.email}</p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Camera data-icon="inline-start" aria-hidden="true" />
-              {hasPicture ? "Change photo" : "Upload photo"}
-            </Button>
-            {hasPicture && (
-              <Button variant="outline" onClick={() => setIsConfirmingRemove(true)} disabled={isRemoving}>
-                <Trash2 data-icon="inline-start" aria-hidden="true" />
-                Remove photo
-              </Button>
-            )}
-          </div>
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">JPG, PNG, or WEBP, up to 5MB. You&apos;ll be able to crop it to a square before saving.</p>
+          {!isLocked && (
+            <>
+              <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <Button onClick={() => setIsDialogOpen(true)}>
+                  <Camera data-icon="inline-start" aria-hidden="true" />
+                  {hasPicture ? "Change photo" : "Upload photo"}
+                </Button>
+                {hasPicture && (
+                  <Button variant="outline" onClick={() => setIsConfirmingRemove(true)} disabled={isRemoving}>
+                    <Trash2 data-icon="inline-start" aria-hidden="true" />
+                    Remove photo
+                  </Button>
+                )}
+              </div>
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">JPG, PNG, or WEBP, up to 5MB. You&apos;ll be able to crop it to a square before saving.</p>
+            </>
+          )}
         </div>
       </div>
 

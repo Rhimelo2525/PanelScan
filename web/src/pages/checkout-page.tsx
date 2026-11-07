@@ -4,7 +4,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import type { CartItem } from "@/types/cart"
 
 import { getSavedAddresses } from "@/api/addresses"
+import { getCurrentUser } from "@/api/auth"
 import { createOrder } from "@/api/orders"
+import { useAuth } from "@/auth/use-auth"
 import { getCartProductWarning } from "@/cart/cart-utils"
 import { useCart } from "@/cart/use-cart"
 import { AddressDialog } from "@/components/addresses/address-dialog"
@@ -74,8 +76,41 @@ function validateCheckout(
   return errors
 }
 
+/** Shown instead of checkout until the account's email is verified; the API refuses the order too. */
+function VerifyEmailToCheckout({ email, backTo, backLabel }: { email: string; backTo: string; backLabel: string }) {
+  const { updateUser } = useAuth()
+
+  // It may have been verified on another device since this tab loaded the account.
+  useEffect(() => {
+    const controller = new AbortController()
+    getCurrentUser(controller.signal).then(updateUser).catch(() => undefined)
+    return () => controller.abort()
+  }, [updateUser])
+
+  return (
+    <Container className="py-16">
+      <div className="mx-auto max-w-md text-center">
+        <h2 className="text-xl font-semibold">Verify your email to check out</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Confirm <span className="break-all font-medium text-foreground">{email}</span> first, then come back to place your order. Your items stay saved.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Button asChild><Link to="/profile">Verify email</Link></Button>
+          <Button variant="outline" asChild>
+            <Link to={backTo}>
+              <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+              {backLabel}
+            </Link>
+          </Button>
+        </div>
+      </div>
+    </Container>
+  )
+}
+
 export function CheckoutPage() {
   useDocumentTitle("Checkout | PanelScan")
+  const { user } = useAuth()
   const { items, selectedItems, selectedItemCount, isLoading, error: cartError, refreshCart } = useCart()
   const location = useLocation()
   const navigate = useNavigate()
@@ -257,6 +292,15 @@ export function CheckoutPage() {
     }
   }
 
+  if (user?.emailVerified === false) {
+    return (
+      <VerifyEmailToCheckout
+        email={user.email}
+        backTo={isDirectCheckout && directCheckoutItem ? `/products/${directCheckoutItem.productId}` : "/cart"}
+        backLabel={isDirectCheckout ? "Back to product" : "Return to cart"}
+      />
+    )
+  }
   if (!isDirectCheckout && isLoading && !items.length) {
     return (
       <Container className="py-12 sm:py-16">

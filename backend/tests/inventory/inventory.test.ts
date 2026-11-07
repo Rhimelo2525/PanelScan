@@ -277,6 +277,25 @@ describe('Inventory module', () => {
       expect(response.status).toBe(403);
     });
 
+    it('gives stock recorded without a chosen reorder level the default of 30', async () => {
+      const { token: modToken } = await createModerator();
+      const { token: ownerToken } = await createOwner();
+      const product = await createTestProduct({ withInventory: false });
+
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${modToken}`)
+        .send({ productId: product.id, quantity: 50 });
+      expect(response.status).toBe(201);
+
+      const approved = await request(app)
+        .patch(`/api/requests/${response.body.data.request.id}/approve`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(approved.status).toBe(200);
+
+      expect((await prisma.inventory.findUnique({ where: { productId: product.id } }))?.reorderLevel).toBe(30);
+    });
+
     it('creates a Change Request when called by MODERATOR and creates live inventory on OWNER approval', async () => {
       const { token: modToken } = await createModerator();
       const { token: ownerToken } = await createOwner();

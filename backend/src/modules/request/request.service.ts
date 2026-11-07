@@ -6,6 +6,7 @@ import type { NotificationDbClient } from '../notifications/notification.types';
 import { notifyStockLevelChange } from '../notifications/notification.triggers';
 import type { StockChange } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
+import { DEFAULT_REORDER_LEVEL } from '../inventory/inventory.constants';
 import { containsText, searchWords } from '../../utils/searchWhere';
 import { slugify } from '../../utils/slugify';
 import { STOCK_QUANTITY_MAX, STOCK_QUANTITY_MESSAGE } from '../inventory/inventory.validation';
@@ -90,6 +91,9 @@ const buildOrderBy = (
   if (sortBy === 'reviewedAt') return { reviewedAt: direction };
   return { createdAt: direction };
 };
+
+/** The owner's review note, added to the moderator's decision notification when there is one. */
+const ownerNoteSuffix = (reviewNote: string | undefined): string => (reviewNote ? ` Owner's note: "${reviewNote}"` : '');
 
 export class RequestService {
   async createRequest(requestedById: string, input: CreateRequestInput): Promise<RequestWithRelations> {
@@ -243,7 +247,7 @@ export class RequestService {
           userId: request.requestedById,
           type: NotificationType.SYSTEM,
           title: 'Request approved',
-          message: `Your ${humanizeType(request.type)} request "${request.title}" has been approved.`,
+          message: `Your ${humanizeType(request.type)} request "${request.title}" has been approved.${ownerNoteSuffix(reviewNote)}`,
           metadata: { requestId: request.id, event: 'REQUEST_APPROVED', status: RequestStatus.APPROVED, requestType: request.type },
         },
         tx,
@@ -277,7 +281,7 @@ export class RequestService {
           userId: request.requestedById,
           type: NotificationType.SYSTEM,
           title: 'Request rejected',
-          message: `Your ${humanizeType(request.type)} request "${request.title}" has been rejected.`,
+          message: `Your ${humanizeType(request.type)} request "${request.title}" has been rejected.${ownerNoteSuffix(reviewNote)}`,
           metadata: { requestId: request.id, event: 'REQUEST_REJECTED', status: RequestStatus.REJECTED, requestType: request.type },
         },
         tx,
@@ -534,7 +538,7 @@ export class RequestService {
           productId,
           quantity: Number(quantity),
           reservedQty: 0,
-          reorderLevel: reorderLevel ? Number(reorderLevel) : 10,
+          reorderLevel: reorderLevel ? Number(reorderLevel) : DEFAULT_REORDER_LEVEL,
           warehouseLocation: warehouseLocation || 'Main Warehouse',
           lastRestockedAt: new Date(),
         },

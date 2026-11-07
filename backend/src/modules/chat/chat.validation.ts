@@ -31,7 +31,18 @@ export const listConversationsSchema = z.object({
     page: z.string().regex(NUMERIC_STRING, 'page must be a positive integer.').optional(),
     limit: z.string().regex(NUMERIC_STRING, 'limit must be a positive integer.').optional(),
     search: z.string().trim().min(1, 'Search query cannot be empty.').max(150, 'Search query is too long.').optional(),
+    archived: z.enum(['true', 'false']).optional(),
   }),
+});
+
+export const pinConversationSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid conversation id.') }),
+  body: z.object({ pinned: z.boolean() }),
+});
+
+export const archiveConversationSchema = z.object({
+  params: z.object({ id: z.string().uuid('Invalid conversation id.') }),
+  body: z.object({ archived: z.boolean() }),
 });
 
 export const listMessagesSchema = z.object({

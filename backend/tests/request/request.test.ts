@@ -661,6 +661,39 @@ describe('Request Approval module', () => {
       expect(dbRequest?.reviewNote).toBe('Budget not available this quarter.');
     });
 
+    it.each([
+      ['reject', 'rejected'],
+      ['approve', 'approved'],
+    ])('tells the moderator the owner note when a request is %sd, and lets them read it', async (action, word) => {
+      const owner = await createOwner();
+      const moderator = await createModerator();
+      const req = await createTestRequest({ requestedById: moderator.user.id });
+
+      const response = await request(app)
+        .patch(`/api/requests/${req.id}/${action}`)
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({ reviewNote: "Sorry, that's too much" });
+      expect(response.status).toBe(200);
+
+      const notification = await prisma.notification.findFirst({ where: { userId: moderator.user.id, title: `Request ${word}` } });
+      expect(notification?.message).toContain(`has been ${word}. Owner's note: "Sorry, that's too much"`);
+
+      const list = await request(app).get('/api/requests').set('Authorization', `Bearer ${moderator.token}`);
+      const row = (list.body.data.requests as Array<{ id: string; reviewNote: string | null }>).find((entry) => entry.id === req.id);
+      expect(row?.reviewNote).toBe("Sorry, that's too much");
+    });
+
+    it('adds nothing to the notification when the owner leaves no note', async () => {
+      const owner = await createOwner();
+      const moderator = await createModerator();
+      const req = await createTestRequest({ requestedById: moderator.user.id });
+
+      await request(app).patch(`/api/requests/${req.id}/approve`).set('Authorization', `Bearer ${owner.token}`).send({});
+
+      const notification = await prisma.notification.findFirst({ where: { userId: moderator.user.id, title: 'Request approved' } });
+      expect(notification?.message).toMatch(/has been approved\.$/);
+    });
+
     it('rejects rejecting the same request twice with 409', async () => {
       const owner = await createOwner();
       const moderator = await createModerator();

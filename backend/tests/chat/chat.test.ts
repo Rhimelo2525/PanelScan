@@ -180,6 +180,23 @@ describe('Chat module', () => {
       expect(ids).toContain(match.id);
     });
 
+    it('finds a conversation by the customer full name, and not by a moderator name', async () => {
+      const moderator = await createModerator({ firstName: 'Zorblat' });
+      const customer = await createCustomer({ firstName: 'Justin', lastName: 'Ablog' });
+      const other = await createCustomer({ firstName: 'Maria', lastName: 'Santos' });
+      const match = await createTestChatRoom({ participantIds: [customer.user.id, moderator.user.id] });
+      const miss = await createTestChatRoom({ participantIds: [other.user.id] });
+      const idsFor = async (search: string): Promise<string[]> => {
+        const response = await request(app).get('/api/chat').set('Authorization', `Bearer ${moderator.token}`).query({ search });
+        return (response.body.data.conversations as Array<{ id: string }>).map((c) => c.id);
+      };
+
+      const found = await idsFor('justin ablog');
+      expect(found).toContain(match.id);
+      expect(found).not.toContain(miss.id);
+      expect(await idsFor(moderator.user.firstName)).not.toContain(match.id);
+    });
+
     it('paginates conversations', async () => {
       const moderator = await createModerator();
       const customer = await createCustomer();
@@ -582,6 +599,128 @@ describe('Chat module', () => {
 
       const count = await prisma.message.count({ where: { chatRoomId: room.id } });
       expect(count).toBe(0);
+    });
+  });
+
+  // ================================================================
+  // STAFF INBOX: PIN AND ARCHIVE
+  // ================================================================
+  describe('Pin and archive', () => {
+    const listIds = async (token: string, query: Record<string, string> = {}): Promise<string[]> => {
+      const response = await request(app).get('/api/chat').set('Authorization', `Bearer ${token}`).query(query);
+      expect(response.status).toBe(200);
+      return (response.body.data.conversations as Array<{ id: string }>).map((c) => c.id);
+    };
+    const pin = (token: string, id: string, pinned: boolean) => request(app).patch(`/api/chat/${id}/pin`).set('Authorization', `Bearer ${token}`).send({ pinned });
+    const archive = (token: string, id: string, archived: boolean) => request(app).patch(`/api/chat/${id}/archive`).set('Authorization', `Bearer ${token}`).send({ archived });
+
+    it('lists a pinned conversation first without counting as activity, and unpins it', async () => {
+      const moderator = await createModerator();
+      const customer = await createCustomer();
+      const older = await createTestChatRoom({ participantIds: [customer.user.id] });
+      const newer = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await prisma.chatRoom.update({ where: { id: older.id }, data: { updatedAt: new Date('2026-01-01T00:00:00Z') } });
+
+      expectApiSuccess(await pin(moderator.token, older.id, true), 200, 'Conversation pinned.');
+
+      expect((await listIds(moderator.token)).slice(0, 2)).toEqual([older.id, newer.id]);
+      expect((await prisma.chatRoom.findUnique({ where: { id: older.id } }))?.updatedAt.toISOString()).toBe('2026-01-01T00:00:00.000Z');
+
+      expectApiSuccess(await pin(moderator.token, older.id, false), 200, 'Conversation unpinned.');
+      expect((await listIds(moderator.token)).slice(0, 2)).toEqual([newer.id, older.id]);
+    });
+
+    it('moves an archived conversation to the Archived list, dropping its pin, and back', async () => {
+      const moderator = await createModerator();
+      const customer = await createCustomer();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await pin(moderator.token, room.id, true);
+
+      expectApiSuccess(await archive(moderator.token, room.id, true), 200, 'Conversation archived.');
+
+      expect(await listIds(moderator.token)).not.toContain(room.id);
+      expect(await listIds(moderator.token, { archived: 'true' })).toContain(room.id);
+      expect((await prisma.chatRoom.findUnique({ where: { id: room.id } }))?.pinnedAt).toBeNull();
+
+      expectApiSuccess(await archive(moderator.token, room.id, false), 200, 'Conversation moved back to the inbox.');
+      expect(await listIds(moderator.token)).toContain(room.id);
+      expect(await listIds(moderator.token, { archived: 'true' })).not.toContain(room.id);
+    });
+
+    it('refuses to pin an archived conversation', async () => {
+      const moderator = await createModerator();
+      const customer = await createCustomer();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await archive(moderator.token, room.id, true);
+
+      expectApiError(await pin(moderator.token, room.id, true), 400);
+      expect((await prisma.chatRoom.findUnique({ where: { id: room.id } }))?.pinnedAt).toBeNull();
+    });
+
+    it('brings an archived conversation back when the customer writes, but not when a moderator does', async () => {
+      const moderator = await createModerator();
+      const customer = await createCustomer();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await archive(moderator.token, room.id, true);
+
+      await request(app).post(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${moderator.token}`).send({ content: 'Closing this one.' });
+      expect((await prisma.chatRoom.findUnique({ where: { id: room.id } }))?.archivedAt).not.toBeNull();
+
+      await request(app).post(`/api/chat/${room.id}/messages`).set('Authorization', `Bearer ${customer.token}`).send({ content: 'One more question.' });
+      expect((await prisma.chatRoom.findUnique({ where: { id: room.id } }))?.archivedAt).toBeNull();
+      expect(await listIds(moderator.token)).toContain(room.id);
+    });
+
+    it('leaves an archived conversation out of the staff unread count', async () => {
+      const moderator = await createModerator();
+      const customer = await createCustomer();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await createTestMessage({ chatRoomId: room.id, senderId: customer.user.id, content: 'Hello' });
+      const unread = async (): Promise<number> => {
+        const response = await request(app).get('/api/chat/unread/count').set('Authorization', `Bearer ${moderator.token}`);
+        return response.body.data.count ?? response.body.data.unreadCount ?? response.body.data;
+      };
+
+      expect(await unread()).toBe(1);
+      await archive(moderator.token, room.id, true);
+      expect(await unread()).toBe(0);
+    });
+
+    it('never shows a customer the inbox state, and an archived conversation stays in their list', async () => {
+      const moderator = await createModerator();
+      const customer = await createCustomer();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+      await archive(moderator.token, room.id, true);
+
+      const list = await request(app).get('/api/chat').set('Authorization', `Bearer ${customer.token}`).query({ archived: 'false' });
+      const entry = (list.body.data.conversations as Array<Record<string, unknown>>).find((c) => c.id === room.id);
+      expect(entry).toBeDefined();
+      expect(entry).not.toHaveProperty('archivedAt');
+      expect(entry).not.toHaveProperty('pinnedAt');
+
+      const single = await request(app).get(`/api/chat/${room.id}`).set('Authorization', `Bearer ${customer.token}`);
+      expect(single.body.data.conversation).not.toHaveProperty('archivedAt');
+    });
+
+    it('is MODERATOR only: an OWNER and a CUSTOMER get 403 and nothing changes', async () => {
+      const owner = await createOwner();
+      const customer = await createCustomer();
+      const room = await createTestChatRoom({ participantIds: [customer.user.id] });
+
+      for (const token of [owner.token, customer.token]) {
+        expectApiError(await pin(token, room.id, true), 403);
+        expectApiError(await archive(token, room.id, true), 403);
+      }
+      const dbRoom = await prisma.chatRoom.findUnique({ where: { id: room.id } });
+      expect(dbRoom?.pinnedAt).toBeNull();
+      expect(dbRoom?.archivedAt).toBeNull();
+    });
+
+    it('returns 404 for a nonexistent conversation', async () => {
+      const moderator = await createModerator();
+      const missing = '00000000-0000-0000-0000-000000000000';
+      expectApiError(await pin(moderator.token, missing, true), 404);
+      expectApiError(await archive(moderator.token, missing, true), 404);
     });
   });
 });

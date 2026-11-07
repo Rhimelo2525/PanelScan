@@ -27,6 +27,8 @@ export interface ConversationFilters {
   page?: number;
   limit?: number;
   search?: string;
+  /** Staff inbox: the Archived list rather than the normal one. */
+  archived?: boolean;
 }
 
 /** A conversation list entry: the room, plus a preview (latest message) and a badge (unread count) - standard chat-list UI needs. */

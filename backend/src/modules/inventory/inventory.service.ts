@@ -2,6 +2,7 @@ import { Prisma, RequestStatus, RequestType } from '@prisma/client';
 
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
+import { DEFAULT_REORDER_LEVEL } from './inventory.constants';
 import { notifyStockLevelChange } from '../notifications/notification.triggers';
 import { parseDescription } from '../request/request.types';
 
@@ -121,7 +122,7 @@ export class InventoryService {
   async createInventory(
     productId: string,
     quantity: number,
-    reorderLevel = 10,
+    reorderLevel = DEFAULT_REORDER_LEVEL,
     warehouseLocation = 'Main Warehouse',
   ): Promise<InventoryWithProduct> {
     const product = await prisma.product.findFirst({ where: { id: productId, deletedAt: null } });
@@ -195,7 +196,7 @@ export class InventoryService {
           productId,
           quantity,
           reservedQty: 0,
-          reorderLevel: 10,
+          reorderLevel: DEFAULT_REORDER_LEVEL,
           warehouseLocation: 'Main Warehouse',
           lastRestockedAt: new Date(),
         },

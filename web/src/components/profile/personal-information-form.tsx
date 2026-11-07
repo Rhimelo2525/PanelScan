@@ -82,6 +82,7 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
 
   const isDirty = (Object.keys(values) as ProfileField[]).some((field) => values[field].trim() !== saved[field].trim())
   const age = calculateAge(values.birthdate)
+  const isLocked = user.emailVerified === false
 
   function updateValue(field: ProfileField, value: string) {
     setValues((current) => ({ ...current, [field]: sanitizeNameInput(field, value) }))
@@ -122,7 +123,8 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-5">
+    <form onSubmit={handleSubmit} noValidate>
+      <fieldset disabled={isLocked} className="min-w-0 space-y-5">
       {submissionError && <FormError message={submissionError} />}
       <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
         <TextField field="firstName" label="First name" value={values.firstName} error={errors.firstName} onChange={updateValue} autoComplete="given-name" maxLength={35} />
@@ -172,13 +174,16 @@ export function PersonalInformationForm({ user }: { user: AuthUser }) {
         <p id="profile-email-hint" className="mt-1.5 text-xs text-muted-foreground">Your email is your login and where security codes are sent, so it can&apos;t be changed here.</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 pt-1">
-        <Button type="submit" size="lg" className="h-11" disabled={isSaving || !isDirty}>
-          {isSaving && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-          {isSaving ? "Saving…" : "Save changes"}
-        </Button>
-        <Button type="button" variant="ghost" size="lg" className="h-11" onClick={handleDiscard} disabled={isSaving || !isDirty}>Discard changes</Button>
-      </div>
+      {!isLocked && (
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <Button type="submit" size="lg" className="h-11" disabled={isSaving || !isDirty}>
+            {isSaving && <LoaderCircle className="animate-spin" aria-hidden="true" />}
+            {isSaving ? "Saving…" : "Save changes"}
+          </Button>
+          <Button type="button" variant="ghost" size="lg" className="h-11" onClick={handleDiscard} disabled={isSaving || !isDirty}>Discard changes</Button>
+        </div>
+      )}
+      </fieldset>
     </form>
   )
 }

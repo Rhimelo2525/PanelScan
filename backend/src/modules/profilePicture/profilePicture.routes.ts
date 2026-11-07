@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { authenticate } from '../../middleware/auth.middleware';
 import { profilePictureRateLimiter } from '../../middleware/rateLimit.middleware';
-import { restrictTo } from '../../middleware/role.middleware';
+import { requireVerifiedEmail, restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { profilePictureController } from './profilePicture.controller';
 import { receiveProfileImage } from './profilePicture.upload';
@@ -19,23 +19,25 @@ const idParamsSchema = z.object({
 // sub-resource of the user it belongs to.
 const router = Router();
 
-// PUT /api/auth/me/profile-picture - multipart, field "image". Customers only;
+// PUT /api/auth/me/profile-picture - multipart, field "image". Customers with a verified email only;
 // the target is always the caller - there is no id parameter to tamper with.
 router.put(
   '/auth/me/profile-picture',
   profilePictureRateLimiter,
   authenticate,
   restrictTo(UserRole.CUSTOMER),
+  requireVerifiedEmail,
   receiveProfileImage,
   profilePictureController.upload,
 );
 
-// DELETE /api/auth/me/profile-picture
+// DELETE /api/auth/me/profile-picture - verified email only
 router.delete(
   '/auth/me/profile-picture',
   profilePictureRateLimiter,
   authenticate,
   restrictTo(UserRole.CUSTOMER),
+  requireVerifiedEmail,
   profilePictureController.remove,
 );
 

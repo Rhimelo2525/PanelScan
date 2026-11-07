@@ -4,13 +4,13 @@
  * getStockStatus, so the same quantity always shows the same status.
  *
  * It reuses each product's existing reorder threshold (Inventory.reorderLevel,
- * default 10, editable on the Inventory page) and adds a "Critical" tier at half
+ * default 30, editable on the Inventory page) and adds a "Critical" tier at half
  * of it:
  *
  *   available = 0                          -> Out of Stock
- *   available <= floor(reorderLevel / 2)   -> Critical      (default: 1-5)
- *   available <= reorderLevel              -> Low Stock     (default: 6-10)
- *   otherwise                              -> In Stock      (default: 11+)
+ *   available <= floor(reorderLevel / 2)   -> Critical      (default: 1-15)
+ *   available <= reorderLevel              -> Low Stock     (default: 16-30)
+ *   otherwise                              -> In Stock      (default: 31+)
  *
  * "Available" is on-hand quantity minus reserved, the same figure cart and
  * checkout validate against.

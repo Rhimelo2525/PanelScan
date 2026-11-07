@@ -34,8 +34,8 @@ android {
         applicationId = "com.example.panelscan"
         minSdk = 24
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.5"
+        versionCode = 9
+        versionName = "1.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

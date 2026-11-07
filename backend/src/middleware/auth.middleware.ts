@@ -31,7 +31,7 @@ export const authenticate = catchAsync(async (req: Request, _res: Response, next
     throw new AppError('This user account has been deactivated.', 403);
   }
 
-  req.user = { id: user.id, email: user.email, role: user.role };
+  req.user = { id: user.id, email: user.email, role: user.role, emailVerified: user.emailVerified };
   next();
 });
 
@@ -55,7 +55,7 @@ export const authenticateOptional = catchAsync(async (req: Request, _res: Respon
     const decoded = verifyToken(token);
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (user && user.isActive) {
-      req.user = { id: user.id, email: user.email, role: user.role };
+      req.user = { id: user.id, email: user.email, role: user.role, emailVerified: user.emailVerified };
     }
   } catch {
     // Guest fallback for expired / invalid token

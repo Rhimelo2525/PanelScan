@@ -198,6 +198,9 @@ fun CustomerProfileScreen(
         )
     }
 
+    // The backend enforces this too; here it just keeps the controls from promising otherwise.
+    val canEdit = currentUser.emailVerified
+
     val openDatePicker = {
         val parts = birthdate.split('-')
         val initialYear = parts.getOrNull(0)?.toIntOrNull() ?: 2000
@@ -233,6 +236,31 @@ fun CustomerProfileScreen(
                     .padding(horizontal = Spacing.gutter, vertical = Spacing.md),
                 verticalArrangement = Arrangement.spacedBy(Spacing.md)
             ) {
+                // First thing on the screen while it is what stands between them and everything below.
+                if (!canEdit) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(PanelScan.shapes.control)
+                            .background(colors.accentSoft)
+                            .padding(Spacing.sm),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Lock,
+                            contentDescription = null,
+                            tint = colors.accent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Verify your email to edit your profile and check out. Measuring with AR and the 3D preview still work.",
+                            style = PanelScan.type.supporting,
+                            color = colors.textPrimary
+                        )
+                    }
+                    EmailVerificationCard(user = currentUser, authRepository = authRepository)
+                }
+
                 // Avatar Picker Section
                 Box(
                     modifier = Modifier
@@ -244,7 +272,7 @@ fun CustomerProfileScreen(
                     Box(
                         modifier = Modifier
                             .size(108.dp)
-                            .clickable(enabled = !isUploadingPhoto) { photoPickerLauncher.launch("image/*") },
+                            .clickable(enabled = canEdit && !isUploadingPhoto) { photoPickerLauncher.launch("image/*") },
                         contentAlignment = Alignment.Center
                     ) {
                         ProfilePhoto(
@@ -267,37 +295,41 @@ fun CustomerProfileScreen(
                         }
 
                         // Edit Badge
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(colors.accent)
-                                .border(2.dp, colors.surface, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.CameraAlt,
-                                contentDescription = "Change photo",
-                                tint = colors.accentContrast,
-                                modifier = Modifier.size(16.dp)
-                            )
+                        if (canEdit) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accent)
+                                    .border(2.dp, colors.surface, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CameraAlt,
+                                    contentDescription = "Change photo",
+                                    tint = colors.accentContrast,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                Text(
-                    text = when {
-                        isUploadingPhoto -> "Saving your photo…"
-                        currentUser.profilePictureUri == null -> "Tap the photo to add a profile picture"
-                        else -> "Tap the photo to change it"
-                    },
-                    style = PanelScan.type.label,
-                    color = colors.textTertiary,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                if (currentUser.profilePictureUri != null && !isUploadingPhoto) {
+                if (canEdit) {
+                    Text(
+                        text = when {
+                            isUploadingPhoto -> "Saving your photo…"
+                            currentUser.profilePictureUri == null -> "Tap the photo to add a profile picture"
+                            else -> "Tap the photo to change it"
+                        },
+                        style = PanelScan.type.label,
+                        color = colors.textTertiary,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+                if (canEdit && currentUser.profilePictureUri != null && !isUploadingPhoto) {
                     TextButton(
                         onClick = { confirmRemovePhoto = true },
                         modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -375,7 +407,8 @@ fun CustomerProfileScreen(
                             label = "First Name",
                             placeholder = "Juan",
                             leadingIcon = Icons.Rounded.Person,
-                            errorText = firstNameError
+                            errorText = firstNameError,
+                            enabled = canEdit
                         )
 
                         PanelScanTextField(
@@ -388,7 +421,8 @@ fun CustomerProfileScreen(
                             label = "Last Name",
                             placeholder = "Dela Cruz",
                             leadingIcon = Icons.Rounded.Person,
-                            errorText = lastNameError
+                            errorText = lastNameError,
+                            enabled = canEdit
                         )
 
                         // Read-only Email
@@ -428,7 +462,8 @@ fun CustomerProfileScreen(
                                 successMessage = null
                             },
                             label = "Contact Number",
-                            errorText = phoneError
+                            errorText = phoneError,
+                            enabled = canEdit
                         )
 
                         // Birthdate and Age Display
@@ -444,8 +479,9 @@ fun CustomerProfileScreen(
                                     label = "Birthdate",
                                     placeholder = "YYYY-MM-DD",
                                     leadingIcon = Icons.Rounded.CalendarToday,
+                                    enabled = canEdit,
                                     trailingIcon = {
-                                        IconButton(onClick = openDatePicker) {
+                                        IconButton(onClick = openDatePicker, enabled = canEdit) {
                                             Icon(
                                                 imageVector = Icons.Rounded.CalendarToday,
                                                 contentDescription = "Select birthdate",
@@ -485,7 +521,9 @@ fun CustomerProfileScreen(
                 }
 
                 // Email verification (sent at sign-up; verified here, as on the website)
-                EmailVerificationCard(user = currentUser, authRepository = authRepository)
+                if (canEdit) {
+                    EmailVerificationCard(user = currentUser, authRepository = authRepository)
+                }
 
                 // Security / Change Password Button
                 PanelCard(
@@ -517,58 +555,61 @@ fun CustomerProfileScreen(
                 }
 
                 // Save CTA
-                PrimaryButton(
-                    text = "Save Changes",
-                    onClick = {
-                        focusManager.clearFocus()
-                        val cleanFirst = firstName.trim()
-                        val cleanLast = lastName.trim()
+                if (canEdit) {
+                    PrimaryButton(
+                        text = "Save Changes",
+                        onClick = {
+                            focusManager.clearFocus()
+                            val cleanFirst = firstName.trim()
+                            val cleanLast = lastName.trim()
 
-                        var hasError = false
-                        if (cleanFirst.length < 2) {
-                            firstNameError = "First name must be at least 2 characters."
-                            hasError = true
-                        }
-                        if (cleanLast.length < 2) {
-                            lastNameError = "Last name must be at least 2 characters."
-                            hasError = true
-                        }
-                        if (phoneDigits.isNotBlank() && phoneDigits.length != 10) {
-                            phoneError = "Please enter 10 digits after +63."
-                            hasError = true
-                        }
+                            var hasError = false
+                            if (cleanFirst.length < 2) {
+                                firstNameError = "First name must be at least 2 characters."
+                                hasError = true
+                            }
+                            if (cleanLast.length < 2) {
+                                lastNameError = "Last name must be at least 2 characters."
+                                hasError = true
+                            }
+                            if (phoneDigits.isNotBlank() && phoneDigits.length != 10) {
+                                phoneError = "Please enter 10 digits after +63."
+                                hasError = true
+                            }
 
-                        if (hasError) return@PrimaryButton
+                            if (hasError) return@PrimaryButton
 
-                        isSaving = true
-                        coroutineScope.launch {
-                            val res = authRepository.updateProfile(
-                                firstName = cleanFirst,
-                                lastName = cleanLast,
-                                phone = if (phoneDigits.isNotBlank()) phoneDigits else null,
-                                birthdate = birthdate
-                            )
-                            isSaving = false
-                            when (res) {
-                                is AuthResult.Success -> {
-                                    successMessage = "Profile updated successfully!"
-                                    errorMessage = null
-                                }
-                                is AuthResult.Error -> {
-                                    errorMessage = res.message
-                                    successMessage = null
+                            isSaving = true
+                            coroutineScope.launch {
+                                val res = authRepository.updateProfile(
+                                    firstName = cleanFirst,
+                                    lastName = cleanLast,
+                                    phone = if (phoneDigits.isNotBlank()) phoneDigits else null,
+                                    birthdate = birthdate
+                                )
+                                isSaving = false
+                                when (res) {
+                                    is AuthResult.Success -> {
+                                        successMessage = "Profile updated successfully!"
+                                        errorMessage = null
+                                    }
+                                    is AuthResult.Error -> {
+                                        errorMessage = res.message
+                                        successMessage = null
+                                    }
                                 }
                             }
-                        }
-                    },
-                    enabled = !isSaving,
-                    icon = Icons.Rounded.Save,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                        },
+                        enabled = !isSaving,
+                        icon = Icons.Rounded.Save,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 // Saved delivery addresses (own actions; not part of "Save Changes")
                 ShippingAddressesSection(
                     addressRepository = addressRepository,
+                    canEdit = canEdit,
                     notice = addressNotice,
                     onNoticeShown = onAddressNoticeShown,
                     onAddAddress = onAddAddress,

@@ -24,11 +24,12 @@ import { SYNC_ORDER, checkGeneratedClient, checkLiveBackupSchema } from '../src/
  * the owner or an approved moderator request, then recorded again). Those
  * deletes are not mirrored in real time, so the backup kept the old row and
  * the new one then failed the unique key - (cart_id, product_id) or
- * (product_id) - on every run. For these tables only, rows no longer in the
- * primary are removed from the backup before the upsert. Every other table
- * keeps rows the primary has lost, as a backup should.
+ * (product_id) - on every run. An installer is the same: deleted, then added
+ * again with the same email, it would fail the unique email. For these tables
+ * only, rows no longer in the primary are removed from the backup before the
+ * upsert. Every other table keeps rows the primary has lost, as a backup should.
  */
-const MIRROR_DELETES = new Set(['cartItem', 'inventory']);
+const MIRROR_DELETES = new Set(['cartItem', 'inventory', 'installer']);
 
 interface TableReport {
   table: string;

@@ -19,10 +19,15 @@ const getRequester = (req: Request): Requester => {
   return { id: req.user.id, role: req.user.role };
 };
 
+/** Pinned and archived are how staff organise their inbox; a customer's own view never carries them. */
+const hideInboxState = <Room extends object>(room: Room, role: UserRole): Room =>
+  role === UserRole.CUSTOMER ? { ...room, pinnedAt: undefined, archivedAt: undefined } : room;
+
 const parseConversationFilters = (query: Request['query']): ConversationFilters => ({
   page: typeof query.page === 'string' ? Number(query.page) : undefined,
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   search: typeof query.search === 'string' ? query.search : undefined,
+  archived: query.archived === 'true',
 });
 
 const parseMessageFilters = (query: Request['query']): MessageFilters => ({
@@ -37,19 +42,32 @@ export class ChatController {
   createRoom = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const { conversation, created } = await this.chatService.createChatRoom(requester.id, req.body);
-    sendSuccess(res, created ? 201 : 200, created ? 'Conversation created successfully.' : 'Conversation retrieved successfully.', { conversation });
+    sendSuccess(res, created ? 201 : 200, created ? 'Conversation created successfully.' : 'Conversation retrieved successfully.', { conversation: hideInboxState(conversation, requester.role) });
   });
 
   getConversations = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const result = await this.chatService.getConversations(requester.id, requester.role, parseConversationFilters(req.query));
-    sendSuccess(res, 200, 'Conversations retrieved successfully.', result);
+    sendSuccess(res, 200, 'Conversations retrieved successfully.', {
+      ...result,
+      conversations: result.conversations.map((conversation) => hideInboxState(conversation, requester.role)),
+    });
   });
 
   getConversationById = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const requester = getRequester(req);
     const conversation = await this.chatService.getConversationById(req.params.id as string, requester.id, requester.role);
-    sendSuccess(res, 200, 'Conversation retrieved successfully.', { conversation });
+    sendSuccess(res, 200, 'Conversation retrieved successfully.', { conversation: hideInboxState(conversation, requester.role) });
+  });
+
+  setPinned = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const conversation = await this.chatService.setPinned(req.params.id as string, req.body.pinned);
+    sendSuccess(res, 200, req.body.pinned ? 'Conversation pinned.' : 'Conversation unpinned.', { conversation });
+  });
+
+  setArchived = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const conversation = await this.chatService.setArchived(req.params.id as string, req.body.archived);
+    sendSuccess(res, 200, req.body.archived ? 'Conversation archived.' : 'Conversation moved back to the inbox.', { conversation });
   });
 
   sendMessage = catchAsync(async (req: Request, res: Response): Promise<void> => {

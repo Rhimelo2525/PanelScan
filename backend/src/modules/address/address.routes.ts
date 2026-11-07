@@ -2,7 +2,7 @@ import { UserRole } from '@prisma/client';
 import { Router } from 'express';
 
 import { authenticate } from '../../middleware/auth.middleware';
-import { restrictTo } from '../../middleware/role.middleware';
+import { requireVerifiedEmail, restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { addressController } from './address.controller';
 import { addressIdParamsSchema, createAddressSchema, reverseGeocodeSchema, updateAddressSchema } from './address.validation';
@@ -21,16 +21,17 @@ router.get('/reverse-geocode', validate(reverseGeocodeSchema), addressController
 // GET /api/addresses
 router.get('/', addressController.list);
 
+// Changing them is part of editing the profile: verified email only.
 // POST /api/addresses
-router.post('/', validate(createAddressSchema), addressController.create);
+router.post('/', requireVerifiedEmail, validate(createAddressSchema), addressController.create);
 
 // PUT /api/addresses/:id - full replacement; the address form always sends every field.
-router.put('/:id', validate(updateAddressSchema), addressController.update);
+router.put('/:id', requireVerifiedEmail, validate(updateAddressSchema), addressController.update);
 
 // PATCH /api/addresses/:id/default
-router.patch('/:id/default', validate(addressIdParamsSchema), addressController.setDefault);
+router.patch('/:id/default', requireVerifiedEmail, validate(addressIdParamsSchema), addressController.setDefault);
 
 // DELETE /api/addresses/:id
-router.delete('/:id', validate(addressIdParamsSchema), addressController.remove);
+router.delete('/:id', requireVerifiedEmail, validate(addressIdParamsSchema), addressController.remove);
 
 export default router;

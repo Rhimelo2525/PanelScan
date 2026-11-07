@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { AppError } from '../../utils/AppError';
 import { catchAsync } from '../../utils/catchAsync';
+import { DEFAULT_REORDER_LEVEL } from './inventory.constants';
 import { sendSuccess } from '../../utils/response';
 import { requestService } from '../request/request.service';
 import { parseDescription, serializeDescription } from '../request/request.types';
@@ -83,9 +84,9 @@ export class InventoryController {
           'Product Code': product.sku,
           'Physical Stock': quantity,
           'Warehouse Location': warehouseLocation || 'Main Warehouse',
-          'Reorder Level': reorderLevel ?? 10,
+          'Reorder Level': reorderLevel ?? DEFAULT_REORDER_LEVEL,
         },
-        productData: { productId, quantity, reorderLevel: reorderLevel ?? 10, warehouseLocation: warehouseLocation || 'Main Warehouse' },
+        productData: { productId, quantity, reorderLevel: reorderLevel ?? DEFAULT_REORDER_LEVEL, warehouseLocation: warehouseLocation || 'Main Warehouse' },
       };
 
       const request = await requestService.createRequest(req.user.id, {

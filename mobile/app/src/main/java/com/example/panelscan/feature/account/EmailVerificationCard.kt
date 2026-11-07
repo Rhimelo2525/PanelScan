@@ -95,7 +95,7 @@ fun EmailVerificationCard(
             }
 
             Text(
-                text = "Verify ${user.email} to prove it's yours. Password recovery only works for verified emails.",
+                text = "Verify ${user.email} to check out and edit your profile. Password recovery also needs a verified email.",
                 style = PanelScan.type.supporting,
                 color = colors.textSecondary
             )

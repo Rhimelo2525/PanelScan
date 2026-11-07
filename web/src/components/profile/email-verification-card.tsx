@@ -63,7 +63,7 @@ export function EmailVerificationCard({ user }: { user: AuthUser }) {
     try {
       updateUser(await verifyEmail(code))
       setCode("")
-      toast.success("Email verified", { description: "You can now use it to recover your password." })
+      toast.success("Email verified", { description: "You can now check out and edit your profile." })
     } catch (caught) {
       setError(getAccountErrorMessage(caught, "We couldn't verify that code. Please try again."))
     } finally {
@@ -93,7 +93,7 @@ export function EmailVerificationCard({ user }: { user: AuthUser }) {
         <EmailStatusBadge verified={false} />
       </div>
       <p className="mt-3 text-sm leading-6 text-muted-foreground">
-        Verify <span className="break-all font-medium text-foreground">{user.email}</span> to prove it&apos;s yours. Password recovery only works for verified emails.
+        Verify <span className="break-all font-medium text-foreground">{user.email}</span> to check out and edit your profile. Password recovery also needs a verified email.
       </p>
       <form onSubmit={handleVerify} noValidate className="mt-4 space-y-3">
         <div>

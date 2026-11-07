@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.panelscan.core.design.PanelScan
 import com.example.panelscan.core.design.PanelScanMotion
 import com.example.panelscan.core.design.Spacing
@@ -124,6 +125,46 @@ fun SpecRow(
             color = if (valueColor == Color.Unspecified) colors.textPrimary else valueColor,
             textAlign = androidx.compose.ui.text.style.TextAlign.End,
             modifier = Modifier.weight(1f, fill = false)
+        )
+    }
+}
+
+/**
+ * A [SpecRow] that always stays on one line: the value's font shrinks as far as
+ * it has to, down to 10sp, to fit the space the label leaves. For short values
+ * (names, numbers, statuses); free text that must be read in full needs its own lines.
+ */
+@Composable
+fun FitSpecRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    val colors = PanelScan.colors
+    val valueStyle = PanelScan.type.cardTitle
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = PanelScan.type.body,
+            color = colors.textSecondary,
+            maxLines = 1,
+            modifier = Modifier.padding(end = Spacing.sm)
+        )
+        androidx.compose.foundation.text.BasicText(
+            text = value,
+            style = valueStyle.copy(color = colors.textPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.End),
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(
+                minFontSize = 10.sp,
+                maxFontSize = valueStyle.fontSize,
+                stepSize = 0.5.sp
+            ),
+            modifier = Modifier.weight(1f)
         )
     }
 }

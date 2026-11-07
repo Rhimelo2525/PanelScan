@@ -15,7 +15,7 @@ const router = Router();
 // bookings/projects", which doesn't mention installers).
 router.use(authenticate, restrictTo(UserRole.MODERATOR));
 
-// GET /api/installers - active installers only
+// GET /api/installers - active installers, unless ?status=inactive or ?status=all
 router.get('/', validate(listInstallersSchema), installerController.getAll);
 
 // GET /api/installers/:id
@@ -29,5 +29,11 @@ router.patch('/:id', validate(updateInstallerSchema), installerController.update
 
 // PATCH /api/installers/:id/deactivate
 router.patch('/:id/deactivate', validate(idParamsSchema), installerController.deactivate);
+
+// PATCH /api/installers/:id/activate
+router.patch('/:id/activate', validate(idParamsSchema), installerController.activate);
+
+// DELETE /api/installers/:id - only an installer with no bookings
+router.delete('/:id', validate(idParamsSchema), installerController.delete);
 
 export default router;

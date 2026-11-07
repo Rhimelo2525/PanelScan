@@ -18,7 +18,7 @@ const daysFromNow = (days: number): string => new Date(Date.now() + days * 24 * 
 describe('Customer profile', () => {
   describe('GET /api/auth/me', () => {
     it('returns the profile fields, verification status and hasPassword - never the password', async () => {
-      const { token, user } = await createCustomer({ email: 'me-fields@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'me-fields@panelscan.test', emailVerified: false });
       await prisma.user.update({ where: { id: user.id }, data: { birthdate: new Date('1994-03-09T00:00:00.000Z'), address: '12 Rizal St, Manila' } });
 
       const response = await request(app).get('/api/auth/me').set(authHeader(token));
@@ -119,19 +119,28 @@ describe('Customer profile', () => {
       expect(stored?.firstName).toBe('Kept');
     });
 
-    it('cannot be used to escalate role or verify the email', async () => {
+    it('cannot be used to escalate role or change the verification status', async () => {
       const { token, user } = await createCustomer({ email: 'profile-escalate@panelscan.test' });
 
       const response = await request(app)
         .patch('/api/auth/me')
         .set(authHeader(token))
-        .send({ firstName: 'Sneaky', role: 'OWNER', emailVerified: true, isActive: false });
+        .send({ firstName: 'Sneaky', role: 'OWNER', emailVerified: false, isActive: false });
 
       expect(response.status).toBe(200);
       const stored = await prisma.user.findUnique({ where: { id: user.id } });
       expect(stored?.role).toBe('CUSTOMER');
-      expect(stored?.emailVerified).toBe(false);
+      expect(stored?.emailVerified).toBe(true);
       expect(stored?.isActive).toBe(true);
+    });
+
+    it('cannot be used to verify the email', async () => {
+      const { token, user } = await createCustomer({ email: 'profile-self-verify@panelscan.test', emailVerified: false });
+
+      const response = await request(app).patch('/api/auth/me').set(authHeader(token)).send({ emailVerified: true });
+
+      expect(response.status).toBe(403);
+      expect((await prisma.user.findUnique({ where: { id: user.id } }))?.emailVerified).toBe(false);
     });
 
     it.each([
@@ -289,7 +298,7 @@ describe('Customer profile', () => {
     });
 
     it('marks an existing password account verified when Google links to it', async () => {
-      const { user: existing } = await createCustomer({ email: profile.email });
+      const { user: existing } = await createCustomer({ email: profile.email, emailVerified: false });
       expect(existing.emailVerified).toBe(false);
 
       const { user } = await authService.loginWithGoogle(profile);

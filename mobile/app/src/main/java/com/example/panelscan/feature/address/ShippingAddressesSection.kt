@@ -58,7 +58,9 @@ fun ShippingAddressesSection(
     onNoticeShown: () -> Unit,
     onAddAddress: () -> Unit,
     onEditAddress: (SavedAddress) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** False until the account's email is verified: the addresses can be read, not changed. */
+    canEdit: Boolean = true
 ) {
     val colors = PanelScan.colors
     val scope = rememberCoroutineScope()
@@ -94,7 +96,7 @@ fun ShippingAddressesSection(
                 style = PanelScan.type.supporting,
                 color = colors.textSecondary
             )
-            if (addresses.isNotEmpty()) {
+            if (canEdit && addresses.isNotEmpty()) {
                 SecondaryButton(text = "Add new address", icon = Icons.Rounded.AddLocationAlt, onClick = onAddAddress, fillMaxWidth = false)
             }
 
@@ -118,15 +120,19 @@ fun ShippingAddressesSection(
                 ) {
                     Text("No shipping address saved yet.", style = PanelScan.type.cardTitle, color = colors.textPrimary)
                     Text(
-                        "Pin your location on the map once, and checkout will be a single tap from then on.",
+                        if (canEdit) "Pin your location on the map once, and checkout will be a single tap from then on."
+                        else "Verify your email to add one.",
                         style = PanelScan.type.supporting,
                         color = colors.textSecondary
                     )
-                    PrimaryButton(text = "Add shipping address", icon = Icons.Rounded.AddLocationAlt, onClick = onAddAddress, fillMaxWidth = false)
+                    if (canEdit) {
+                        PrimaryButton(text = "Add shipping address", icon = Icons.Rounded.AddLocationAlt, onClick = onAddAddress, fillMaxWidth = false)
+                    }
                 }
                 else -> addresses.forEach { address ->
                     AddressCard(
                         address = address,
+                        canEdit = canEdit,
                         busy = busyId == address.id,
                         onSetDefault = {
                             busyId = address.id
@@ -186,6 +192,7 @@ fun ShippingAddressesSection(
 @Composable
 private fun AddressCard(
     address: SavedAddress,
+    canEdit: Boolean,
     busy: Boolean,
     onSetDefault: () -> Unit,
     onEdit: () -> Unit,
@@ -214,12 +221,14 @@ private fun AddressCard(
             style = PanelScan.type.supporting,
             color = colors.textSecondary
         )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            if (!address.isDefault) {
-                SecondaryButton(text = "Set as default", icon = Icons.Rounded.Star, onClick = onSetDefault, enabled = !busy, fillMaxWidth = false)
+        if (canEdit) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                if (!address.isDefault) {
+                    SecondaryButton(text = "Set as default", icon = Icons.Rounded.Star, onClick = onSetDefault, enabled = !busy, fillMaxWidth = false)
+                }
+                SecondaryButton(text = "Edit", icon = Icons.Rounded.Edit, onClick = onEdit, enabled = !busy, fillMaxWidth = false)
+                SecondaryButton(text = "Delete", icon = Icons.Rounded.Delete, onClick = onDelete, enabled = !busy, fillMaxWidth = false, destructive = true)
             }
-            SecondaryButton(text = "Edit", icon = Icons.Rounded.Edit, onClick = onEdit, enabled = !busy, fillMaxWidth = false)
-            SecondaryButton(text = "Delete", icon = Icons.Rounded.Delete, onClick = onDelete, enabled = !busy, fillMaxWidth = false, destructive = true)
         }
     }
 }

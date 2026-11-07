@@ -198,6 +198,8 @@ Body: `{ "currentPassword", "newPassword", "confirmPassword", "refreshToken"? }`
 - Revokes the customer's other refresh tokens (their sessions on other devices). Pass this device's `refreshToken` to keep its own session alive.
 - `400` for a Google-only account, which has no password to change (they can create one via the recovery flow below).
 
+**Verified email required** — until a customer verifies their email, `403` `"Please verify your email address first. You can do this in your profile."` answers `POST /api/orders`, `PATCH /api/auth/me`, changing or removing the profile picture, and adding, changing or deleting saved addresses. Everything else stays open, including AR measurements, projects, the cart, reading saved addresses, paying for an order already placed, and changing the password.
+
 **POST `/api/auth/send-verification-email`** / **POST `/api/auth/verify-email`** *(customers only)*
 - `send-verification-email` (no body) emails a 6-digit code to the account's own address. `429` during the 60-second resend cooldown; `503` if the email could not be sent. If already verified it does nothing and returns `data.alreadyVerified: true`.
 - `verify-email` — body `{ "code": "123456" }` — marks the email verified and returns the updated `user`. `400` `"The code is invalid or has expired."` for any wrong/expired/used-up code.

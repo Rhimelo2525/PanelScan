@@ -210,6 +210,7 @@ internal fun deliveryStatusLabel(raw: String?): String = when (raw?.uppercase())
     "AWAITING_PAYMENT" -> "Awaiting customer payment"
     "READY_TO_BOOK" -> "Ready to book"
     "NOT_REQUESTED" -> "Not requested"
+    "NOT BOOKED" -> "Not booked"
     "NOT_SCHEDULED" -> "Not scheduled"
     "PREPARING" -> "Preparing delivery"
     "VEHICLE_SELECTED" -> "Vehicle selected"

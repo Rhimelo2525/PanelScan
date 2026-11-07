@@ -264,7 +264,7 @@ model Inventory {
   productId         String    @unique @map("product_id") @db.Uuid
   quantity          Int       @default(0)
   reservedQty       Int       @default(0) @map("reserved_qty")
-  reorderLevel      Int       @default(10) @map("reorder_level")
+  reorderLevel      Int       @default(30) @map("reorder_level")
   warehouseLocation String?   @map("warehouse_location")
   lastRestockedAt   DateTime? @map("last_restocked_at")
   createdAt         DateTime  @default(now()) @map("created_at")
@@ -591,6 +591,10 @@ model ChatRoom {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   subject   String?
   isActive  Boolean  @default(true) @map("is_active")
+  // Staff inbox only, shared by the whole team: pinned to the top of the list,
+  // or moved out of it to Archived (a new customer message brings it back).
+  pinnedAt   DateTime? @map("pinned_at")
+  archivedAt DateTime? @map("archived_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

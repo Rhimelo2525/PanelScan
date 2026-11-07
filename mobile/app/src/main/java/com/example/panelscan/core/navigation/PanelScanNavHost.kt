@@ -91,6 +91,7 @@ import com.example.panelscan.feature.checkout.CheckoutViewModel
 import com.example.panelscan.feature.checkout.DeliveryLocationPickerScreen
 import com.example.panelscan.core.config.IntegrationConfig
 import com.example.panelscan.feature.checkout.OrderConfirmationScreen
+import com.example.panelscan.feature.checkout.VerifyEmailToCheckoutScreen
 import com.example.panelscan.feature.feedback.FeedbackScreen
 import com.example.panelscan.feature.feedback.FeedbackViewModel
 import com.example.panelscan.feature.home.HomeScreen
@@ -112,6 +113,7 @@ import com.example.panelscan.feature.products.ProductDetailScreen
 import com.example.panelscan.feature.products.ProductsScreen
 import com.example.panelscan.feature.projects.projectShareMessage
 import com.example.panelscan.feature.projects.ProjectDetailScreen
+import com.example.panelscan.feature.projects.projectCheckoutProblem
 import com.example.panelscan.feature.projects.ProjectsScreen
 import com.example.panelscan.feature.projects.ProjectsViewModel
 
@@ -514,6 +516,7 @@ fun PanelScanNavHost(
                     ProjectLoadingScreen()
                 } else {
                     val wallPhoto = remember(project.id) { wallPhotos.load(project.id) }
+                    val catalogue by productRepository.panels.collectAsState()
                     Preview3DScreen(
                         project = project,
                         wallPhoto = wallPhoto?.let { it to wallPhotos.file(it) },
@@ -524,6 +527,20 @@ fun PanelScanNavHost(
                         onAddToCart = { panel, qty ->
                             cartRepository.addToCart(panel, qty).also { problem ->
                                 if (problem == null) navController.navigate(Screen.Cart.route)
+                            }
+                        },
+                        onProceedToCheckout = { panel, qty ->
+                            if (!pricesVisible) {
+                                navController.navigate(Screen.Login.route)
+                                null
+                            } else {
+                                // Today's price and stock; until the catalogue loads, the project's copy (the backend checks again).
+                                val current = productRepository.getPanelById(panel.id) ?: panel.takeIf { catalogue.isEmpty() }
+                                projectCheckoutProblem(current, qty) ?: run {
+                                    current?.let { checkoutViewModel.beginDirectCheckout(it, qty) }
+                                    navController.navigate(Screen.Checkout.route)
+                                    null
+                                }
                             }
                         },
                         showPrice = pricesVisible
@@ -685,12 +702,21 @@ fun PanelScanNavHost(
 
             // Customer Checkout
             composable(Screen.Checkout.route) {
+                val unverifiedUser = (sessionState as? CustomerSessionState.LoggedIn)?.user?.takeUnless { it.emailVerified }
                 if (!pricesVisible) {
                     LaunchedEffect(Unit) {
                         navController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Checkout.route) { inclusive = true }
                         }
                     }
+                } else if (unverifiedUser != null) {
+                    // It may have been verified on the website since this device last loaded the account.
+                    LaunchedEffect(Unit) { authRepository.refreshCurrentUser() }
+                    VerifyEmailToCheckoutScreen(
+                        email = unverifiedUser.email,
+                        onBack = { navController.popBackStack() },
+                        onVerify = { navController.navigate(Screen.CustomerProfile.route) }
+                    )
                 } else {
                     CheckoutScreen(
                         viewModel = checkoutViewModel,

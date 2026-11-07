@@ -23,7 +23,7 @@ const skipCooldown = (userId: string) =>
 describe('Email verification', () => {
   describe('POST /api/auth/send-verification-email', () => {
     it("emails a 6-digit code to the account's own address", async () => {
-      const { token, user } = await createCustomer({ email: 'ev-send@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-send@panelscan.test', emailVerified: false });
 
       const response = await sendCode(token);
 
@@ -34,7 +34,7 @@ describe('Email verification', () => {
     });
 
     it('stores only a keyed hash of the code', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-hash@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-hash@panelscan.test', emailVerified: false });
 
       await sendCode(token);
 
@@ -55,7 +55,7 @@ describe('Email verification', () => {
     });
 
     it('enforces a resend cooldown', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-cooldown@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-cooldown@panelscan.test', emailVerified: false });
 
       await sendCode(token);
       const second = await sendCode(token);
@@ -65,7 +65,7 @@ describe('Email verification', () => {
     });
 
     it('allows another code once the cooldown has passed, replacing the first', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-resend@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-resend@panelscan.test', emailVerified: false });
       await sendCode(token);
       const oldRow = await prisma.emailVerificationCode.findFirstOrThrow({ where: { userId: user.id } });
       await skipCooldown(user.id);
@@ -79,7 +79,7 @@ describe('Email verification', () => {
     });
 
     it('reports a delivery failure and leaves nothing that would block an immediate retry', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-smtp@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-smtp@panelscan.test', emailVerified: false });
       mailbox.failing = true;
 
       const failed = await sendCode(token);
@@ -105,7 +105,7 @@ describe('Email verification', () => {
 
   describe('POST /api/auth/verify-email', () => {
     it('marks the email verified and returns the updated user', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-ok@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-ok@panelscan.test', emailVerified: false });
       await sendCode(token);
 
       const response = await verify(token, mailbox.lastCodeFor(user.email));
@@ -118,7 +118,7 @@ describe('Email verification', () => {
     });
 
     it('rejects a wrong code and stays unverified', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-wrong@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-wrong@panelscan.test', emailVerified: false });
       await sendCode(token);
 
       const response = await verify(token, wrongCodeFor(mailbox.lastCodeFor(user.email)));
@@ -129,7 +129,7 @@ describe('Email verification', () => {
     });
 
     it('rejects an expired code', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-expired@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-expired@panelscan.test', emailVerified: false });
       await sendCode(token);
       const code = mailbox.lastCodeFor(user.email);
       await prisma.emailVerificationCode.updateMany({ where: { userId: user.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
@@ -141,7 +141,7 @@ describe('Email verification', () => {
     });
 
     it('locks the code after too many wrong guesses, even for the correct code afterwards', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-lock@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-lock@panelscan.test', emailVerified: false });
       await sendCode(token);
       const code = mailbox.lastCodeFor(user.email);
 
@@ -154,7 +154,7 @@ describe('Email verification', () => {
     });
 
     it('is single use', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-once@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-once@panelscan.test', emailVerified: false });
       await sendCode(token);
       const code = mailbox.lastCodeFor(user.email);
 
@@ -182,7 +182,7 @@ describe('Email verification', () => {
     });
 
     it('rejects a malformed code', async () => {
-      const { token } = await createCustomer({ email: 'ev-format@panelscan.test' });
+      const { token } = await createCustomer({ email: 'ev-format@panelscan.test', emailVerified: false });
 
       for (const code of ['12345', '1234567', 'abcdef', '']) {
         expect((await verify(token, code)).status).toBe(400);
@@ -203,7 +203,7 @@ describe('Email verification', () => {
 
   describe('gating password recovery', () => {
     it('only offers recovery once the email has been verified', async () => {
-      const { token, user } = await createCustomer({ email: 'ev-gate@panelscan.test' });
+      const { token, user } = await createCustomer({ email: 'ev-gate@panelscan.test', emailVerified: false });
 
       await request(app).post('/api/auth/forgot-password').send({ email: user.email });
       expect(mailbox.to(user.email)).toHaveLength(0);

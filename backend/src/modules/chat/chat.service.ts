@@ -5,6 +5,7 @@ import { createNotification } from '../notifications/notification.service';
 import { notifyStaff } from '../notifications/notification.triggers';
 import { AppError } from '../../utils/AppError';
 import { retryOnConflict } from '../../utils/retryOnConflict';
+import { containsText, searchWords } from '../../utils/searchWhere';
 import { chatRoomInclude, messageInclude } from './chat.types';
 import type {
   ChatRoomWithParticipants,
@@ -87,9 +88,28 @@ export class ChatService {
     const page = filters.page ?? DEFAULT_PAGE;
     const limit = filters.limit ?? DEFAULT_CONVERSATION_LIMIT;
 
+    const isCustomer = requesterRole === UserRole.CUSTOMER;
+    // Staff search the inbox by the customer: every word has to match, so "justin
+    // ablog" finds Justin Andre Ablog, and a moderator's own name finds nothing.
+    const staffSearch = searchWords<Prisma.ChatRoomWhereInput>(filters.search, (word) => [
+      { subject: containsText(word) },
+      {
+        participants: {
+          some: {
+            user: {
+              role: UserRole.CUSTOMER,
+              OR: [{ firstName: containsText(word) }, { lastName: containsText(word) }, { email: containsText(word) }],
+            },
+          },
+        },
+      },
+    ]);
+
     const where: Prisma.ChatRoomWhereInput = {
-      ...(requesterRole === UserRole.CUSTOMER ? { participants: { some: { userId: requesterId } } } : {}),
-      ...(filters.search
+      ...(isCustomer ? { participants: { some: { userId: requesterId } } } : { archivedAt: filters.archived ? { not: null } : null }),
+      ...(!isCustomer
+        ? staffSearch
+        : filters.search
         ? {
             OR: [
               { subject: { contains: filters.search, mode: 'insensitive' } },
@@ -117,7 +137,12 @@ export class ChatService {
         include: chatRoomInclude,
         // Latest activity first: sendMessage bumps updatedAt on every message,
         // so a conversation that just received or sent one moves to the top.
-        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        // Staff see their pinned conversations above that.
+        orderBy: [
+          ...(isCustomer ? [] : [{ pinnedAt: { sort: 'desc' as const, nulls: 'last' as const } }]),
+          { updatedAt: 'desc' as const },
+          { createdAt: 'desc' as const },
+        ],
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -187,8 +212,12 @@ export class ChatService {
         include: messageInclude,
       });
 
-      // Keep the room's updatedAt current for activity tracking.
-      await tx.chatRoom.update({ where: { id: chatRoomId }, data: { updatedAt: new Date() } });
+      // Keep the room's updatedAt current for activity tracking. A customer
+      // writing again brings an archived conversation back to the inbox.
+      await tx.chatRoom.update({
+        where: { id: chatRoomId },
+        data: { updatedAt: new Date(), ...(senderRole === UserRole.CUSTOMER ? { archivedAt: null } : {}) },
+      });
 
       // Notify every other existing participant. room was fetched before the
       // auto-join upsert above, but that only ever adds the sender - the set
@@ -379,10 +408,48 @@ export class ChatService {
     await prisma.message.delete({ where: { id: messageId } });
   }
 
+  /**
+   * Pins or unpins a conversation for the whole team. updatedAt is kept: it means
+   * "latest activity", and tidying the inbox is not activity. An archived
+   * conversation has to come back to the inbox first.
+   */
+  async setPinned(chatRoomId: string, pinned: boolean): Promise<ChatRoomWithParticipants> {
+    const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
+    if (!room) {
+      throw new AppError('Conversation not found.', 404);
+    }
+    if (pinned && room.archivedAt) {
+      throw new AppError('Move this conversation back to the inbox before pinning it.', 400);
+    }
+    return retryOnConflict(() => prisma.chatRoom.update({
+      where: { id: chatRoomId },
+      data: { pinnedAt: pinned ? (room.pinnedAt ?? new Date()) : null, updatedAt: room.updatedAt },
+      include: chatRoomInclude,
+    }));
+  }
+
+  /** Moves a conversation to Archived (dropping its pin) or back to the inbox. updatedAt is kept, as in setPinned. */
+  async setArchived(chatRoomId: string, archived: boolean): Promise<ChatRoomWithParticipants> {
+    const room = await prisma.chatRoom.findUnique({ where: { id: chatRoomId } });
+    if (!room) {
+      throw new AppError('Conversation not found.', 404);
+    }
+    return retryOnConflict(() => prisma.chatRoom.update({
+      where: { id: chatRoomId },
+      data: {
+        archivedAt: archived ? (room.archivedAt ?? new Date()) : null,
+        pinnedAt: archived ? null : room.pinnedAt,
+        updatedAt: room.updatedAt,
+      },
+      include: chatRoomInclude,
+    }));
+  }
+
   async getUnreadCount(requesterId: string, requesterRole: UserRole): Promise<number> {
     const where: Prisma.MessageWhereInput = {
       ...unreadForRequester(requesterId, requesterRole),
-      ...(requesterRole === UserRole.CUSTOMER ? { chatRoom: { participants: { some: { userId: requesterId } } } } : {}),
+      // Staff: an archived conversation is out of the inbox, so it raises no unread dot.
+      chatRoom: requesterRole === UserRole.CUSTOMER ? { participants: { some: { userId: requesterId } } } : { archivedAt: null },
     };
 
     return prisma.message.count({ where });

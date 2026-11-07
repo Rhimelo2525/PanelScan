@@ -3,7 +3,7 @@ import { Router } from 'express';
 
 import { authenticate } from '../../middleware/auth.middleware';
 import { accountSecurityRateLimiter, authRateLimiter, loginRateLimiter, tabSessionRateLimiter } from '../../middleware/rateLimit.middleware';
-import { restrictTo } from '../../middleware/role.middleware';
+import { requireVerifiedEmail, restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { authController } from './auth.controller';
 import {
@@ -41,8 +41,8 @@ router.get('/me', authenticate, authController.getMe);
 // Customer-only (restrictTo) so staff sign-in and account handling are not
 // affected by anything below. All share accountSecurityRateLimiter's counter.
 
-// PATCH /api/auth/me - edit own profile details (email is not editable here)
-router.patch('/me', authenticate, restrictTo(UserRole.CUSTOMER), validate(updateProfileSchema), authController.updateProfile);
+// PATCH /api/auth/me - edit own profile details (email is not editable here). Verified email only.
+router.patch('/me', authenticate, restrictTo(UserRole.CUSTOMER), requireVerifiedEmail, validate(updateProfileSchema), authController.updateProfile);
 
 // POST /api/auth/change-password - requires the current password
 router.post(

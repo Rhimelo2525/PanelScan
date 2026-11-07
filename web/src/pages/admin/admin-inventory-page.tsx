@@ -160,7 +160,7 @@ function RecordStockSheet({ open, onClose, onDone }: { open: boolean; onClose: (
   const [isLoadingProducts, setIsLoadingProducts] = useState(false)
   const [productId, setProductId] = useState("")
   const [quantity, setQuantity] = useState("50")
-  const [reorderLevel, setReorderLevel] = useState("10")
+  const [reorderLevel, setReorderLevel] = useState("30")
   const [warehouseLocation, setWarehouseLocation] = useState<string>(WAREHOUSE_LOCATIONS[0])
   const [isSaving, setIsSaving] = useState(false)
   const confirm = useConfirm()

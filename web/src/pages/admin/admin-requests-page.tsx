@@ -224,6 +224,14 @@ export function AdminRequestsPage() {
       header: "Status",
       cell: (row) => <StatusBadge status={row.status} />,
     },
+    {
+      key: "ownerNote",
+      header: "Owner's note",
+      // The owner's reason, in plain sight; the full text is also in the request's details.
+      cell: (row) => row.reviewNote
+        ? <span className="line-clamp-2 max-w-xs" title={row.reviewNote}>{row.reviewNote}</span>
+        : <span className="text-muted-foreground">—</span>,
+    },
   ]
 
   // Table columns for Owner view (review / approval controls)

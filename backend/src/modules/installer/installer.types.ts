@@ -4,6 +4,8 @@ export interface InstallerFilters {
   page?: number;
   limit?: number;
   search?: string;
+  /** Defaults to active: the booking picker must never offer a deactivated installer. */
+  status?: 'active' | 'inactive' | 'all';
 }
 
 export interface PaginationMeta {

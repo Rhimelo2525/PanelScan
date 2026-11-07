@@ -52,6 +52,7 @@ import com.example.panelscan.core.ui.PanelTexture
 import com.example.panelscan.core.ui.PrimaryButton
 import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.SecondaryButton
+import com.example.panelscan.core.ui.FitSpecRow
 import com.example.panelscan.core.ui.SpecRow
 import com.example.panelscan.core.ui.StatusBadge
 import com.example.panelscan.core.ui.formatCurrency
@@ -229,20 +230,21 @@ fun OrderDetailScreen(
                             style = PanelScan.type.sectionTitle,
                             color = colors.textPrimary
                         )
-                        SpecRow(label = "Recipient", value = order.customerName)
-                        order.delivery.vehicle?.let { SpecRow(label = "Vehicle", value = it) }
+                        FitSpecRow(label = "Recipient", value = order.customerName)
+                        order.delivery.vehicle?.let { FitSpecRow(label = "Vehicle", value = it) }
                         if (order.delivery.latitude != null && order.delivery.longitude != null) {
-                            SpecRow(
+                            FitSpecRow(
                                 label = "Pinned location",
                                 value = String.format(java.util.Locale.US, "%.5f, %.5f", order.delivery.latitude, order.delivery.longitude)
                             )
                         }
-                        SpecRow(
+                        FitSpecRow(
                             label = "Delivery booking",
-                            value = order.delivery.bookingReference ?: order.delivery.bookingStatus
+                            // The booking's reference once there is one; until then its status in words.
+                            value = order.delivery.bookingReference ?: deliveryStatusLabel(order.delivery.bookingStatus)
                         )
                         order.customerPhone?.let {
-                            SpecRow(label = "Phone", value = it)
+                            FitSpecRow(label = "Phone", value = it)
                         }
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                             Text(
@@ -250,15 +252,29 @@ fun OrderDetailScreen(
                                 style = PanelScan.type.label,
                                 color = colors.textSecondary
                             )
+                            // A full address is too long for one readable line, so it keeps its own, smaller.
                             Text(
                                 text = order.shippingAddress,
-                                style = PanelScan.type.body,
+                                style = PanelScan.type.supporting,
                                 color = colors.textPrimary,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                         }
                         order.notes?.let {
-                            SpecRow(label = "Notes", value = it)
+                            // One line when short; a longer note is the customer's own words, so all of it stays readable.
+                            if (it.length <= 32) {
+                                FitSpecRow(label = "Notes", value = it)
+                            } else {
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                    Text(text = "Notes", style = PanelScan.type.label, color = colors.textSecondary)
+                                    Text(
+                                        text = it,
+                                        style = PanelScan.type.supporting,
+                                        color = colors.textPrimary,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

@@ -6,11 +6,13 @@ import { restrictTo } from '../../middleware/role.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { chatController } from './chat.controller';
 import {
+  archiveConversationSchema,
   createChatRoomSchema,
   idParamsSchema,
   listConversationsSchema,
   listMessagesSchema,
   messageIdParamsSchema,
+  pinConversationSchema,
   sendMessageSchema,
 } from './chat.validation';
 
@@ -46,6 +48,10 @@ router.get('/', validate(listConversationsSchema), chatController.getConversatio
 
 // GET /api/chat/:id - CUSTOMER: own only (404 otherwise). MODERATOR/OWNER: any.
 router.get('/:id', validate(idParamsSchema), chatController.getConversationById);
+
+// PATCH /api/chat/:id/pin and /archive - the staff inbox, MODERATOR only (OWNER is read-only on chat).
+router.patch('/:id/pin', restrictTo(UserRole.MODERATOR), validate(pinConversationSchema), chatController.setPinned);
+router.patch('/:id/archive', restrictTo(UserRole.MODERATOR), validate(archiveConversationSchema), chatController.setArchived);
 
 // POST /api/chat/:id/messages - CUSTOMER (own conversation) or MODERATOR (any). OWNER is read-only.
 router.post(

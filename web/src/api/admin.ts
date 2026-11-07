@@ -330,6 +330,15 @@ export function deactivateInstaller(id: string) {
   return apiRequest<{ installer: Installer }>(`/installers/${id}/deactivate`, { method: "PATCH", authenticated: true })
 }
 
+export function activateInstaller(id: string) {
+  return apiRequest<{ installer: Installer }>(`/installers/${id}/activate`, { method: "PATCH", authenticated: true })
+}
+
+/** Refused (409) for an installer with bookings on record; those can only be deactivated. */
+export function deleteInstaller(id: string) {
+  return apiRequest<void>(`/installers/${id}`, { method: "DELETE", authenticated: true })
+}
+
 // ----------------------------------------------------------------- feedback
 
 export function getFeedback(query: AdminListQuery = {}, signal?: AbortSignal) {
@@ -338,8 +347,16 @@ export function getFeedback(query: AdminListQuery = {}, signal?: AbortSignal) {
 
 // --------------------------------------------------------------------- chat
 
-export function getConversations(query: AdminListQuery = {}, signal?: AbortSignal) {
+export function getConversations(query: AdminListQuery & { archived?: "true" | "false" } = {}, signal?: AbortSignal) {
   return apiRequest<{ conversations: ChatConversation[]; pagination: Pagination }>(`/chat${toQuery({ ...query })}`, { authenticated: true, signal })
+}
+
+export function setConversationPinned(id: string, pinned: boolean) {
+  return apiRequest<{ conversation: ChatConversation }>(`/chat/${id}/pin`, { method: "PATCH", authenticated: true, body: { pinned } })
+}
+
+export function setConversationArchived(id: string, archived: boolean) {
+  return apiRequest<{ conversation: ChatConversation }>(`/chat/${id}/archive`, { method: "PATCH", authenticated: true, body: { archived } })
 }
 
 export function getMessages(conversationId: string, query: AdminListQuery = {}, signal?: AbortSignal) {

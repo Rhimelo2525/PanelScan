@@ -9,6 +9,7 @@ const parseInstallerFilters = (query: Request['query']): InstallerFilters => ({
   page: typeof query.page === 'string' ? Number(query.page) : undefined,
   limit: typeof query.limit === 'string' ? Number(query.limit) : undefined,
   search: typeof query.search === 'string' ? query.search : undefined,
+  status: query.status === 'active' || query.status === 'inactive' || query.status === 'all' ? query.status : undefined,
 });
 
 export class InstallerController {
@@ -20,7 +21,7 @@ export class InstallerController {
   });
 
   getAll = catchAsync(async (req: Request, res: Response): Promise<void> => {
-    const result = await this.installerService.getActiveInstallers(parseInstallerFilters(req.query));
+    const result = await this.installerService.getInstallers(parseInstallerFilters(req.query));
     sendSuccess(res, 200, 'Installers retrieved successfully.', result);
   });
 
@@ -37,6 +38,16 @@ export class InstallerController {
   deactivate = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const installer = await this.installerService.deactivateInstaller(req.params.id as string);
     sendSuccess(res, 200, 'Installer deactivated successfully.', { installer });
+  });
+
+  activate = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    const installer = await this.installerService.activateInstaller(req.params.id as string);
+    sendSuccess(res, 200, 'Installer activated successfully.', { installer });
+  });
+
+  delete = catchAsync(async (req: Request, res: Response): Promise<void> => {
+    await this.installerService.deleteInstaller(req.params.id as string);
+    sendSuccess(res, 200, 'Installer deleted successfully.');
   });
 }
 

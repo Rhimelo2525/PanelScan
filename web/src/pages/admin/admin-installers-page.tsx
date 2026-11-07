@@ -1,8 +1,8 @@
-import { HardHat, Loader2, Plus } from "lucide-react"
+import { HardHat, Loader2, Plus, Trash2 } from "lucide-react"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { createInstaller, deactivateInstaller, getInstallers } from "@/api/admin"
+import { activateInstaller, createInstaller, deactivateInstaller, deleteInstaller, getInstallers } from "@/api/admin"
 import { formatDate } from "@/admin/admin-format"
 import { getAdminErrorMessage, useAdminResource, useDebouncedValue } from "@/admin/use-admin-resource"
 import { FilterBar } from "@/components/admin/filter-bar"
@@ -31,13 +31,13 @@ export function AdminInstallersPage() {
 
   const [searchInput, setSearchInput] = useState("")
   const search = useDebouncedValue(searchInput.trim())
-  const installers = useAdminResource((signal) => getInstallers({ page, limit: 10, search: search || undefined }, signal), [page, search])
+  const installers = useAdminResource((signal) => getInstallers({ page, limit: 10, search: search || undefined, status: "all" }, signal), [page, search])
   const rows = installers.data?.installers ?? []
 
   async function handleDeactivate(installer: Installer) {
     if (!(await confirm({
       title: `Deactivate ${installer.firstName} ${installer.lastName}?`,
-      description: "They will no longer be listed as available for installation bookings.",
+      description: "They will no longer be listed as available for installation bookings. You can activate them again anytime.",
       confirmLabel: "Deactivate",
       destructive: true,
     }))) return
@@ -47,6 +47,34 @@ export function AdminInstallersPage() {
       installers.reload()
     } catch (error) {
       toast.error("Installer not updated", { description: getAdminErrorMessage(error) })
+    }
+  }
+
+  async function handleActivate(installer: Installer) {
+    try {
+      await activateInstaller(installer.id)
+      toast.success(`${installer.firstName} ${installer.lastName} is available again.`)
+      installers.reload()
+    } catch (error) {
+      toast.error("Installer not updated", { description: getAdminErrorMessage(error) })
+    }
+  }
+
+  async function handleDelete(installer: Installer) {
+    if (!(await confirm({
+      title: `Delete ${installer.firstName} ${installer.lastName}?`,
+      description: "This removes the installer for good and cannot be undone. An installer with bookings on record cannot be deleted; deactivate them instead.",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return
+    try {
+      await deleteInstaller(installer.id)
+      toast.success(`${installer.firstName} ${installer.lastName} was deleted.`)
+      // The last row of a later page: go back one rather than show an empty page.
+      if (rows.length === 1 && page > 1) setPage(page - 1)
+      else installers.reload()
+    } catch (error) {
+      toast.error("Installer not deleted", { description: getAdminErrorMessage(error) })
     }
   }
 
@@ -76,7 +104,14 @@ export function AdminInstallersPage() {
               { key: "added", header: "Added", secondary: true, cell: (row) => <span className="text-muted-foreground">{formatDate(row.createdAt)}</span> },
               { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.isActive ? "ACTIVE" : "INACTIVE"} label={row.isActive ? "Available" : "Inactive"} /> },
             ]}
-            rowAction={(row) => row.isActive ? <Button variant="outline" size="sm" onClick={() => void handleDeactivate(row)}>Deactivate</Button> : null}
+            rowAction={(row) => (
+              <div className="flex items-center justify-end gap-2">
+                {row.isActive
+                  ? <Button variant="outline" size="sm" onClick={() => void handleDeactivate(row)}>Deactivate</Button>
+                  : <Button variant="outline" size="sm" onClick={() => void handleActivate(row)}>Activate</Button>}
+                <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => void handleDelete(row)}><Trash2 data-icon="inline-start" aria-hidden="true" />Delete</Button>
+              </div>
+            )}
           />
           <TablePagination pagination={installers.data?.pagination ?? null} onPageChange={setPage} isLoading={installers.isLoading} />
           <p className="text-xs leading-5 text-muted-foreground">Installer assignment happens on a booking. Installation scheduling and delivery coordination are not yet wired into fulfilment.</p>

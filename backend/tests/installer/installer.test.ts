@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { prisma } from '../../src/config/database';
-import { createCustomer, createModerator, createOwner, createTestInstaller } from '../helpers/factories';
+import { createCustomer, createModerator, createOwner, createTestBooking, createTestInstaller } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 const expectApiSuccess = (response: request.Response, status: number, message?: string): void => {
@@ -154,6 +154,33 @@ describe('Installer module', () => {
       expect(dbInactive).not.toBeNull();
       expect(dbInactive?.isActive).toBe(false);
     });
+
+    it('lists every installer with status=all, active ones first', async () => {
+      const { token } = await createModerator();
+      const inactive = await createTestInstaller({ firstName: 'Aaron', isActive: false });
+      const active = await createTestInstaller({ firstName: 'Zed', isActive: true });
+
+      const response = await request(app).get('/api/installers?status=all').set('Authorization', `Bearer ${token}`);
+
+      expectApiSuccess(response, 200);
+      expect((response.body.data.installers as Array<{ id: string }>).map((i) => i.id)).toEqual([active.id, inactive.id]);
+    });
+
+    it('lists only deactivated installers with status=inactive', async () => {
+      const { token } = await createModerator();
+      const inactive = await createTestInstaller({ isActive: false });
+      await createTestInstaller({ isActive: true });
+
+      const response = await request(app).get('/api/installers?status=inactive').set('Authorization', `Bearer ${token}`);
+
+      expect((response.body.data.installers as Array<{ id: string }>).map((i) => i.id)).toEqual([inactive.id]);
+    });
+
+    it('refuses an unknown status', async () => {
+      const { token } = await createModerator();
+      const response = await request(app).get('/api/installers?status=gone').set('Authorization', `Bearer ${token}`);
+      expectApiError(response, 400);
+    });
   });
 
   // ================================================================
@@ -209,6 +236,88 @@ describe('Installer module', () => {
       const listResponse = await request(app).get('/api/installers').set('Authorization', `Bearer ${token}`);
       const ids = (listResponse.body.data.installers as Array<{ id: string }>).map((i) => i.id);
       expect(ids).not.toContain(installer.id);
+    });
+  });
+
+  // ================================================================
+  // ACTIVATE INSTALLER
+  // ================================================================
+  describe('Activate installer', () => {
+    it('brings a deactivated installer back to the active list', async () => {
+      const { token } = await createModerator();
+      const installer = await createTestInstaller({ isActive: false });
+
+      const response = await request(app).patch(`/api/installers/${installer.id}/activate`).set('Authorization', `Bearer ${token}`);
+
+      expectApiSuccess(response, 200, 'Installer activated successfully.');
+      const dbInstaller = await prisma.installer.findUnique({ where: { id: installer.id } });
+      expect(dbInstaller?.isActive).toBe(true);
+
+      const listResponse = await request(app).get('/api/installers').set('Authorization', `Bearer ${token}`);
+      expect((listResponse.body.data.installers as Array<{ id: string }>).map((i) => i.id)).toContain(installer.id);
+    });
+
+    it('returns 404 for a nonexistent installer', async () => {
+      const { token } = await createModerator();
+      const response = await request(app).patch('/api/installers/00000000-0000-0000-0000-000000000000/activate').set('Authorization', `Bearer ${token}`);
+      expectApiError(response, 404);
+    });
+
+    it('rejects an OWNER with 403 and leaves the installer inactive', async () => {
+      const { token } = await createOwner();
+      const installer = await createTestInstaller({ isActive: false });
+
+      const response = await request(app).patch(`/api/installers/${installer.id}/activate`).set('Authorization', `Bearer ${token}`);
+
+      expectApiError(response, 403);
+      expect((await prisma.installer.findUnique({ where: { id: installer.id } }))?.isActive).toBe(false);
+    });
+  });
+
+  // ================================================================
+  // DELETE INSTALLER
+  // ================================================================
+  describe('Delete installer', () => {
+    it('removes an installer with no bookings, active or not', async () => {
+      const { token } = await createModerator();
+      const active = await createTestInstaller({ isActive: true });
+      const inactive = await createTestInstaller({ isActive: false });
+
+      for (const installer of [active, inactive]) {
+        const response = await request(app).delete(`/api/installers/${installer.id}`).set('Authorization', `Bearer ${token}`);
+        expectApiSuccess(response, 200, 'Installer deleted successfully.');
+        expect(await prisma.installer.findUnique({ where: { id: installer.id } })).toBeNull();
+      }
+    });
+
+    it('refuses an installer with a booking, keeping both the installer and the booking', async () => {
+      const { token } = await createModerator();
+      const customer = await createCustomer();
+      const installer = await createTestInstaller();
+      const booking = await createTestBooking({ customerId: customer.user.id });
+      await prisma.booking.update({ where: { id: booking.id }, data: { installerId: installer.id } });
+
+      const response = await request(app).delete(`/api/installers/${installer.id}`).set('Authorization', `Bearer ${token}`);
+
+      expectApiError(response, 409, /1 installation booking on record/);
+      expect(await prisma.installer.findUnique({ where: { id: installer.id } })).not.toBeNull();
+      expect((await prisma.booking.findUnique({ where: { id: booking.id } }))?.installerId).toBe(installer.id);
+    });
+
+    it('returns 404 for a nonexistent installer', async () => {
+      const { token } = await createModerator();
+      const response = await request(app).delete('/api/installers/00000000-0000-0000-0000-000000000000').set('Authorization', `Bearer ${token}`);
+      expectApiError(response, 404);
+    });
+
+    it('rejects an OWNER with 403 and keeps the installer', async () => {
+      const { token } = await createOwner();
+      const installer = await createTestInstaller();
+
+      const response = await request(app).delete(`/api/installers/${installer.id}`).set('Authorization', `Bearer ${token}`);
+
+      expectApiError(response, 403);
+      expect(await prisma.installer.findUnique({ where: { id: installer.id } })).not.toBeNull();
     });
   });
 });

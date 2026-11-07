@@ -371,6 +371,10 @@ export interface ChatConversation {
   id: string
   subject: string | null
   isActive: boolean
+  /** Staff inbox: pinned to the top of the list. */
+  pinnedAt?: string | null
+  /** Staff inbox: moved to Archived until the customer writes again. */
+  archivedAt?: string | null
   createdAt: string
   updatedAt: string
   participants: ChatParticipant[]

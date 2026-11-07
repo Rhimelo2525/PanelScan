@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Lock } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { useAuth } from "@/auth/use-auth"
@@ -29,6 +29,9 @@ export function ProfilePage() {
 
   if (!user) return null
 
+  // The API enforces this too; here it just says why nothing can be edited yet.
+  const isLocked = user.emailVerified === false
+
   return (
     <>
       <section className="border-b border-border bg-secondary/35 py-12 sm:py-16">
@@ -50,7 +53,14 @@ export function ProfilePage() {
       <Container className="py-10 sm:py-14">
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
           <div className="space-y-8">
-            <ProfilePictureSection user={user} />
+            {isLocked && (
+              <div role="status" className="flex gap-3 rounded-lg border border-primary/25 bg-primary/5 p-4 text-sm leading-6">
+                <Lock className="mt-1 size-4 shrink-0 text-primary" aria-hidden="true" />
+                <p><span className="font-medium">Verify your email to edit your profile.</span> <span className="text-muted-foreground">Your details, photo, and addresses stay locked until <span className="break-all">{user.email}</span> is verified. You&apos;ll need this to check out, too.</span></p>
+              </div>
+            )}
+
+            <ProfilePictureSection user={user} isLocked={isLocked} />
 
             <section className="surface-card p-6 sm:p-8" aria-labelledby="personal-information-title">
               <h2 id="personal-information-title" className="text-xl font-semibold tracking-[-0.025em]">Personal information</h2>
@@ -58,7 +68,7 @@ export function ProfilePage() {
               <PersonalInformationForm user={user} />
             </section>
 
-            <ShippingAddressesSection />
+            <ShippingAddressesSection isLocked={isLocked} />
 
             <section className="surface-card p-6 sm:p-8" aria-labelledby="account-details-title">
               <h2 id="account-details-title" className="text-xl font-semibold tracking-[-0.025em]">Account details</h2>
@@ -72,7 +82,7 @@ export function ProfilePage() {
             </section>
           </div>
 
-          <section className="surface-card p-6 sm:p-8" aria-labelledby="security-settings-title">
+          <section className={isLocked ? "surface-card order-first p-6 sm:p-8 lg:order-none" : "surface-card p-6 sm:p-8"} aria-labelledby="security-settings-title">
             <h2 id="security-settings-title" className="text-xl font-semibold tracking-[-0.025em]">Security settings</h2>
             <div className="mt-6 space-y-6">
               <EmailVerificationCard user={user} />

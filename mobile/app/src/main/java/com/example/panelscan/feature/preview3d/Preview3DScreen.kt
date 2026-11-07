@@ -2,13 +2,16 @@ package com.example.panelscan.feature.preview3d
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -35,6 +38,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -65,6 +69,7 @@ import com.example.panelscan.core.ui.OverlayBadge
 import com.example.panelscan.core.ui.OverlayIconButton
 import com.example.panelscan.core.ui.OverlayPrimaryButton
 import com.example.panelscan.core.ui.PanelImage
+import com.example.panelscan.core.ui.SecondaryButton
 import com.example.panelscan.core.ui.SpecRow
 import com.example.panelscan.core.ui.finishPalette
 import com.example.panelscan.core.ui.formatAreaWithUnit
@@ -130,6 +135,8 @@ fun Preview3DScreen(
     onSaveProject: (SavedProject) -> Unit,
     /** Returns why it could not be added (e.g. out of stock), or null when added. */
     onAddToCart: (panel: com.example.panelscan.core.model.PVCPanel, quantity: Int) -> String? = { _, _ -> null },
+    /** Returns why it cannot go to checkout (e.g. too little stock), or null when it went. */
+    onProceedToCheckout: (panel: com.example.panelscan.core.model.PVCPanel, quantity: Int) -> String? = { _, _ -> null },
     showPrice: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -144,6 +151,7 @@ fun Preview3DScreen(
     var isInspectionMode by remember { mutableStateOf(false) }
     var showPanelPicker by remember { mutableStateOf(false) }
     var showDimensions by remember { mutableStateOf(true) }
+    var showDetails by remember { mutableStateOf(true) }
     var cartAdded by remember { mutableStateOf(false) }
     var cartProblem by remember { mutableStateOf<String?>(null) }
     var panMode by remember { mutableStateOf(false) }
@@ -482,7 +490,11 @@ fun Preview3DScreen(
                         PanelSwatch(
                             panel = panel,
                             selected = panel.id == selectedPanel.id,
-                            onClick = { selectedPanel = panel },
+                            onClick = {
+                                selectedPanel = panel
+                                // A problem with the last panel says nothing about this one.
+                                cartProblem = null
+                            },
                             modifier = Modifier.width(112.dp)
                         )
                     }
@@ -497,50 +509,85 @@ fun Preview3DScreen(
                     .padding(horizontal = Spacing.gutter, vertical = Spacing.md)
                     .navigationBarsPadding()
             ) {
-                Text(
-                    text = selectedPanel.name,
-                    style = PanelScan.type.sectionTitle,
-                    color = PanelScan.colors.textPrimary
-                )
-                Text(
-                    text = "${selectedPanel.finish} · ${project.measurement.surfaceType.label()} panel",
-                    style = PanelScan.type.supporting,
-                    color = PanelScan.colors.textSecondary,
-                    modifier = Modifier.padding(bottom = Spacing.xs)
-                )
-                SpecRow(
-                    label = "Panel size",
-                    value = "${formatPanelSizeCm(selectedPanel)} · ${formatThicknessCm(selectedPanel)} thick"
-                )
-                SpecRow(
-                    label = "Measured surface",
-                    value = formatDimensions(project.measurement)
-                )
-                SpecRow(
-                    label = "Surface area",
-                    value = formatAreaWithUnit(project.measurement.areaSquareMeters)
-                )
-                SpecRow(
-                    label = "Panel layout",
-                    value = "${layout.first} across × ${layout.second} ${if (layout.second == 1) "row" else "rows"}"
-                )
-                SpecRow(
-                    label = "Panels required",
-                    value = "${estimation.finalQuantity} panels" +
-                        if (estimation.wastePercent > 0) " (incl. ${estimation.wastePercent}% waste)" else ""
-                )
-                SpecRow(
-                    label = "Estimated material cost",
-                    value = com.example.panelscan.core.ui.PriceVisibility.formatPriceOrHidden(
-                        amount = estimation.estimatedCost,
-                        isPriceVisible = showPrice
-                    ),
-                    emphasised = true
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = Spacing.sm),
-                    color = PanelScan.colors.border
-                )
+                // Tapping the heading folds the figures away, leaving more of the screen for the 3D view.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            onClickLabel = if (showDetails) "Hide details" else "Show details",
+                            onClick = { showDetails = !showDetails }
+                        )
+                        .padding(bottom = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = selectedPanel.name,
+                            style = PanelScan.type.sectionTitle,
+                            color = PanelScan.colors.textPrimary
+                        )
+                        Text(
+                            text = "${selectedPanel.finish} · ${project.measurement.surfaceType.label()} panel",
+                            style = PanelScan.type.supporting,
+                            color = PanelScan.colors.textSecondary
+                        )
+                    }
+                    Text(
+                        text = if (showDetails) "Hide details" else "Show details",
+                        style = PanelScan.type.label,
+                        color = PanelScan.colors.textSecondary
+                    )
+                    Icon(
+                        imageVector = if (showDetails) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowUp,
+                        contentDescription = null,
+                        tint = PanelScan.colors.textSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                AnimatedVisibility(
+                    visible = showDetails,
+                    enter = fadeIn(PanelScanMotion.spec(PanelScanMotion.Standard)) +
+                        expandVertically(PanelScanMotion.spec(PanelScanMotion.Standard)),
+                    exit = fadeOut(PanelScanMotion.spec(PanelScanMotion.Fast)) +
+                        shrinkVertically(PanelScanMotion.spec(PanelScanMotion.Fast))
+                ) {
+                    Column {
+                        SpecRow(
+                            label = "Panel size",
+                            value = "${formatPanelSizeCm(selectedPanel)} · ${formatThicknessCm(selectedPanel)} thick"
+                        )
+                        SpecRow(
+                            label = "Measured surface",
+                            value = formatDimensions(project.measurement)
+                        )
+                        SpecRow(
+                            label = "Surface area",
+                            value = formatAreaWithUnit(project.measurement.areaSquareMeters)
+                        )
+                        SpecRow(
+                            label = "Panel layout",
+                            value = "${layout.first} across × ${layout.second} ${if (layout.second == 1) "row" else "rows"}"
+                        )
+                        SpecRow(
+                            label = "Panels required",
+                            value = "${estimation.finalQuantity} panels" +
+                                if (estimation.wastePercent > 0) " (incl. ${estimation.wastePercent}% waste)" else ""
+                        )
+                        SpecRow(
+                            label = "Estimated material cost",
+                            value = com.example.panelscan.core.ui.PriceVisibility.formatPriceOrHidden(
+                                amount = estimation.estimatedCost,
+                                isPriceVisible = showPrice
+                            ),
+                            emphasised = true
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = Spacing.sm),
+                            color = PanelScan.colors.border
+                        )
+                    }
+                }
                 cartProblem?.let {
                     Text(
                         text = it,
@@ -564,6 +611,18 @@ fun Preview3DScreen(
                         cartProblem = onAddToCart(selectedPanel, estimation.finalQuantity)
                         cartAdded = cartProblem == null
                     }
+                )
+                SecondaryButton(
+                    text = if (showPrice) "Proceed to Checkout" else "Log in to Checkout",
+                    icon = Icons.Rounded.ShoppingCart,
+                    onClick = {
+                        // A panel swapped in here is what gets ordered, so the project remembers it.
+                        if (selectedPanel.id != project.selectedPanel.id) {
+                            onSaveProject(project.copy(selectedPanel = selectedPanel, estimation = estimation))
+                        }
+                        cartProblem = onProceedToCheckout(selectedPanel, estimation.finalQuantity)
+                    },
+                    modifier = Modifier.padding(top = Spacing.xs)
                 )
             }
         }
