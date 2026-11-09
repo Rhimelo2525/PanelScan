@@ -1,4 +1,4 @@
-import { ExternalLink, LogOut, Menu, Pin, PinOff } from "lucide-react"
+import { ExternalLink, LogOut, Menu, PanelLeft } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 
@@ -22,9 +22,9 @@ const SIDEBAR_PINNED_KEY = "panelscan.admin.sidebarPinned"
 
 function readSidebarPinned(): boolean {
   try {
-    return window.localStorage.getItem(SIDEBAR_PINNED_KEY) === "true"
+    return window.localStorage.getItem(SIDEBAR_PINNED_KEY) !== "false"
   } catch {
-    return false
+    return true
   }
 }
 
@@ -42,17 +42,13 @@ export function AdminLayout() {
   const navigate = useNavigate()
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const confirm = useConfirm()
-  // Desktop: the sidebar is a rail of icons that opens while the pointer (or keyboard focus)
-  // is on it, or stays open when pinned. The page narrows as it opens, so nothing is covered.
-  const [isSidebarPinned, setIsSidebarPinned] = useState(readSidebarPinned)
-  const [isSidebarHovered, setIsSidebarHovered] = useState(false)
-  const [isSidebarFocused, setIsSidebarFocused] = useState(false)
-  const isSidebarOpen = isSidebarPinned || isSidebarHovered || isSidebarFocused
+  // Desktop: the sidebar toggles between expanded and icon-only rail when the button is clicked.
+  const [isSidebarOpen, setIsSidebarOpen] = useState(readSidebarPinned)
 
-  function toggleSidebarPinned() {
-    setIsSidebarPinned((pinned) => {
-      writeSidebarPinned(!pinned)
-      return !pinned
+  function toggleSidebar() {
+    setIsSidebarOpen((open) => {
+      writeSidebarPinned(!open)
+      return !open
     })
   }
 
@@ -85,32 +81,24 @@ export function AdminLayout() {
 
   return (
     <div className={cn("admin-surface min-h-screen lg:grid lg:transition-[grid-template-columns] lg:duration-200", isSidebarOpen ? "lg:grid-cols-[15.5rem_minmax(0,1fr)]" : "lg:grid-cols-[4rem_minmax(0,1fr)]")}>
-      <aside
-        className="sticky top-0 z-30 hidden h-screen lg:block"
-        onMouseEnter={() => setIsSidebarHovered(true)}
-        onMouseLeave={() => setIsSidebarHovered(false)}
-        onFocus={() => setIsSidebarFocused(true)}
-        onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsSidebarFocused(false) }}
-      >
+      <aside className="sticky top-0 z-30 hidden h-screen lg:block">
         <div className={cn(
           "flex h-full flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-200",
           isSidebarOpen ? "w-62" : "w-16",
         )}>
-          <div className="flex items-center justify-between gap-2 border-b border-border">
-            <AdminBrand compact={!isSidebarOpen} />
-            {isSidebarOpen && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="mr-2 shrink-0 text-muted-foreground"
-                onClick={toggleSidebarPinned}
-                aria-pressed={isSidebarPinned}
-                aria-label={isSidebarPinned ? "Unpin the sidebar (show icons only)" : "Pin the sidebar open"}
-                title={isSidebarPinned ? "Unpin: show icons only" : "Pin: keep the sidebar open"}
-              >
-                {isSidebarPinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
-              </Button>
-            )}
+          <div className={cn("flex min-h-15 items-center border-b border-border", isSidebarOpen ? "justify-between gap-2" : "justify-center")}>
+            {isSidebarOpen && <AdminBrand />}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn("shrink-0 cursor-pointer text-muted-foreground", isSidebarOpen && "mr-2")}
+              onClick={toggleSidebar}
+              aria-expanded={isSidebarOpen}
+              aria-label={isSidebarOpen ? "Minimize sidebar" : "Expand sidebar"}
+              title={isSidebarOpen ? "Minimize sidebar" : "Expand sidebar"}
+            >
+              <PanelLeft aria-hidden="true" />
+            </Button>
           </div>
           <nav className="scrollbar-none flex-1 overflow-x-hidden overflow-y-auto px-3 py-4" aria-label="Admin sections">
             {groups.map((group) => (

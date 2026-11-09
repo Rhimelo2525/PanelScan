@@ -1,4 +1,4 @@
-import { OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
 import type { DashboardArchive } from '@prisma/client';
 
 import { prisma } from '../../config/database';
@@ -27,14 +27,17 @@ const STATUS_ORDER: OrderStatus[] = [OrderStatus.PENDING, OrderStatus.PROCESSING
 export class ArchiveService {
   /**
    * The three widgets' figures for orders placed in [start, endExclusive).
-   * Days run up to `daysUntil` (today, for the cycle in progress). Revenue is
-   * the value of non-cancelled orders; product demand counts non-cancelled
-   * orders too, while orders by status covers every order.
+   * Days run up to `daysUntil` (today, for the cycle in progress). Gross
+   * revenue counts only non-cancelled orders whose payment is PAID; product
+   * demand counts non-cancelled orders, while orders by status covers every order.
    */
   async computeCycleMetrics(start: Date, endExclusive: Date, daysUntil: Date = endExclusive): Promise<CycleMetrics> {
     const placedInCycle = { createdAt: { gte: start, lt: endExclusive } };
     const [orders, demand] = await Promise.all([
-      prisma.order.findMany({ where: placedInCycle, select: { createdAt: true, status: true, totalAmount: true } }),
+      prisma.order.findMany({
+        where: placedInCycle,
+        select: { createdAt: true, status: true, totalAmount: true, payment: { select: { status: true } } },
+      }),
       prisma.orderItem.groupBy({
         by: ['productId'],
         where: { order: { ...placedInCycle, status: { not: OrderStatus.CANCELLED } } },
@@ -52,7 +55,8 @@ export class ArchiveService {
       statusCounts.set(order.status, (statusCounts.get(order.status) ?? 0) + 1);
       const day = days.get(manilaDateKey(order.createdAt));
       if (order.status === OrderStatus.CANCELLED) continue;
-      const amount = Number(order.totalAmount);
+      const isPaid = order.payment?.status === PaymentStatus.PAID;
+      const amount = isPaid ? Number(order.totalAmount) : 0;
       totalGrossRevenue += amount;
       if (!day) continue;
       day.grossRevenue = roundMoney((day.grossRevenue ?? 0) + amount);

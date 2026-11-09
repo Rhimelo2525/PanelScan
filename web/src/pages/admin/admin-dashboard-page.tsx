@@ -78,19 +78,20 @@ export function AdminDashboardPage() {
   const monthOrders = useAdminResource((signal) => getMonthOrders(selectedYear, selectedMonth, signal), [selectedYear, selectedMonth], { pollIntervalMs: 45_000 })
   const month = MONTHS[selectedMonth]
   const monthName = `${month.long} ${selectedYear}`
-  // Cancelled orders are not revenue (same rule as the cycle archives).
+  // Only paid, non-cancelled orders count towards revenue; moderators still see non-cancelled order volume.
   const countedOrders = (monthOrders.data ?? []).filter((row) => row.status !== "CANCELLED")
-  const monthTotal = countedOrders.reduce((sum, row) => sum + (row.totalAmount ?? 0), 0)
+  const paidOrders = countedOrders.filter((row) => row.isPaid)
+  const monthTotal = paidOrders.reduce((sum, row) => sum + (row.totalAmount ?? 0), 0)
   const lastDay = selectedYear === currentYear && selectedMonth === currentMonth ? Number(today.slice(8, 10)) : daysInMonth(selectedYear, selectedMonth)
   const valueByDay = new Map<string, number>()
-  for (const row of countedOrders) {
+  for (const row of isOwner ? paidOrders : countedOrders) {
     const key = manilaDayKey(row.createdAt)
     valueByDay.set(key, (valueByDay.get(key) ?? 0) + (isOwner ? row.totalAmount ?? 0 : 1))
   }
   const dayLabel = (day: number) => `${month.short} ${String(day).padStart(2, "0")}`
   const trendPoints = Array.from({ length: lastDay }, (_, index) => ({ label: dayLabel(index + 1), value: valueByDay.get(dayKey(selectedYear, selectedMonth, index + 1)) ?? 0 }))
   const monthSummary = isOwner
-    ? `${formatMoney(monthTotal)} from ${formatCount(countedOrders.length)} order${countedOrders.length === 1 ? "" : "s"} · ${monthName}`
+    ? `${formatMoney(monthTotal)} from ${formatCount(paidOrders.length)} paid order${paidOrders.length === 1 ? "" : "s"} · ${monthName}`
     : `${formatCount(countedOrders.length)} order${countedOrders.length === 1 ? "" : "s"} · ${monthName}`
   const hasCycleOrders = (shownCycle?.totalOrdersCount ?? 0) > 0
 
@@ -135,7 +136,7 @@ export function AdminDashboardPage() {
 
       {stats.error ? <ErrorState message={stats.error} onRetry={stats.reload} /> : (
         <section aria-label="Key metrics" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <MetricCard label="Gross revenue" value={formatMoney(shownCycle?.totalGrossRevenue)} hint={cycleSince ? `Non-cancelled orders · ${cycleSince}` : undefined} icon={Coins} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} restricted={!shownState.isLoading && !shownState.error && shownCycle?.totalGrossRevenue === undefined} />
+          <MetricCard label="Gross revenue" value={formatMoney(shownCycle?.totalGrossRevenue)} hint={cycleSince ? `Paid orders · ${cycleSince}` : undefined} icon={Coins} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} restricted={!shownState.isLoading && !shownState.error && shownCycle?.totalGrossRevenue === undefined} />
           <MetricCard label="Orders" value={formatCount(shownCycle?.totalOrdersCount)} hint={cycleSince} to="/admin/sales" icon={PackageCheck} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} />
           <MetricCard to="/admin/projects" label="Active projects" value={formatCount(dashboard?.totalProjects)} hint={dashboard?.projectsByStatus.length ? undefined : "No projects recorded yet"} icon={ClipboardList} isLoading={stats.isLoading} />
           <MetricCard to="/admin/inventory" label="Low stock items" value={formatCount(dashboard?.lowStockCount)} hint={`${formatCount(dashboard?.totalActiveProducts)} active products`} icon={AlertTriangle} isLoading={stats.isLoading} />

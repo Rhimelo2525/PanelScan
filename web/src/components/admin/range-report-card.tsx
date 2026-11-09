@@ -142,7 +142,7 @@ export function RangeReportCard() {
         <div className="space-y-4" aria-live="polite">
           <p className="text-xs font-medium text-muted-foreground">Showing {rangeLabel}</p>
           <div className="grid gap-3 sm:grid-cols-3">
-            <MetricCard size="large" label="Gross revenue" icon={Coins} value={formatMoney(data?.totalGrossRevenue)} hint="Non-cancelled orders" isLoading={report.isLoading} />
+            <MetricCard size="large" label="Gross revenue" icon={Coins} value={formatMoney(data?.totalGrossRevenue)} hint="Paid orders" isLoading={report.isLoading} />
             <MetricCard size="large" label="Orders" icon={PackageCheck} value={formatCount(data?.totalOrdersCount)} hint="Every order placed, cancelled included" isLoading={report.isLoading} />
             <MetricCard size="large" label="Delivered" icon={Truck} value={formatCount(delivered)} hint="Orders placed in this range, delivered now" isLoading={report.isLoading} />
           </div>

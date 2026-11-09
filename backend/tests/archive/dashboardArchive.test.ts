@@ -1,4 +1,4 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { prisma } from '../../src/config/database';
 import { cycleEndExclusive, cycleLastSecond, cycleTitle, manilaMidnight } from '../../src/modules/archive/archive.cycle';
 import { archiveService } from '../../src/modules/archive/archive.service';
-import { authHeader, createCustomer, createModerator, createOwner, createTestCategory, createTestOrder, createTestProduct } from '../helpers/factories';
+import { authHeader, createCustomer, createModerator, createOwner, createTestCategory, createTestOrder, createTestPayment, createTestProduct } from '../helpers/factories';
 import app from '../helpers/testApp';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -16,8 +16,19 @@ const CYCLE_START = new Date('2026-09-18T16:00:00.000Z');
 const OCTOBER_START = new Date('2026-09-30T16:00:00.000Z');
 
 /** An order placed `daysIn` days (plus 10 hours) into the first cycle. */
-const placeOrder = async (customerId: string, productId: string, daysIn: number, quantity: number, unitPrice: number, status: OrderStatus = OrderStatus.PENDING) => {
+const placeOrder = async (
+  customerId: string,
+  productId: string,
+  daysIn: number,
+  quantity: number,
+  unitPrice: number,
+  status: OrderStatus = OrderStatus.PENDING,
+  paid = status !== OrderStatus.CANCELLED,
+) => {
   const order = await createTestOrder({ customerId, status, items: [{ productId, quantity, unitPrice, productName: 'Oak Panel' }] });
+  if (paid) {
+    await createTestPayment({ orderId: order.id, amount: Number(order.totalAmount), status: PaymentStatus.PAID });
+  }
   return prisma.order.update({ where: { id: order.id }, data: { createdAt: new Date(CYCLE_START.getTime() + daysIn * DAY + 10 * 60 * 60 * 1000) } });
 };
 
@@ -93,6 +104,22 @@ describe('monthly dashboard cycles and archives', () => {
     expect(cycle.totalOrdersCount).toBe(1);
     expect(cycle.totalGrossRevenue).toBe(700);
     expect(cycle.revenueOverTime.map((day) => day.date)).toEqual(['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']);
+  });
+
+  it('excludes unpaid orders from gross revenue until they are paid', async () => {
+    const { customerId, productId } = await seedFirstCycle();
+    const unpaid = await placeOrder(customerId, productId, 14, 2, 400, OrderStatus.PENDING, false); // Oct 3, ₱800 unpaid
+    await createTestPayment({ orderId: unpaid.id, amount: 800, status: PaymentStatus.PENDING });
+    await placeOrder(customerId, productId, 14, 1, 500, OrderStatus.PROCESSING, true); // Oct 3, ₱500 paid
+
+    const now = new Date(OCTOBER_START.getTime() + 3 * DAY + 2 * 60 * 60 * 1000);
+    const beforePay = await archiveService.getCurrentCycle('OWNER', now);
+    expect(beforePay.totalOrdersCount).toBe(2);
+    expect(beforePay.totalGrossRevenue).toBe(500);
+
+    await prisma.payment.update({ where: { orderId: unpaid.id }, data: { status: PaymentStatus.PAID, paidAt: now } });
+    const afterPay = await archiveService.getCurrentCycle('OWNER', now);
+    expect(afterPay.totalGrossRevenue).toBe(1300);
   });
 
   it('archives every cycle that ended while nobody looked', async () => {
@@ -209,6 +236,7 @@ describe('custom date range reports', () => {
     const { customerId, productId } = await seedFirstCycle();
     // Sep 22 23:30 in Manila (15:30 UTC): still inside a range ending Sep 22.
     const late = await createTestOrder({ customerId, items: [{ productId, quantity: 1, unitPrice: 200 }] });
+    await createTestPayment({ orderId: late.id, amount: 200, status: PaymentStatus.PAID });
     await prisma.order.update({ where: { id: late.id }, data: { createdAt: new Date('2026-09-22T15:30:00.000Z') } });
     // Sep 23 00:30 in Manila (Sep 22 16:30 UTC): the next day, outside it.
     const next = await createTestOrder({ customerId, items: [{ productId, quantity: 1, unitPrice: 900 }] });
