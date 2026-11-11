@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/auth/use-auth"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import type { CycleProductDemand, DashboardArchiveDetail, DashboardCycle } from "@/types/admin"
+import type { AdminProject, CycleProductDemand, DashboardArchiveDetail, DashboardCycle, Pagination } from "@/types/admin"
 
 /**
  * One dashboard, two audiences. The backend already decides what a MODERATOR may
@@ -28,6 +28,7 @@ import type { CycleProductDemand, DashboardArchiveDetail, DashboardCycle } from 
  */
 /** The Revenue/Orders over time chart offers the current month and the five before it. */
 const RECENT_MONTHS = 6
+const RECENT_PROJECTS_LIMIT = 5
 
 export function AdminDashboardPage() {
   useDocumentTitle("Dashboard | PanelScan Admin")
@@ -36,6 +37,7 @@ export function AdminDashboardPage() {
 
   const stats = useAdminResource((signal) => getDashboardStats(signal), [], { pollIntervalMs: 45_000 })
   const products = useAdminResource((signal) => getProductStats({ limit: 5 }, signal), [], { pollIntervalMs: 45_000 })
+  const recentProjects = useAdminResource((signal) => getProjects({ page: 1, limit: RECENT_PROJECTS_LIMIT, source: "MOBILE_AR_3D" }, signal), [], { pollIntervalMs: 45_000 })
   // Gross revenue, Orders, Orders by status and Product demand count the current
   // monthly cycle only (the 1st to the month's end, Philippine time); each
   // finished cycle is kept on the owner's Archives page.
@@ -131,14 +133,14 @@ export function AdminDashboardPage() {
       <AdminPageHeader
         eyebrow={isOwner ? "Owner" : "Moderator"}
         title={`Good to see you, ${user?.firstName ?? ""}`.trim()}
-        actions={<Button variant="outline" size="sm" onClick={() => { stats.reload(); products.reload(); cycle.reload(); archived.reload(); monthOrders.reload(); inventory.reload() }}>Refresh</Button>}
+        actions={<Button variant="outline" size="sm" onClick={() => { stats.reload(); products.reload(); recentProjects.reload(); cycle.reload(); archived.reload(); monthOrders.reload(); inventory.reload() }}>Refresh</Button>}
       />
 
       {stats.error ? <ErrorState message={stats.error} onRetry={stats.reload} /> : (
         <section aria-label="Key metrics" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard label="Gross revenue" value={formatMoney(shownCycle?.totalGrossRevenue)} hint={cycleSince ? `Paid orders · ${cycleSince}` : undefined} icon={Coins} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} restricted={!shownState.isLoading && !shownState.error && shownCycle?.totalGrossRevenue === undefined} />
           <MetricCard label="Orders" value={formatCount(shownCycle?.totalOrdersCount)} hint={cycleSince} to="/admin/sales" icon={PackageCheck} isLoading={shownState.isLoading} unavailable={Boolean(shownState.error)} />
-          <MetricCard to="/admin/projects" label="Active projects" value={formatCount(dashboard?.totalProjects)} hint={dashboard?.projectsByStatus.length ? undefined : "No projects recorded yet"} icon={ClipboardList} isLoading={stats.isLoading} />
+          <MetricCard to="/admin/projects" label="Active projects" value={formatCount(recentProjects.data?.pagination.total)} hint={recentProjects.data?.pagination.total ? undefined : "No projects recorded yet"} icon={ClipboardList} isLoading={recentProjects.isLoading} unavailable={Boolean(recentProjects.error)} />
           <MetricCard to="/admin/inventory" label="Low stock items" value={formatCount(dashboard?.lowStockCount)} hint={`${formatCount(dashboard?.totalActiveProducts)} active products`} icon={AlertTriangle} isLoading={stats.isLoading} />
           <MetricCard to="/admin/inventory" label="Wall panel stock" value={formatCount(wallStock.reduce((total, row) => total + row.available, 0))} hint={`${wallStock.length} product${wallStock.length === 1 ? "" : "s"} · ${wallStock.filter((row) => row.isLowStock).length} low`} icon={Boxes} isLoading={inventory.isLoading} unavailable={Boolean(inventory.error)} />
           <MetricCard to="/admin/inventory" label="Ceiling panel stock" value={formatCount(ceilingStock.reduce((total, row) => total + row.available, 0))} hint={`${ceilingStock.length} product${ceilingStock.length === 1 ? "" : "s"} · ${ceilingStock.filter((row) => row.isLowStock).length} low`} icon={Boxes} isLoading={inventory.isLoading} unavailable={Boolean(inventory.error)} />
@@ -210,7 +212,7 @@ export function AdminDashboardPage() {
               {cycleLabel && <p className="mt-3 text-xs text-muted-foreground">{cycleLabel}</p>}
             </>}
           </div>
-          <RecentProjectsCard />
+          <RecentProjectsCard projects={recentProjects} />
           <MetricCard to="/admin/requests" label="Pending requests" value={formatCount(dashboard?.pendingRequests)} hint={isOwner ? "Awaiting your review" : "Submitted for owner review"} icon={ShieldCheck} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
           <MetricCard to="/admin/feedback" label="Average feedback rating" value={dashboard?.averageFeedbackRating === null ? "No ratings yet" : dashboard?.averageFeedbackRating?.toFixed(1)} hint="Across all customer feedback" icon={Star} isLoading={stats.isLoading} unavailable={Boolean(stats.error)} />
           <MetricCard to="/admin/inventory" label="Inventory value" value={formatMoney(products.data?.totalInventoryValue)} hint="At current unit prices" icon={Boxes} isLoading={products.isLoading} unavailable={Boolean(products.error)} restricted={!products.isLoading && !products.error && products.data?.totalInventoryValue === undefined} />
@@ -221,11 +223,8 @@ export function AdminDashboardPage() {
   )
 }
 
-const RECENT_PROJECTS_LIMIT = 5
-
 /** The latest customer projects, each opening on the Projects page. */
-function RecentProjectsCard() {
-  const projects = useAdminResource((signal) => getProjects({ page: 1, limit: RECENT_PROJECTS_LIMIT }, signal), [], { pollIntervalMs: 45_000 })
+function RecentProjectsCard({ projects }: { projects: { data: { projects: AdminProject[]; pagination: Pagination } | null; isLoading: boolean; error: string | null; reload: () => void } }) {
   const rows = projects.data?.projects ?? []
 
   return (

@@ -63,7 +63,7 @@ export function AdminProjectsPage() {
       open({})
       return
     }
-    getProjects({ code, limit: 1 })
+    getProjects({ code, limit: 1, source: SOURCE })
       .then((result) => {
         if (cancelled) return
         const project = result.projects[0]
@@ -115,7 +115,7 @@ function CodeLookup({ onFound }: { onFound: (project: AdminProject) => void }) {
     setIsSearching(true)
     setError(null)
     try {
-      const result = await getProjects({ code: wanted, limit: 1 })
+      const result = await getProjects({ code: wanted, limit: 1, source: SOURCE })
       const project = result.projects[0]
       if (project) {
         onFound(project)
