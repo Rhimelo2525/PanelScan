@@ -16,11 +16,11 @@ import {
 
 const router = Router();
 
-router.use(authenticate);
-
-// GET /api/feedback/product/:productId - product reviews, any authenticated role.
+// GET /api/feedback/product/:productId - public storefront product reviews.
 // Two path segments, so this never collides with the single-segment /:id below.
 router.get('/product/:productId', validate(productFeedbackSchema), feedbackController.getByProduct);
+
+router.use(authenticate);
 
 // GET /api/feedback/order/:orderId - CUSTOMER: own order only. MODERATOR/OWNER: any.
 router.get('/order/:orderId', validate(orderFeedbackSchema), feedbackController.getByOrder);

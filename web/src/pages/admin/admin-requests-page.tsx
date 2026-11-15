@@ -31,7 +31,7 @@ const REQUEST_KINDS = [
   { value: "EDIT_PRODUCT", label: "Edit product" },
   { value: "DELETE_PRODUCT", label: "Remove product" },
 ]
-const REQUEST_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"]
+const REQUEST_STATUSES = ["PENDING", "APPROVED", "REJECTED"]
 
 const CHANGE_PAYLOAD_DELIMITER = "\n\n__PANELSCAN_CHANGE_PAYLOAD__:\n"
 
