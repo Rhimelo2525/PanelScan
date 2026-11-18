@@ -101,7 +101,9 @@ export function ProductRatings({ productId, detailed = false }: { productId?: st
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">
-                    {review.customer.firstName} {review.customer.lastName}
+                    {review.customer.lastName
+                      ? `${review.customer.firstName} ${review.customer.lastName[0]}.`
+                      : review.customer.firstName}
                   </span>
                   <RatingStars value={review.rating} />
                 </div>

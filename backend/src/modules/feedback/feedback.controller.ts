@@ -78,7 +78,14 @@ export class FeedbackController {
   getByProduct = catchAsync(async (req: Request, res: Response): Promise<void> => {
     const filters = parseFeedbackFilters(req.query);
     const result = await this.feedbackService.getFeedbackByProduct(req.params.productId as string, filters);
-    sendSuccess(res, 200, 'Product feedback retrieved successfully.', result);
+    const sanitized = {
+      ...result,
+      feedbacks: result.feedbacks.map(({ customer, ...rest }) => ({
+        ...rest,
+        customer: { id: customer.id, firstName: customer.firstName, lastName: customer.lastName },
+      })),
+    };
+    sendSuccess(res, 200, 'Product feedback retrieved successfully.', sanitized);
   });
 
   getByOrder = catchAsync(async (req: Request, res: Response): Promise<void> => {
