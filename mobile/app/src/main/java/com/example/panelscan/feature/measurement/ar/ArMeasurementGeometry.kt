@@ -55,6 +55,59 @@ object ArMeasurementGeometry {
     }
 
     /**
+     * Whether the AR plane dot grid should be shown for the current reticle hit.
+     *
+     * Floor planes ([HitKind.HorizontalUpward]) never show dots in either mode:
+     * wall mode only renders dots on vertical wall surfaces, and ceiling mode
+     * only renders dots on downward-facing ceiling surfaces above the camera.
+     */
+    fun shouldShowSurfaceDots(
+        surfaceType: SurfaceType,
+        hitKind: HitKind,
+        confidence: HitConfidence,
+        wrongOrientation: Boolean,
+        surfaceNormalY: Float,
+        hitY: Float,
+        cameraY: Float
+    ): Boolean {
+        if (wrongOrientation || confidence != HitConfidence.Good) return false
+        if (!acceptsSurface(surfaceType, hitKind)) return false
+        val normalKind = classifyNormal(surfaceNormalY)
+        if (!acceptsSurface(surfaceType, normalKind)) return false
+        if (surfaceType == SurfaceType.CEILING && hitY <= cameraY + 0.12f) return false
+        return true
+    }
+
+    /**
+     * Builds an axis-aligned [PlaneSignature] for a point hit without a tracked [com.google.ar.core.Plane]:
+     * vertical (normalY = 0) for walls, straight down (0, -1, 0) for ceilings, and straight up (0, 1, 0)
+     * for floors, so the visual dot grid and placed anchors sit flat on the real surface instead of
+     * tilting with the camera's pitch angle.
+     */
+    fun surfacePlaneSignature(
+        kind: HitKind,
+        point: WorldPoint3,
+        cameraDirection: WorldPoint3,
+        estimatedNormal: WorldPoint3? = null
+    ): PlaneSignature = when (kind) {
+        HitKind.HorizontalDownward -> PlaneSignature(0f, -1f, 0f, point.x, point.y, point.z)
+        HitKind.HorizontalUpward -> PlaneSignature(0f, 1f, 0f, point.x, point.y, point.z)
+        HitKind.VerticalPlane -> {
+            val horizontalFromNormal = estimatedNormal?.let { normalised(it.x, 0f, it.z) }
+            val horizontalFromCamera = normalised(-cameraDirection.x, 0f, -cameraDirection.z)
+            val n = horizontalFromNormal ?: horizontalFromCamera ?: WorldPoint3(0f, 0f, 1f)
+            val flip = if (n.x * -cameraDirection.x + n.z * -cameraDirection.z < 0f) -1f else 1f
+            PlaneSignature(n.x * flip, 0f, n.z * flip, point.x, point.y, point.z)
+        }
+        else -> {
+            val n = estimatedNormal?.let { normalised(it.x, it.y, it.z) }
+                ?: normalised(-cameraDirection.x, -cameraDirection.y, -cameraDirection.z)
+                ?: WorldPoint3(0f, 0f, 1f)
+            PlaneSignature(n.x, n.y, n.z, point.x, point.y, point.z)
+        }
+    }
+
+    /**
      * ARCore may represent one large wall as multiple plane trackables. Identity alone is
      * therefore too strict: parallel planes occupying the same geometric plane are accepted.
      */
@@ -89,7 +142,8 @@ object ArMeasurementGeometry {
         val normal = normalised(plane.normalX, plane.normalY, plane.normalZ) ?: return null
         val ray = normalised(direction.x, direction.y, direction.z) ?: return null
         val denominator = ray.x * normal.x + ray.y * normal.y + ray.z * normal.z
-        if (abs(denominator) < 0.05f) return null
+        // Allow shallow grazing angles (~89°) when panning to the far corner of a long wall.
+        if (abs(denominator) < 0.015f) return null
         val distance = (
             (plane.centerX - origin.x) * normal.x +
                 (plane.centerY - origin.y) * normal.y +

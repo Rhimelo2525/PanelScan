@@ -45,11 +45,11 @@ fun arCopy(state: ArUiState): ArCopy {
         }
         return when (state.step) {
             MeasureStep.WidthStart -> ArCopy("Step 1 of 3 · Top-left corner",
-                "Aim the reticle at the top-left corner and tap.", ArTone.Good)
+                "Aim the reticle at the top-left corner and tap. For large surfaces, you can walk or pan along the surface.", ArTone.Good)
             MeasureStep.WidthEnd -> ArCopy("Step 2 of 3 · Top-right corner",
-                "Move along the top edge to the right corner and tap.", ArTone.Good)
+                "Pan or walk along the surface to the far right corner and tap.", ArTone.Good)
             else -> ArCopy("Step 3 of 3 · Bottom corner",
-                "From the right point, aim straight down to the bottom corner and tap. That's it.", ArTone.Good)
+                "Aim down to the bottom edge or corner and tap to finish.", ArTone.Good)
         }
     }
 
@@ -75,9 +75,9 @@ fun arCopy(state: ArUiState): ArCopy {
         phase !is ArPhase.TrackingLimited && state.issue != ScanIssue.SURFACE_TRACKING_LOST) {
         if (!state.measuredAreaInView) {
             return ArCopy(
-                headline = "Point the camera at the measured area",
-                instruction = "Keep all the dots on screen. The photo for your project is taken from this view.",
-                tone = ArTone.Caution
+                headline = "Measurement ready",
+                instruction = "Large $surface measured. Point toward the $surface for your project photo, then tap Use measurement.",
+                tone = ArTone.Good
             )
         }
         return ArCopy(

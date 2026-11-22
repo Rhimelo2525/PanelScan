@@ -163,4 +163,113 @@ class ArMeasurementGeometryTest {
         val wall = PlaneSignature(0f, 0f, 1f, 0f, 1.5f, -2f)
         assertEquals(0.03f, ArMeasurementGeometry.distanceToPlane(WorldPoint3(4f, 0.2f, -1.97f), wall), 1e-4f)
     }
+
+    @Test
+    fun `surface dots never show on the floor and only show on the selected surface`() {
+        // Aiming at the floor in Wall mode: never show dots.
+        assertFalse(
+            ArMeasurementGeometry.shouldShowSurfaceDots(
+                surfaceType = SurfaceType.WALL,
+                hitKind = HitKind.HorizontalUpward,
+                confidence = HitConfidence.Mismatched,
+                wrongOrientation = true,
+                surfaceNormalY = 1f,
+                hitY = 0f,
+                cameraY = 1.4f
+            )
+        )
+        // Even if a hit were marked Good, an upward-facing floor normal is rejected in Wall mode.
+        assertFalse(
+            ArMeasurementGeometry.shouldShowSurfaceDots(
+                surfaceType = SurfaceType.WALL,
+                hitKind = HitKind.VerticalPlane,
+                confidence = HitConfidence.Good,
+                wrongOrientation = false,
+                surfaceNormalY = 0.95f,
+                hitY = 0f,
+                cameraY = 1.4f
+            )
+        )
+        // Valid vertical wall in Wall mode: show dots on the wall.
+        assertTrue(
+            ArMeasurementGeometry.shouldShowSurfaceDots(
+                surfaceType = SurfaceType.WALL,
+                hitKind = HitKind.VerticalPlane,
+                confidence = HitConfidence.Good,
+                wrongOrientation = false,
+                surfaceNormalY = 0f,
+                hitY = 1.4f,
+                cameraY = 1.4f
+            )
+        )
+        // Ceiling surface while in Wall mode: never show dots.
+        assertFalse(
+            ArMeasurementGeometry.shouldShowSurfaceDots(
+                surfaceType = SurfaceType.WALL,
+                hitKind = HitKind.HorizontalDownward,
+                confidence = HitConfidence.Good,
+                wrongOrientation = false,
+                surfaceNormalY = -1f,
+                hitY = 2.6f,
+                cameraY = 1.4f
+            )
+        )
+        // Valid ceiling above the camera in Ceiling mode: show dots on the ceiling.
+        assertTrue(
+            ArMeasurementGeometry.shouldShowSurfaceDots(
+                surfaceType = SurfaceType.CEILING,
+                hitKind = HitKind.HorizontalDownward,
+                confidence = HitConfidence.Good,
+                wrongOrientation = false,
+                surfaceNormalY = -1f,
+                hitY = 2.6f,
+                cameraY = 1.4f
+            )
+        )
+        // A horizontal plane below the camera (floor) in Ceiling mode: never show dots.
+        assertFalse(
+            ArMeasurementGeometry.shouldShowSurfaceDots(
+                surfaceType = SurfaceType.CEILING,
+                hitKind = HitKind.HorizontalDownward,
+                confidence = HitConfidence.Good,
+                wrongOrientation = false,
+                surfaceNormalY = -1f,
+                hitY = 0.2f,
+                cameraY = 1.4f
+            )
+        )
+    }
+
+    @Test
+    fun `point hit plane signatures stay vertical on walls and horizontal on ceilings`() {
+        val point = WorldPoint3(0.5f, 1.6f, -2.0f)
+        val tiltedCameraDir = WorldPoint3(0f, -0.45f, -0.89f)
+
+        val wallSig = ArMeasurementGeometry.surfacePlaneSignature(HitKind.VerticalPlane, point, tiltedCameraDir)
+        assertEquals(0f, wallSig.normalY, 1e-4f)
+        assertEquals(1f, wallSig.normalZ, 1e-4f)
+
+        val ceilingSig = ArMeasurementGeometry.surfacePlaneSignature(HitKind.HorizontalDownward, point, tiltedCameraDir)
+        assertEquals(0f, ceilingSig.normalX, 1e-4f)
+        assertEquals(-1f, ceilingSig.normalY, 1e-4f)
+        assertEquals(0f, ceilingSig.normalZ, 1e-4f)
+    }
+
+    @Test
+    fun `big wall ray intersection works across long spans and shallow panning angles`() {
+        // Standing 1.8 m from a 12 m wide wall and panning to the far corner at x = 10.5 m.
+        val origin = WorldPoint3(0f, 1.5f, 0f)
+        val wall = PlaneSignature(0f, 0f, 1f, 0f, 1.5f, -1.8f)
+        val farDirection = WorldPoint3(10.5f, 1.2f, -1.8f)
+        val hit = ArMeasurementGeometry.intersectRayWithPlane(
+            origin = origin,
+            direction = farDirection,
+            plane = wall,
+            minDistance = 0.20f,
+            maxDistance = 25.0f
+        )
+        assertNotNull(hit)
+        assertEquals(10.5f, hit!!.x, 0.01f)
+        assertEquals(-1.8f, hit.z, 0.01f)
+    }
 }

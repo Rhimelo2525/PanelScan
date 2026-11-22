@@ -218,8 +218,7 @@ data class ArUiState(
 
     val canConfirm: Boolean
         get() = step == MeasureStep.Complete && widthMeters > 0.0 && heightMeters > 0.0 &&
-            surfaceLocked && phase !is ArPhase.TrackingLimited && issue != ScanIssue.SURFACE_TRACKING_LOST && !replaying &&
-            measuredAreaInView
+            surfaceLocked && phase !is ArPhase.TrackingLimited && issue != ScanIssue.SURFACE_TRACKING_LOST && !replaying
 
     val reticle: ReticleState
         get() = when {

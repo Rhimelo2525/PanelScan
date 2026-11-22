@@ -224,7 +224,7 @@ fun Preview3DScreen(
 
     // 3D view: step back far enough to see the copies too.
     LaunchedEffect(copies) {
-        distance = maxOf(distance, defaultDistance(project, copies)).coerceAtMost(18f)
+        distance = maxOf(distance, defaultDistance(project, copies)).coerceAtMost(36f)
     }
 
     // 3D view: orbit and zoom move the surface rather than the camera.
@@ -264,7 +264,7 @@ fun Preview3DScreen(
                             yaw = (yaw + pan.x * 0.25f) % 360f
                             pitch = (pitch - pan.y * 0.25f).coerceIn(-70f, 70f)
                         }
-                        distance = (distance / zoom).coerceIn(0.8f, 18f)
+                        distance = (distance / zoom).coerceIn(0.8f, 36f)
                     }
                 },
             factory = { ctx ->
@@ -683,7 +683,7 @@ private fun defaultDistance(project: SavedProject, copies: List<Pair<Int, Int>> 
         project.measurement.heightMeters * up,
         0.5
     ).toFloat()
-    return (largest * 2.3f).coerceIn(1.6f, 16f)
+    return (largest * 2.3f).coerceIn(1.6f, 36f)
 }
 
 /**

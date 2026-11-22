@@ -509,8 +509,12 @@ private fun SurfaceStatusChip(state: ArUiState) {
             Text(
                 text = buildString {
                     append(if (state.surfaceType == SurfaceType.WALL) "Wall confirmed" else "Ceiling confirmed")
-                    if (state.surfaceSource?.isDepth == true) append(" · depth")
-                    if (state.surfaceSource == SurfaceEvidenceSource.REFERENCE_IMAGE) append(" · reference assisted")
+                    if (state.pointCount > 0 && !state.measuredAreaInView) {
+                        append(" · Big surface lock")
+                    } else {
+                        if (state.surfaceSource?.isDepth == true) append(" · depth")
+                        if (state.surfaceSource == SurfaceEvidenceSource.REFERENCE_IMAGE) append(" · reference assisted")
+                    }
                 },
                 style = PanelScan.type.label,
                 color = Color.White
@@ -974,7 +978,7 @@ private fun BottomControls(
         )
 
         AnimatedVisibility(
-            visible = state.pointCount >= 2,
+            visible = state.pointCount >= 1 || state.widthMeters > 0.0,
             enter = fadeIn(PanelScanMotion.spec(PanelScanMotion.Standard)) +
                 slideInVertically(PanelScanMotion.spec(PanelScanMotion.Standard)) { it / 3 },
             exit = fadeOut(PanelScanMotion.spec(PanelScanMotion.Fast)) +
@@ -982,7 +986,8 @@ private fun BottomControls(
         ) {
             MetricStrip(
                 width = state.widthMeters,
-                height = state.heightMeters
+                height = state.heightMeters,
+                area = state.areaSquareMeters
             )
         }
 
@@ -1143,20 +1148,27 @@ private fun InlineAction(text: String, onClick: () -> Unit) {
     }
 }
 
-/** Two columns, no shell — just enough to read the numbers without covering the scene. */
+/** Live Width, Height and Area strip on the AR screen so big-wall progress is always visible. */
 @Composable
-private fun MetricStrip(width: Double, height: Double) {
+private fun MetricStrip(width: Double, height: Double, area: Double) {
     Row(
-        modifier = Modifier.padding(start = Spacing.xxs),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.xl)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(PanelScan.shapes.cardCompact)
+            .background(ChromeSurface.copy(alpha = 0.90f))
+            .border(1.dp, ChromeBorder, PanelScan.shapes.cardCompact)
+            .padding(horizontal = Spacing.sm, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        MetricColumn(label = "Width", value = width)
-        MetricColumn(label = "Height", value = height)
+        MetricColumn(label = "Width", value = width, unit = "m")
+        MetricColumn(label = "Height", value = height, unit = "m")
+        MetricColumn(label = "Area", value = area, unit = "m²")
     }
 }
 
 @Composable
-private fun MetricColumn(label: String, value: Double) {
+private fun MetricColumn(label: String, value: Double, unit: String) {
     Column {
         Text(
             text = label.uppercase(),
@@ -1171,7 +1183,7 @@ private fun MetricColumn(label: String, value: Double) {
                     color = Color.White
                 )
                 Text(
-                    text = " m",
+                    text = " $unit",
                     style = PanelScan.type.supporting,
                     color = Color.White.copy(alpha = 0.6f)
                 )

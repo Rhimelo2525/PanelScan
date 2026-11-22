@@ -76,7 +76,7 @@ class DepthPatchSampler {
             val offset = y * p.rowStride + x * p.pixelStride
             if (offset + 1 >= bytes.limit()) continue
             val mm = bytes.getShort(offset).toInt() and 0xFFFF
-            if (mm !in 500..5000) continue
+            if (mm !in 350..12000) continue
             if (cp != null && cb != null) {
                 val confidenceOffset = y * cp.rowStride + x * cp.pixelStride
                 if (confidenceOffset >= cb.limit() || (cb.get(confidenceOffset).toInt() and 0xFF) < 180) continue

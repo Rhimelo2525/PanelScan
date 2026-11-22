@@ -154,4 +154,24 @@ class ArGuidanceCopyTest {
         assertTrue(onWall.canPlace)
         assertTrue(arCopy(onWall).headline.startsWith("Step 1 of 3"))
     }
+
+    @Test
+    fun `big wall measurement stays confirmable when corners extend past the camera view`() {
+        val bigWallDone = ArUiState(
+            quickMode = true,
+            surfaceType = SurfaceType.WALL,
+            phase = ArPhase.MeasurementComplete,
+            step = MeasureStep.Complete,
+            scanStage = ScanStage.RESULT,
+            surfaceLocked = true,
+            pointCount = 3,
+            widthMeters = 9.4,
+            heightMeters = 3.2,
+            measuredAreaInView = false
+        )
+        assertTrue(bigWallDone.canConfirm)
+        val copy = arCopy(bigWallDone)
+        assertEquals("Measurement ready", copy.headline)
+        assertEquals(ArTone.Good, copy.tone)
+    }
 }
