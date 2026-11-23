@@ -106,9 +106,9 @@ class CornerAssistant(
             if (!value) _preview.value = null
         }
 
-    /** Set from the last plan: whether the next copy should include chroma. */
+    /** Set from the last plan: whether the next copy should include chroma. Default true so color edges are ready on sudden light shifts. */
     @Volatile
-    private var wantChroma = false
+    private var wantChroma = true
 
     private val busy = AtomicBoolean(false)
     private var lastSubmitAt = 0L
@@ -228,13 +228,13 @@ class CornerAssistant(
                 val reticleQuality = previewCorners?.let {
                     FrameQualityAnalyzer.analyzeReticle(input, width, height, it, viewWidth, viewHeight)
                 } ?: FrameQuality.Unknown
-                val plan = AdaptiveEnhancer.plan(quality, currentSettings)
+                val plan = AdaptiveEnhancer.plan(quality, currentSettings, reticleQuality)
                 wantChroma = plan.chromaWeight > 0f
 
                 val analysisInput = if (plan.remapsLuma) {
                     val out = processed?.takeIf { it.size == input.size }
                         ?: ByteArray(input.size).also { processed = it }
-                    AdaptiveEnhancer.buildLut(plan.gain, plan.offset, lut)
+                    AdaptiveEnhancer.buildAdaptiveLut(plan, quality, reticleQuality, lut)
                     AdaptiveEnhancer.apply(input, out, lut)
                     out
                 } else input

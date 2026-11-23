@@ -272,4 +272,24 @@ class ArMeasurementGeometryTest {
         assertEquals(10.5f, hit!!.x, 0.01f)
         assertEquals(-1.8f, hit.z, 0.01f)
     }
+
+    @Test
+    fun `connecting three points builds a fixed 3D grid structure coplanar with the measured surface`() {
+        val p0 = WorldPoint3(0f, 2.2f, -2.0f)
+        val p1 = WorldPoint3(2.4f, 2.2f, -2.0f)
+        val p2 = WorldPoint3(2.4f, 0.4f, -2.0f)
+        val wallPlane = PlaneSignature(0f, 0f, 1f, 0f, 1.3f, -2.0f)
+
+        val segments = ArMeasurementGeometry.buildFixedGridSegments(p0, p1, p2)
+        val outerCount = segments.count { it.isOuterFrame }
+        val innerCount = segments.count { !it.isOuterFrame }
+
+        assertEquals(4, outerCount)
+        assertTrue(innerCount >= 4)
+        // Every outer beam and interior grid line lies flat on the measured wall plane (z = -2.0 m).
+        segments.forEach { seg ->
+            assertEquals(0f, ArMeasurementGeometry.distanceToPlane(seg.from, wallPlane), 1e-4f)
+            assertEquals(0f, ArMeasurementGeometry.distanceToPlane(seg.to, wallPlane), 1e-4f)
+        }
+    }
 }

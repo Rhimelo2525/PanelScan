@@ -207,4 +207,25 @@ class FrameQualityAndEnhancementTest {
         val with = EdgeCornerDetector(w, h).detect(luma.copyOf(), gradientThreshold = 60, chromaU = u, chromaV = v, chromaWeight = 1.2f)
         assertTrue(with.corners.isNotEmpty())
     }
+
+    @Test
+    fun `mixed reflection and sudden dark spot uses local reticle exposure and enables chroma edges`() {
+        // Global frame has both bright glare (250) and dark shadow (18), so global dynamicRange is wide (~232),
+        // while the reticle sits inside a sudden dark spot (18..42).
+        val global = FrameQualityAnalyzer.analyze(
+            frame { x, _ -> if (x < 160) 250 else 18 },
+            w,
+            h
+        )
+        val darkSpotReticle = FrameQualityAnalyzer.analyze(
+            frame { x, y -> 22 + ((x + y) % 16) },
+            64,
+            64
+        )
+        val plan = AdaptiveEnhancer.plan(global, ScanEnhancementSettings.Default, darkSpotReticle)
+        assertTrue("stretches compressed dark spot under reticle", plan.gain > 2.0f)
+        assertTrue("enables colour edges under uneven lighting", plan.chromaWeight >= 0.65f)
+        val lut = AdaptiveEnhancer.buildAdaptiveLut(plan, global, darkSpotReticle)
+        assertTrue("shadow-lift LUT boosts dark wall levels", lut[30] > 30)
+    }
 }

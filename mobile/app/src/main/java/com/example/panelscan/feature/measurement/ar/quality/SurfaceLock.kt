@@ -73,18 +73,18 @@ data class LockStatus(
 class SurfaceLockTracker(private val config: Config = Config()) {
 
     data class Config(
-        val windowMs: Long = 1_500L,
+        val windowMs: Long = 2_400L,
         val trackedPlaneSamples: Int = 3,
         val trackedPlaneMinSpanMs: Long = 150L,
         val depthSamples: Int = 6,
         val depthMinSpanMs: Long = 500L,
-        val maxAngleDegrees: Float = 7f,
-        val maxOffsetMetres: Float = 0.035f,
-        val maxDepthResidualMetres: Float = 0.015f,
-        val depthAgreementFraction: Float = 0.7f,
+        val maxAngleDegrees: Float = 9f,
+        val maxOffsetMetres: Float = 0.05f,
+        val maxDepthResidualMetres: Float = 0.022f,
+        val depthAgreementFraction: Float = 0.65f,
         /** Looser tolerance for deciding a sample belongs to the *current lock*. */
-        val lockAngleDegrees: Float = 12f,
-        val lockOffsetMetres: Float = 0.10f
+        val lockAngleDegrees: Float = 14f,
+        val lockOffsetMetres: Float = 0.12f
     )
 
     private val window = ArrayDeque<SurfaceObservation>()

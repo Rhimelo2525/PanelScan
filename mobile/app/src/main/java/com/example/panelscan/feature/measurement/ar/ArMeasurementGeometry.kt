@@ -1,5 +1,6 @@
 package com.example.panelscan.feature.measurement.ar
 
+import com.example.panelscan.core.logic.WallPhotoGeometry
 import com.example.panelscan.core.model.SurfaceType
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -219,4 +220,68 @@ object ArMeasurementGeometry {
         if (length <= 1e-6f) return null
         return WorldPoint3(x / length, y / length, z / length)
     }
+
+    /** A 3D bar segment belonging to the fixed measurement structure on the surface. */
+    data class GridSegment(
+        val from: WorldPoint3,
+        val to: WorldPoint3,
+        val isOuterFrame: Boolean
+    )
+
+    /**
+     * Builds the fixed 3D grid structure anchored to the measured rectangle defined by
+     * [first], [second] and [third]: 4 outer frame beams plus evenly spaced interior
+     * vertical and horizontal 3D grid lines lying flat on the measured surface.
+     */
+    fun buildFixedGridSegments(
+        first: WorldPoint3,
+        second: WorldPoint3,
+        third: WorldPoint3,
+        cellTargetMeters: Float = 0.30f,
+        minDivisions: Int = 3,
+        maxDivisions: Int = 10
+    ): List<GridSegment> {
+        val corners = WallPhotoGeometry.cornersFromTaps(
+            WallPhotoGeometry.Vec(first.x, first.y, first.z),
+            WallPhotoGeometry.Vec(second.x, second.y, second.z),
+            WallPhotoGeometry.Vec(third.x, third.y, third.z)
+        ).map { WorldPoint3(it.x, it.y, it.z) }
+        if (corners.size < 4) return emptyList()
+        val c0 = corners[0]
+        val c1 = corners[1]
+        val c2 = corners[2]
+        val c3 = corners[3]
+
+        val width = distance(c0, c1).toFloat()
+        val height = distance(c0, c3).toFloat()
+        if (width <= 0.02f || height <= 0.02f) return emptyList()
+
+        val segments = ArrayList<GridSegment>()
+        // 1. 4 outer perimeter frame beams
+        segments += GridSegment(c0, c1, isOuterFrame = true)
+        segments += GridSegment(c1, c2, isOuterFrame = true)
+        segments += GridSegment(c2, c3, isOuterFrame = true)
+        segments += GridSegment(c3, c0, isOuterFrame = true)
+
+        // 2. Interior vertical 3D grid lines
+        val cols = (width / cellTargetMeters).toInt().coerceIn(minDivisions, maxDivisions)
+        for (col in 1 until cols) {
+            val t = col.toFloat() / cols
+            segments += GridSegment(lerpPoint(c0, c1, t), lerpPoint(c3, c2, t), isOuterFrame = false)
+        }
+
+        // 3. Interior horizontal 3D grid lines
+        val rows = (height / cellTargetMeters).toInt().coerceIn(minDivisions, maxDivisions)
+        for (row in 1 until rows) {
+            val t = row.toFloat() / rows
+            segments += GridSegment(lerpPoint(c0, c3, t), lerpPoint(c1, c2, t), isOuterFrame = false)
+        }
+        return segments
+    }
+
+    private fun lerpPoint(a: WorldPoint3, b: WorldPoint3, t: Float): WorldPoint3 = WorldPoint3(
+        x = a.x + (b.x - a.x) * t,
+        y = a.y + (b.y - a.y) * t,
+        z = a.z + (b.z - a.z) * t
+    )
 }

@@ -201,6 +201,9 @@ class ArMeasureController(
     private var validStreak = 0
     private var invalidStreak = 0
     private var currentHit: ValidatedHit? = null
+    private var lastValidHit: ValidatedHit? = null
+    private var lastValidHitAt = 0L
+    private var lastFullTrackingAt = 0L
     /** Quick measure: point-to-point 3D distance, no surface lock or corner search. */
     private var quickMode = true
     /**
@@ -481,6 +484,7 @@ class ArMeasureController(
             onTrackingLimited(session, camera.trackingFailureReason, tracking, quality, now)
             return
         }
+        lastFullTrackingAt = now
 
         val anchorState = lockAnchor?.trackingState
         if (lockRecovery.shouldRestartSearch(
@@ -702,7 +706,21 @@ class ArMeasureController(
         quality: com.example.panelscan.feature.measurement.ar.quality.FrameQuality,
         now: Long
     ) {
+        // Hold through brief tracking dips (< 1.4 s) caused by camera auto-exposure shifts,
+        // specular reflections, or sudden dark shadow patches on the wall so the AR session
+        // does not abruptly drop the locked surface or placed points.
+        val hasActiveSurface = placed.isNotEmpty() || quickLockedSurface != null || quickPlane != null || lockAnchor != null
+        val withinGrace = everTracked &&
+            hasActiveSurface &&
+            reason != TrackingFailureReason.CAMERA_UNAVAILABLE &&
+            lastFullTrackingAt > 0L &&
+            now - lastFullTrackingAt <= TRACKING_GRACE_MS
+        if (withinGrace) {
+            return
+        }
+
         currentHit = null
+        lastValidHit = null
         snappedHit = null
         clearAssist()
         hideSurfaceDots()
@@ -1453,6 +1471,9 @@ class ArMeasureController(
     fun onLifecyclePause() {
         recorder.stop(sceneView?.session, "Recording saved when app paused")
         currentHit = null
+        lastValidHit = null
+        lastValidHitAt = 0L
+        lastFullTrackingAt = 0L
         snappedHit = null
         validStreak = 0
         lastDepth = null
@@ -1528,6 +1549,8 @@ class ArMeasureController(
         surfaceType = type
         quickPlane = null
         quickLockedSurface = null
+        lastValidHit = null
+        lastValidHitAt = 0L
         dropLock()
         lastDepth = null
         lastEvidenceAt = 0L
@@ -1740,12 +1763,20 @@ class ArMeasureController(
         val centrePlaneHit = runCatching { validateHitAt(frame, view.width / 2f, view.height / 2f) }.getOrNull()
         val mismatchedPlane = centrePlaneHit?.takeIf { it.confidence == HitConfidence.Mismatched }
 
+        val depthCandidate = if (depthSupported) quickDepthHit(frame, view, origin, ray, now) else null
+        val pointCandidate = quickPointHit(frame, view, session, origin, ray, dir)
+
+        // Filter depthCandidate and pointCandidate for Good confidence in the primary chain so a
+        // noisy reflection or dark shadow spot (Mismatched/Other normal) never blocks fallback
+        // to the remembered wall/ceiling plane.
         val rawFound = quickHitOnPlane(session, origin, ray)
             ?: quickPlaneHit(frame, view, camPose.ty())
             ?: session?.let { runCatching { projectCentreRayToTrackedPlane(it, frame) }.getOrNull() }
-            ?: (if (depthSupported) quickDepthHit(frame, view, origin, ray, now) else null)
-            ?: quickPointHit(frame, view, session, origin, ray, dir)
+            ?: depthCandidate?.takeIf { it.confidence == HitConfidence.Good }
+            ?: pointCandidate?.takeIf { it.confidence == HitConfidence.Good }
             ?: (if (placed.isEmpty() && mismatchedPlane == null) quickHitOnRememberedSurface(session, origin, ray) else null)
+            ?: depthCandidate
+            ?: pointCandidate
 
         // Before Point A is placed, a nearer tracked plane of the wrong orientation (such as the floor)
         // blocks hits on or behind it. Once Point A is placed on a wall/ceiling, the infinite locked
@@ -1754,17 +1785,32 @@ class ArMeasureController(
             rawFound.distance >= mismatchedPlane.distance - occlusionTolerance(mismatchedPlane.distance)
         val found = if (occludedByWrongPlane) mismatchedPlane else (rawFound ?: mismatchedPlane)
 
+        val definiteWrongKind = if (found?.confidence == HitConfidence.Good) null else {
+            mismatchedPlane?.kind
+                ?: centrePlaneKind(frame, view, camPose.ty())?.takeIf { !matchesSurface(it) }
+                ?: found?.kind?.takeIf { it != HitKind.None && it != HitKind.Other && !matchesSurface(it) }
+        }
+
         // Only the chosen surface takes points: a wall measurement never lands on
         // the floor or ceiling, a ceiling measurement never on a wall or the floor.
-        val hit = found?.takeIf { it.confidence == HitConfidence.Good }
+        // If a reflection or dark spot causes a momentary dropout (< 650 ms) while still aiming
+        // at the surface, hold the last valid hit so the reticle does not drop out.
+        val directHit = found?.takeIf { it.confidence == HitConfidence.Good }
+        val hit = when {
+            directHit != null -> {
+                lastValidHit = directHit
+                lastValidHitAt = now
+                directHit
+            }
+            definiteWrongKind == null && lastValidHit != null && now - lastValidHitAt <= HIT_HOLD_GRACE_MS -> {
+                quickHitOnRememberedSurface(session, origin, ray) ?: lastValidHit
+            }
+            else -> null
+        }
         if (hit != null) {
             quickLockedSurface = hit.surface
         }
-        val wrongKind = if (hit != null) null else {
-            found?.kind?.takeIf { it != HitKind.None && it != HitKind.Other }
-                ?: mismatchedPlane?.kind
-                ?: centrePlaneKind(frame, view, camPose.ty())?.takeIf { !matchesSurface(it) }
-        }
+        val wrongKind = if (hit != null) null else definiteWrongKind
         currentHit = hit
         if (hit == null) {
             quickSamples.clear()
@@ -1872,13 +1918,14 @@ class ArMeasureController(
 
     /**
      * Before Point A is placed: once the user has scanned the middle of a large plain wall/ceiling
-     * and established [quickLockedSurface], panning to a plain corner of that same surface keeps
-     * the reticle active on the remembered plane as long as the camera is still aimed at the surface.
+     * and established [quickLockedSurface], panning to a plain corner, reflection, or dark shadow
+     * spot on that same surface keeps the reticle active on the remembered plane as long as the
+     * camera is still aimed at the surface.
      */
     private fun quickHitOnRememberedSurface(session: Session?, origin: WorldPoint3, ray: WorldPoint3): ValidatedHit? {
         val signature = quickLockedSurface ?: return null
-        if (surfaceType == SurfaceType.WALL && (ray.y < -0.30f || ray.y > 0.78f)) return null
-        if (surfaceType == SurfaceType.CEILING && ray.y < 0.30f) return null
+        if (surfaceType == SurfaceType.WALL && (ray.y < -0.68f || ray.y > 0.82f)) return null
+        if (surfaceType == SurfaceType.CEILING && ray.y < 0.25f) return null
         val point = ArMeasurementGeometry.intersectRayWithPlane(origin, ray, signature, MIN_HIT_DISTANCE_M, MAX_HIT_DISTANCE_M) ?: return null
         if (surfaceType == SurfaceType.CEILING && point.y <= origin.y + 0.12f) return null
         if (surfaceType == SurfaceType.WALL && isBelowTrackedFloor(session, point.y, origin.y)) return null
@@ -1935,14 +1982,23 @@ class ArMeasureController(
     ): ValidatedHit? = runCatching {
         val cx = view.width / 2f
         val cy = view.height / 2f
+        val near = QUICK_PROBE_OFFSET_PX
+        val far = QUICK_PROBE_OFFSET_PX * 2f
+        // 9-point probe ring around the reticle so a localized reflection or sudden dark spot
+        // at the center pixel is bypassed by neighboring points on the same wall/ceiling.
         val probes = listOf(
             cx to cy,
-            (cx - QUICK_PROBE_OFFSET_PX) to cy,
-            (cx + QUICK_PROBE_OFFSET_PX) to cy,
-            cx to (cy - QUICK_PROBE_OFFSET_PX),
-            cx to (cy + QUICK_PROBE_OFFSET_PX)
+            (cx - near) to cy,
+            (cx + near) to cy,
+            cx to (cy - near),
+            cx to (cy + near),
+            (cx - far) to (cy - far),
+            (cx + far) to (cy - far),
+            (cx - far) to (cy + far),
+            (cx + far) to (cy + far)
         )
         var fallbackMismatch: ValidatedHit? = null
+        val remembered = quickLockedSurface
         for ((px, py) in probes) {
             if (px < 0f || px > view.width || py < 0f || py > view.height) continue
             val hits = frame.hitTest(px, py).filter { hit ->
@@ -1963,7 +2019,18 @@ class ArMeasureController(
             } else null
 
             val rawKind = if (estimatedNormal != null) {
-                ArMeasurementGeometry.classifyNormal(estimatedNormal.y)
+                val classified = ArMeasurementGeometry.classifyNormal(estimatedNormal.y)
+                // Specular reflections and shadow edges slightly perturb depth normals; if the point
+                // lies on the already-detected wall/ceiling plane, snap to that surface orientation.
+                if (classified == HitKind.Other && remembered != null &&
+                    ArMeasurementGeometry.distanceToPlane(hitWorld, remembered) <= 0.16f &&
+                    ((surfaceType == SurfaceType.WALL && abs(estimatedNormal.y) <= 0.55f) ||
+                        (surfaceType == SurfaceType.CEILING && estimatedNormal.y <= -0.55f))
+                ) {
+                    if (surfaceType == SurfaceType.WALL) HitKind.VerticalPlane else HitKind.HorizontalDownward
+                } else {
+                    classified
+                }
             } else {
                 ArMeasurementGeometry.classifyViewDirection(surfaceType, dir[1])
             }
@@ -2101,6 +2168,8 @@ class ArMeasureController(
         placed.clear()
         quickPlane = null
         quickLockedSurface = null
+        lastValidHit = null
+        lastValidHitAt = 0L
         quickSamples.clear()
         dropLock()
         lastDepth = null
@@ -2131,6 +2200,7 @@ class ArMeasureController(
     }
 
     private fun refreshAfterPointChange() {
+        clearGuides()
         val measurement = computeMeasurement()
         val locked = lockAnchor != null
         update { current ->
@@ -2299,9 +2369,9 @@ class ArMeasureController(
     }
 
     /**
-     * 3D guide bars between placed points (and a live preview to [previewPoint]), drawing the
-     * full 4-sided rectangle frame once three corners are available so the measured outline stays
-     * visible across any part of a large wall.
+     * 3D guide bars between placed points (and a live preview to [previewPoint]). Once the 3
+     * points are connected, builds a fixed 3D grid structure (outer perimeter frame + interior
+     * vertical and horizontal grid lines) anchored directly onto the measured surface.
      */
     private fun updateGuides(previewPoint: Float3? = null) {
         val view = sceneView ?: return
@@ -2310,39 +2380,41 @@ class ArMeasureController(
             return
         }
 
-        val segments = mutableListOf<Pair<Float3, Float3>>()
+        val segments = mutableListOf<ArMeasurementGeometry.GridSegment>()
         val p0 = placed[0].position()
         when (placed.size) {
             1 -> {
                 val target = previewPoint!!
-                segments += p0 to target
+                segments += ArMeasurementGeometry.GridSegment(
+                    from = p0.toWorldPoint(),
+                    to = target.toWorldPoint(),
+                    isOuterFrame = true
+                )
             }
             2 -> {
                 val p1 = placed[1].position()
                 if (previewPoint != null) {
-                    val corners = WallPhotoGeometry.cornersFromTaps(
-                        WallPhotoGeometry.Vec(p0.x, p0.y, p0.z),
-                        WallPhotoGeometry.Vec(p1.x, p1.y, p1.z),
-                        WallPhotoGeometry.Vec(previewPoint.x, previewPoint.y, previewPoint.z)
-                    ).map { Float3(it.x, it.y, it.z) }
-                    for (i in corners.indices) {
-                        segments += corners[i] to corners[(i + 1) % corners.size]
-                    }
+                    segments += ArMeasurementGeometry.buildFixedGridSegments(
+                        first = p0.toWorldPoint(),
+                        second = p1.toWorldPoint(),
+                        third = previewPoint.toWorldPoint()
+                    )
                 } else {
-                    segments += p0 to p1
+                    segments += ArMeasurementGeometry.GridSegment(
+                        from = p0.toWorldPoint(),
+                        to = p1.toWorldPoint(),
+                        isOuterFrame = true
+                    )
                 }
             }
             else -> {
                 val p1 = placed[1].position()
                 val p2 = placed[2].position()
-                val corners = WallPhotoGeometry.cornersFromTaps(
-                    WallPhotoGeometry.Vec(p0.x, p0.y, p0.z),
-                    WallPhotoGeometry.Vec(p1.x, p1.y, p1.z),
-                    WallPhotoGeometry.Vec(p2.x, p2.y, p2.z)
-                ).map { Float3(it.x, it.y, it.z) }
-                for (i in corners.indices) {
-                    segments += corners[i] to corners[(i + 1) % corners.size]
-                }
+                segments += ArMeasurementGeometry.buildFixedGridSegments(
+                    first = p0.toWorldPoint(),
+                    second = p1.toWorldPoint(),
+                    third = p2.toWorldPoint()
+                )
             }
         }
 
@@ -2356,32 +2428,82 @@ class ArMeasureController(
             }
         }
 
-        segments.forEachIndexed { index, (from, to) ->
+        val completed = placed.size >= 3
+        segments.forEachIndexed { index, segment ->
+            val from = Float3(segment.from.x, segment.from.y, segment.from.z)
+            val to = Float3(segment.to.x, segment.to.y, segment.to.z)
             val length = distance(from, to)
             if (length <= 0.01f) return@forEachIndexed
+            val color = when {
+                completed && segment.isOuterFrame -> MARKER_HEIGHT
+                completed -> MARKER_GRID_INNER
+                segment.isOuterFrame -> MARKER_POINT_B
+                else -> MARKER_HEIGHT
+            }
             val node = guideNodes.getOrNull(index) ?: CubeNode(
                 engine = view.engine,
-                size = Float3(0.006f, 0.006f, 1f),
+                size = Float3(1f, 1f, 1f),
                 center = Float3(0f, 0f, 0f),
                 materialInstance = view.materialLoader.createColorInstance(
-                    if (index == 0) MARKER_POINT_B else MARKER_HEIGHT,
+                    color,
                     0.0f,
-                    0.4f,
-                    0.3f
+                    0.35f,
+                    0.35f
                 )
             ).also {
                 guideNodes.add(it)
                 view.addChildNodes(listOf(it))
             }
 
-            node.worldPosition = Float3(
-                (from.x + to.x) / 2f,
-                (from.y + to.y) / 2f,
-                (from.z + to.z) / 2f
-            )
-            runCatching { node.lookAt(to) }
-            node.scale = Float3(1f, 1f, length)
+            val thickness = if (segment.isOuterFrame) OUTER_FRAME_THICKNESS_M else INNER_GRID_THICKNESS_M
+            node.transform = segmentTransform(from, to, thickness)
         }
+    }
+
+    /**
+     * Singularity-free transform for a 3D bar from [from] to [to] with square cross-section
+     * [thickness]. Avoids `Node.lookAt`, whose fixed +Y up-vector degenerates on vertical wall lines.
+     */
+    private fun segmentTransform(from: Float3, to: Float3, thickness: Float): Mat4 {
+        val dx = to.x - from.x
+        val dy = to.y - from.y
+        val dz = to.z - from.z
+        val length = sqrt(dx * dx + dy * dy + dz * dz).coerceAtLeast(1e-4f)
+        val fx = dx / length
+        val fy = dy / length
+        val fz = dz / length
+
+        val uxRef: Float
+        val uyRef: Float
+        val uzRef: Float
+        if (abs(fy) < 0.92f) {
+            uxRef = 0f; uyRef = 1f; uzRef = 0f
+        } else {
+            uxRef = 1f; uyRef = 0f; uzRef = 0f
+        }
+
+        // right = normalize(upRef x forward)
+        var rx = uyRef * fz - uzRef * fy
+        var ry = uzRef * fx - uxRef * fz
+        var rz = uxRef * fy - uyRef * fx
+        val rLen = sqrt(rx * rx + ry * ry + rz * rz).coerceAtLeast(1e-4f)
+        rx /= rLen; ry /= rLen; rz /= rLen
+
+        // up = forward x right (right-handed orthonormal basis: right x up = +forward)
+        val ux = fy * rz - fz * ry
+        val uy = fz * rx - fx * rz
+        val uz = fx * ry - fy * rx
+
+        val cx = (from.x + to.x) * 0.5f
+        val cy = (from.y + to.y) * 0.5f
+        val cz = (from.z + to.z) * 0.5f
+        val fullLength = length + thickness
+        return Mat4(
+            Float4(rx * thickness, ry * thickness, rz * thickness, 0f),
+            Float4(ux * thickness, uy * thickness, uz * thickness, 0f),
+            Float4(fx * fullLength, fy * fullLength, fz * fullLength, 0f),
+            Float4(cx, cy, cz, 1f)
+        )
     }
 
     /** Live-path only: destroys guide bars while the engine is still running. */
@@ -2405,7 +2527,9 @@ class ArMeasureController(
      */
     private fun updateSurfaceDots(frame: Frame, hit: ValidatedHit?, wrongOrientation: Boolean) {
         val view = sceneView ?: return
-        if (released || dotsHiddenForPhoto || frame.camera.trackingState != TrackingState.TRACKING || hit == null) {
+        // Once all 3 points are connected, the fixed 3D grid structure is locked to the surface,
+        // so the floating search dots are hidden.
+        if (released || dotsHiddenForPhoto || placed.size >= 3 || frame.camera.trackingState != TrackingState.TRACKING || hit == null) {
             hideSurfaceDots()
             return
         }
@@ -2793,9 +2917,16 @@ class ArMeasureController(
         /** Number of perimeter vertices for the feathered surface-dot polygon. */
         const val DOTS_RING_VERTICES = 16
         const val DOTS_INNER_FEATHER_SCALE = 0.78f
+        /** Hold-through grace window when camera tracking briefly dips on reflections or dark spots. */
+        const val TRACKING_GRACE_MS = 1_400L
+        /** Hold-through window for the reticle hit across localized glare or shadow patches. */
+        const val HIT_HOLD_GRACE_MS = 650L
         const val MARKER_POINT_A = 0xFFCE8A5A.toInt()
         const val MARKER_POINT_B = 0xFF38BDF8.toInt()
         const val MARKER_HEIGHT = 0xFF6FBF95.toInt()
+        const val MARKER_GRID_INNER = 0xFF4FA882.toInt()
+        const val OUTER_FRAME_THICKNESS_M = 0.009f
+        const val INNER_GRID_THICKNESS_M = 0.0045f
         /** Clip planes for the wall photo's projection; the 3D preview uses the same. */
         const val VIEW_EXIT_INSET = 0.0f
         const val VIEW_ENTER_INSET = 0.06f

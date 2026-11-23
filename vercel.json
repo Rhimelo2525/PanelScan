@@ -10,7 +10,7 @@
   "redirects": [
     {
       "source": "/app",
-      "destination": "/downloads/PanelScan-v1.6.apk",
+      "destination": "/downloads/PanelScan-v1.7.apk",
       "permanent": false
     }
   ],

@@ -1,5 +1,6 @@
 package com.example.panelscan.feature.measurement.ar.quality
 
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /** AUTO adapts analysis to the lighting every frame; MANUAL uses the Advanced sliders. */
@@ -76,7 +77,11 @@ object AdaptiveEnhancer {
     private const val TARGET_LOW = 16f
     private const val TARGET_HIGH = 240f
 
-    fun plan(quality: FrameQuality, settings: ScanEnhancementSettings): EnhancementPlan {
+    fun plan(
+        quality: FrameQuality,
+        settings: ScanEnhancementSettings,
+        reticleQuality: FrameQuality = FrameQuality.Unknown
+    ): EnhancementPlan {
         val s = settings.normalised()
         return when (s.mode) {
             EnhancementMode.MANUAL -> {
@@ -90,15 +95,16 @@ object AdaptiveEnhancer {
                     remapsLuma = gain != 1f || offset != 0f
                 )
             }
-            EnhancementMode.AUTO -> autoPlan(quality)
+            EnhancementMode.AUTO -> autoPlan(quality, reticleQuality)
         }
     }
 
-    private fun autoPlan(quality: FrameQuality): EnhancementPlan {
-        if (!quality.isKnown) {
+    private fun autoPlan(quality: FrameQuality, reticleQuality: FrameQuality): EnhancementPlan {
+        val active = selectEffectiveQuality(quality, reticleQuality)
+        if (!active.isKnown) {
             return EnhancementPlan(1f, 0f, 0f, BASE_GRADIENT_THRESHOLD, remapsLuma = false)
         }
-        val range = quality.dynamicRange
+        val range = active.dynamicRange
         // A range this small is either a flat field or pure clipping; there is nothing to
         // recover, and stretching it would only turn noise into "edges".
         val gain = if (range < 8) {
@@ -109,16 +115,42 @@ object AdaptiveEnhancer {
         // Map p05 -> TARGET_LOW:  out = (in - p05) * gain + TARGET_LOW
         //                       = in * gain + (TARGET_LOW - p05 * gain)
         // expressed around mid-grey for the shared LUT builder.
-        val offset = if (gain == 1f) 0f else TARGET_LOW - quality.p05 * gain - 128f * (1f - gain)
-        val lowTexture = quality.texture == TextureLevel.VERY_LOW || quality.texture == TextureLevel.LOW
-        val chroma = if (lowTexture || quality.lighting == LightingCondition.OVEREXPOSED) 0.6f else 0f
+        val offset = if (gain == 1f) 0f else TARGET_LOW - active.p05 * gain - 128f * (1f - gain)
+        val lowTexture = active.texture == TextureLevel.VERY_LOW || active.texture == TextureLevel.LOW ||
+            quality.texture == TextureLevel.VERY_LOW || quality.texture == TextureLevel.LOW
+        val challengingLight = active.lighting != LightingCondition.NORMAL ||
+            quality.lighting != LightingCondition.NORMAL ||
+            (reticleQuality.isKnown && reticleQuality.lighting != quality.lighting)
+        val chroma = when {
+            lowTexture && challengingLight -> 0.85f
+            lowTexture || challengingLight -> 0.65f
+            else -> 0f
+        }
         return EnhancementPlan(
             gain = gain,
             offset = offset,
             chromaWeight = chroma,
-            gradientThreshold = thresholdFor(effectiveRange(quality, gain)),
-            remapsLuma = gain != 1f
+            gradientThreshold = thresholdFor(effectiveRange(active, gain)),
+            remapsLuma = gain != 1f || challengingLight
         )
+    }
+
+    /**
+     * When a wall has both a bright reflection and a sudden dark shadow spot, the global
+     * 5th..95th range looks artificially wide while the patch under the reticle has compressed
+     * local contrast. Prefer the reticle patch when it reveals a local dark spot, glare, or
+     * compressed tonal range.
+     */
+    private fun selectEffectiveQuality(global: FrameQuality, reticle: FrameQuality): FrameQuality {
+        if (!reticle.isKnown) return global
+        if (!global.isKnown) return reticle
+        val reticleCompressed = reticle.dynamicRange in 8 until (global.dynamicRange - 25)
+        val localLightingDiffers = reticle.lighting != global.lighting &&
+            (reticle.lighting == LightingCondition.TOO_DARK ||
+                reticle.lighting == LightingCondition.DIM ||
+                reticle.lighting == LightingCondition.BRIGHT ||
+                reticle.lighting == LightingCondition.OVEREXPOSED)
+        return if (reticleCompressed || localLightingDiffers) reticle else global
     }
 
     private fun effectiveRange(quality: FrameQuality, gain: Float): Float =
@@ -138,6 +170,37 @@ object AdaptiveEnhancer {
     fun buildLut(gain: Float, offset: Float, into: IntArray = IntArray(256)): IntArray {
         for (i in 0..255) {
             into[i] = ((i - 128f) * gain + 128f + offset).roundToInt().coerceIn(0, 255)
+        }
+        return into
+    }
+
+    /**
+     * Builds an exposure-resilient LUT that combines the linear stretch from [plan] with
+     * shadow-lift gamma for sudden dark spots and soft highlight rolloff for reflections/glare.
+     */
+    fun buildAdaptiveLut(
+        plan: EnhancementPlan,
+        quality: FrameQuality,
+        reticleQuality: FrameQuality = FrameQuality.Unknown,
+        into: IntArray = IntArray(256)
+    ): IntArray {
+        val active = selectEffectiveQuality(quality, reticleQuality)
+        val darkScene = active.lighting == LightingCondition.TOO_DARK ||
+            active.lighting == LightingCondition.DIM ||
+            active.clippedLowFraction >= 0.08f
+        val brightGlare = active.lighting == LightingCondition.OVEREXPOSED ||
+            active.lighting == LightingCondition.BRIGHT ||
+            active.clippedHighFraction >= 0.06f
+        val gamma = when {
+            darkScene && !brightGlare -> 0.76f
+            brightGlare && !darkScene -> 1.18f
+            else -> 1.0f
+        }
+        for (i in 0..255) {
+            val linear = ((i - 128f) * plan.gain + 128f + plan.offset).coerceIn(0f, 255f)
+            val norm = (linear / 255f).coerceIn(0f, 1f)
+            val curved = if (gamma == 1.0f) norm else norm.pow(gamma)
+            into[i] = (curved * 255f).roundToInt().coerceIn(0, 255)
         }
         return into
     }

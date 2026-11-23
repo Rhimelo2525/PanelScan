@@ -261,12 +261,14 @@ fun ARMeasurementScreen(
 
         CornerSuggestionMarker(assist = arState.assist)
 
-        Reticle(
-            state = arState.reticle,
-            locked = arState.assist.status == CornerAssistStatus.Locked,
-            surfaceLocked = arState.surfaceLocked,
-            modifier = Modifier.align(Alignment.Center)
-        )
+        if (arState.step != MeasureStep.Complete) {
+            Reticle(
+                state = arState.reticle,
+                locked = arState.assist.status == CornerAssistStatus.Locked,
+                surfaceLocked = arState.surfaceLocked,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
 
         Column(
             modifier = Modifier.align(Alignment.TopCenter),

@@ -79,7 +79,8 @@ class DepthPatchSampler {
             if (mm !in 350..12000) continue
             if (cp != null && cb != null) {
                 val confidenceOffset = y * cp.rowStride + x * cp.pixelStride
-                if (confidenceOffset >= cb.limit() || (cb.get(confidenceOffset).toInt() and 0xFF) < 180) continue
+                // Allow moderate-confidence depth samples (120..255) so reflections and dark shadow spots still fit a plane.
+                if (confidenceOffset >= cb.limit() || (cb.get(confidenceOffset).toInt() and 0xFF) < 120) continue
             }
             val cameraPoint = RobustDepthGeometry.cameraPoint(x + 0.5f, y + 0.5f, mm / 1000f,
                 focal[0] * sx, focal[1] * sy, principal[0] * sx, principal[1] * sy) ?: continue
@@ -91,8 +92,8 @@ class DepthPatchSampler {
         val range = centreDistance ?: samples.takeIf { it.isNotEmpty() }?.let {
             it.map { s -> s.point.minus(cameraPosition).length() }.sorted()[it.size / 2]
         } ?: 1.5f
-        val tolerance = max(0.012f, 0.008f * range)
-        val minimum = if (confidence != null) 16 else 28
+        val tolerance = max(0.014f, 0.009f * range)
+        val minimum = if (confidence != null) 12 else 20
         val result = RobustDepthGeometry.fit(samples, tolerance, minimum)
         return Patch(result?.fit, centreDistance, source, depth.timestamp,
             (if (confidence != null) samples.size.toFloat() / count else 0f), result?.fraction ?: 0f, result?.coverage ?: 0)
