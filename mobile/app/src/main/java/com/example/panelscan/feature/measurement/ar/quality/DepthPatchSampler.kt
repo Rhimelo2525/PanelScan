@@ -94,7 +94,30 @@ class DepthPatchSampler {
         } ?: 1.5f
         val tolerance = max(0.014f, 0.009f * range)
         val minimum = if (confidence != null) 12 else 20
-        val result = RobustDepthGeometry.fit(samples, tolerance, minimum)
+        val fullResult = RobustDepthGeometry.fit(samples, tolerance, minimum)
+        // When the center reticle is aimed near the bottom edge/baseboard of a wall while the
+        // floor occupies the lower rows of the 9x9 patch, the full patch straddles the 90°
+        // wall-floor junction (or is dominated by textured floor pixels in the bottom rows).
+        // Fall back to the upper-center sub-patch (rows at and above the center reticle, v <= 1f)
+        // if it cleanly fits a vertical wall plane passing through the center reticle.
+        val result = if (fullResult != null && kotlin.math.abs(fullResult.fit.normal.y) <= 0.70f) {
+            fullResult
+        } else {
+            val upperSamples = samples.filter { it.v <= 1f }.map {
+                RobustDepthGeometry.Sample(it.point, it.u, it.v + 1.5f)
+            }
+            val subMinimum = max(10, (minimum * 2) / 3)
+            val upperResult = RobustDepthGeometry.fit(upperSamples, tolerance, subMinimum)
+            val centerOnPlane = upperResult != null && samples.any { s ->
+                kotlin.math.abs(s.u) <= 1f && kotlin.math.abs(s.v) <= 1f &&
+                    kotlin.math.abs(s.point.minus(upperResult.fit.centroid).dot(upperResult.fit.normal)) <= tolerance
+            }
+            if (upperResult != null && centerOnPlane && kotlin.math.abs(upperResult.fit.normal.y) < 0.35f) {
+                upperResult
+            } else {
+                fullResult
+            }
+        }
         return Patch(result?.fit, centreDistance, source, depth.timestamp,
             (if (confidence != null) samples.size.toFloat() / count else 0f), result?.fraction ?: 0f, result?.coverage ?: 0)
     }

@@ -82,7 +82,7 @@ fun arCopy(state: ArUiState): ArCopy {
         }
         return ArCopy(
             headline = "Measurement ready",
-            instruction = "Check the numbers, then continue to your estimate.",
+            instruction = "Drag any corner handle to fine-tune the grid, then continue to your estimate.",
             tone = ArTone.Good
         )
     }
@@ -129,7 +129,7 @@ fun arCopy(state: ArUiState): ArCopy {
         }
         ScanStage.RESULT -> ArCopy(
             headline = "Measurement ready",
-            instruction = "Check the numbers, then continue to your estimate.",
+            instruction = "Drag any corner handle to fine-tune the grid, then continue to your estimate.",
             tone = ArTone.Good
         )
     }

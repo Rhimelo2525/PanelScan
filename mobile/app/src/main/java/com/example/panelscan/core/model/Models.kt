@@ -58,7 +58,13 @@ data class PVCPanel(
     val coverageSquareMeters: Double get() = areaSquareMeters
 
     val surfaceType: SurfaceType
-        get() = if (category.contains("Ceiling", ignoreCase = true)) SurfaceType.CEILING else SurfaceType.WALL
+        get() = if (
+            category.contains("Ceiling", ignoreCase = true) ||
+            category.contains("Spandrel", ignoreCase = true) ||
+            name.contains("Ceiling", ignoreCase = true) ||
+            name.contains("Spandrel", ignoreCase = true) ||
+            profile == PanelProfile.SPANDREL
+        ) SurfaceType.CEILING else SurfaceType.WALL
 }
 
 @Serializable

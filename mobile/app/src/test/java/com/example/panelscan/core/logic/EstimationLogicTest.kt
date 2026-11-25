@@ -109,4 +109,43 @@ class EstimationLogicTest {
             assertEquals(true, e.baseQuantity * panel.areaSquareMeters >= e.surfaceArea - 1e-9)
         }
     }
+
+    @Test
+    fun `large ceiling dimensions tile multiple standard ceiling panels without overflow or empty fallback`() {
+        // When the live catalogue is empty/loading, panelsOrFallbackFor provides standard 25 x 290 cm ceiling panels.
+        val ceilingPanels = com.example.panelscan.core.data.ProductCatalog.panelsOrFallbackFor(
+            emptyList(),
+            com.example.panelscan.core.model.SurfaceType.CEILING
+        )
+        assertEquals(true, ceilingPanels.isNotEmpty())
+        val spandrel = ceilingPanels.first()
+        assertEquals(0.25, spandrel.widthMeters, 1e-4)
+        assertEquals(2.90, spandrel.heightMeters, 1e-4)
+
+        // Large 12.0 m x 18.0 m ceiling (216 m²): tiles 48 columns x 7 rows of 0.25 m x 2.90 m panels.
+        val (cols, rows) = EstimationLogic.layout(12.0, 18.0, spandrel)
+        assertEquals(48, cols)
+        assertEquals(7, rows)
+
+        val estimate = EstimationLogic.calculateEstimation(12.0, 18.0, spandrel, 10)
+        assertEquals(216.0, estimate.surfaceArea, 1e-4)
+        // 216.0 / (0.25 * 2.90 = 0.725) = 297.931 -> 298 base panels, +10% waste = 328 panels
+        assertEquals(298, estimate.baseQuantity)
+        assertEquals(328, estimate.finalQuantity)
+
+        // Large 3D mesh generation stays bounded and non-empty even on a huge 25 m x 30 m ceiling.
+        val mesh = WallMesh.build(
+            wallWidth = 25f,
+            wallHeight = 30f,
+            panelWidth = spandrel.widthMeters.toFloat(),
+            panelHeight = spandrel.heightMeters.toFloat(),
+            profile = spandrel.profile,
+            grooves = spandrel.grooveCount,
+            relief = 0.004f,
+            tileWidth = 0.10f,
+            tileHeight = 0.30f
+        )
+        assertEquals(true, mesh.face.vertexCount > 0)
+        assertEquals(true, mesh.face.vertexCount < 50_000)
+    }
 }

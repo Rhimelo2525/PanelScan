@@ -52,6 +52,7 @@ import com.example.panelscan.core.ui.ScreenScaffold
 import com.example.panelscan.core.ui.SecondaryButton
 import com.example.panelscan.core.ui.SegmentedControl
 import com.example.panelscan.core.ui.StatusBadge
+import com.example.panelscan.core.ui.formatMeters
 import com.example.panelscan.core.ui.label
 
 /**
@@ -79,11 +80,11 @@ fun MeasureEntryScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         permissionRequested = true
-        if (granted) onStartAr()
+        if (granted) {
+            viewModel.beginNewMeasurement()
+            onStartAr()
+        }
     }
-
-    // Entering this screen always starts a clean scan.
-    LaunchedEffect(Unit) { viewModel.beginNewMeasurement() }
 
     ScreenScaffold(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -203,13 +204,19 @@ fun MeasureEntryScreen(
                     enabled = arReadiness == ArReadiness.Ready,
                     onClick = {
                         if (cameraGranted) {
+                            viewModel.beginNewMeasurement()
                             onStartAr()
                         } else {
                             permissionLauncher.launch(Manifest.permission.CAMERA)
                         }
                     }
                 )
-                if (arReadiness.isBlocking) {
+                if (uiState.hasUsableMeasurement) {
+                    SecondaryButton(
+                        text = "Continue with ${formatMeters(uiState.widthMeters)} × ${formatMeters(uiState.heightMeters)} m estimate",
+                        onClick = onEnterManually
+                    )
+                } else if (arReadiness.isBlocking) {
                     SecondaryButton(text = "Enter dimensions manually", onClick = onEnterManually)
                 } else if (!cameraGranted && permissionRequested) {
                     SecondaryButton(

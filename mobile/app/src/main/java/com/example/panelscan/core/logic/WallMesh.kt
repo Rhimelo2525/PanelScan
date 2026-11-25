@@ -17,6 +17,12 @@ import kotlin.math.min
  */
 object WallMesh {
 
+    /**
+     * Cap on detailed 3D panel tiles built in one mesh so an extra-large ceiling or hall
+     * (hundreds of square metres) renders smoothly without exhausting heap memory.
+     */
+    private const val MAX_DETAILED_PANELS = 600
+
     class Mesh(val positions: FloatArray, val normals: FloatArray, val uvs: FloatArray, val indices: IntArray) {
         val vertexCount: Int get() = positions.size / 3
     }
@@ -36,17 +42,34 @@ object WallMesh {
     ): Result {
         val face = Builder()
         val recess = Builder()
-        val columns = ceil(wallWidth / panelWidth - 1e-4f).toInt().coerceAtLeast(1)
-        val rows = ceil(wallHeight / panelHeight - 1e-4f).toInt().coerceAtLeast(1)
-        val fullSection = PanelShape.crossSection(profile, grooves, panelWidth, relief)
+        val safePanelW = panelWidth.takeIf { it.isFinite() && it > 0.02f } ?: 0.25f
+        val safePanelH = panelHeight.takeIf { it.isFinite() && it > 0.02f } ?: 2.90f
+        val rawColumns = ceil(wallWidth / safePanelW - 1e-4f).toInt().coerceAtLeast(1)
+        val rawRows = ceil(wallHeight / safePanelH - 1e-4f).toInt().coerceAtLeast(1)
+        val totalPanels = rawColumns.toLong() * rawRows.toLong()
+        val scale = if (totalPanels > MAX_DETAILED_PANELS) {
+            kotlin.math.sqrt(totalPanels.toDouble() / MAX_DETAILED_PANELS.toDouble()).toFloat()
+        } else {
+            1f
+        }
+        val effectivePanelW = safePanelW * scale
+        val effectivePanelH = safePanelH * scale
+        val columns = ceil(wallWidth / effectivePanelW - 1e-4f).toInt().coerceAtLeast(1)
+        val rows = ceil(wallHeight / effectivePanelH - 1e-4f).toInt().coerceAtLeast(1)
+        val effectiveProfile = if (totalPanels > MAX_DETAILED_PANELS * 2 && profile == PanelProfile.INVERTED_CIRCLE) {
+            PanelProfile.FLUTED
+        } else {
+            profile
+        }
+        val fullSection = PanelShape.crossSection(effectiveProfile, grooves, effectivePanelW, relief)
 
         for (column in 0 until columns) {
-            val left = column * panelWidth
-            val visibleWidth = min(panelWidth, wallWidth - left)
-            val section = if (visibleWidth < panelWidth) PanelShape.clip(fullSection, visibleWidth) else fullSection
+            val left = column * effectivePanelW
+            val visibleWidth = min(effectivePanelW, wallWidth - left)
+            val section = if (visibleWidth < effectivePanelW) PanelShape.clip(fullSection, visibleWidth) else fullSection
             for (row in 0 until rows) {
-                val bottom = row * panelHeight
-                val top = min(bottom + panelHeight, wallHeight)
+                val bottom = row * effectivePanelH
+                val top = min(bottom + effectivePanelH, wallHeight)
                 for (segment in section) {
                     val target = if (segment.recess) recess else face
                     target.quad(segment, left - wallWidth / 2f, bottom - wallHeight / 2f, top - wallHeight / 2f, wallWidth, wallHeight, tileWidth, tileHeight)

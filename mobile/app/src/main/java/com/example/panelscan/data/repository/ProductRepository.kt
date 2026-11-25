@@ -33,18 +33,38 @@ class ProductRepository(private val api: ApiClient) {
     fun getPanelById(id: String): PVCPanel? = ProductCatalog.findById(id)
 
     /** Loads the whole catalogue into [ProductCatalog]; null on success, else why it failed. */
-    suspend fun refresh(): String? = try {
+    suspend fun refresh(): String? {
+        return try {
+            val panels = fetchAllPages(authenticated = true)
+            ProductCatalog.replace(panels)
+            null
+        } catch (error: ApiException) {
+            // If an authenticated fetch failed due to an auth/session issue, retry once as a
+            // public request so the product catalogue still loads.
+            if (!error.isNetworkError) {
+                runCatching { fetchAllPages(authenticated = false) }.getOrNull()?.let { panels ->
+                    ProductCatalog.replace(panels)
+                    return null
+                }
+            }
+            ProductCatalog.recordError(error.message)
+            error.message
+        } catch (error: Exception) {
+            val msg = error.message ?: ApiClient.NETWORK_ERROR_MESSAGE
+            ProductCatalog.recordError(msg)
+            msg
+        }
+    }
+
+    private suspend fun fetchAllPages(authenticated: Boolean): List<PVCPanel> {
         val panels = mutableListOf<PVCPanel>()
         var page = 1
         do {
-            val result: ProductPage = api.get("/products?page=$page&limit=$PAGE_SIZE", authenticated = true)
+            val result: ProductPage = api.get("/products?page=$page&limit=$PAGE_SIZE", authenticated = authenticated)
             panels += result.products.filter { it.isActive }.map { it.toPanel() }
             page++
         } while (page <= result.pagination.totalPages)
-        ProductCatalog.replace(panels)
-        null
-    } catch (error: ApiException) {
-        error.message
+        return panels
     }
 
     fun fetchProducts(search: String? = null, categoryId: String? = null): Flow<Resource<List<PVCPanel>>> = flow {
@@ -80,20 +100,27 @@ class ProductRepository(private val api: ApiClient) {
      */
     private fun ApiProduct.toPanel(): PVCPanel {
         val categoryName = category?.name ?: ""
-        val isCeiling = categoryName.contains("ceiling", ignoreCase = true)
+        val (shape, grooves) = PanelShape.resolve(panelProfile, grooveCount, name)
+        val isCeiling = categoryName.contains("ceiling", ignoreCase = true) ||
+            categoryName.contains("spandrel", ignoreCase = true) ||
+            name.contains("ceiling", ignoreCase = true) ||
+            name.contains("spandrel", ignoreCase = true) ||
+            shape == com.example.panelscan.core.model.PanelProfile.SPANDREL
         // On hand minus reserved, as the cart and checkout check it; no inventory record means none.
         val available = inventory?.let { (it.quantity - it.reservedQty).coerceAtLeast(0) } ?: 0
         // Main photo first, then the rest in their order, as the website's gallery shows them.
         val photos = images.sortedWith(compareByDescending<ApiImage> { it.isPrimary }.thenBy { it.sortOrder })
             .map { absoluteUrl(it.url) }
-        // The 3D shape set on the website, or a guess from the name until a moderator sets it.
-        val (shape, grooves) = PanelShape.resolve(panelProfile, grooveCount, name)
+        val widthCm = width?.trim()?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 }
+            ?: if (isCeiling) 25.0 else 20.0
+        val heightCm = height?.trim()?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 }
+            ?: 290.0
         return PVCPanel(
             id = id,
             name = name,
-            category = categoryName,
-            widthMeters = (width?.toDoubleOrNull() ?: 0.0) / 100.0,
-            heightMeters = (height?.toDoubleOrNull() ?: 0.0) / 100.0,
+            category = categoryName.ifBlank { if (isCeiling) "Ceiling Panels" else "Wall Panels" },
+            widthMeters = widthCm / 100.0,
+            heightMeters = heightCm / 100.0,
             // Drawn behind a product with no photo.
             textureResource = if (isCeiling) "gloss_white" else "wood_oak",
             pricePerUnit = price?.toDoubleOrNull(),

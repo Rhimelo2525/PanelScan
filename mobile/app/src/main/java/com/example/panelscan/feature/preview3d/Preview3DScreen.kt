@@ -486,7 +486,7 @@ fun Preview3DScreen(
                         .padding(horizontal = Spacing.md, vertical = Spacing.xs),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
                 ) {
-                    ProductCatalog.panelsFor(catalogue, project.measurement.surfaceType).forEach { panel ->
+                    ProductCatalog.panelsOrFallbackFor(catalogue, project.measurement.surfaceType).forEach { panel ->
                         PanelSwatch(
                             panel = panel,
                             selected = panel.id == selectedPanel.id,
@@ -788,7 +788,9 @@ private fun buildSurfaceNode(
 
             val columnCount = kotlin.math.ceil(totalWidth / panelWidth).toInt().coerceAtLeast(1)
             val rowCount = kotlin.math.ceil(totalHeight / panelHeight).toInt().coerceAtLeast(1)
-            for (index in 1 until columnCount) {
+            val colStep = ((columnCount - 1) / 64).coerceAtLeast(1)
+            val rowStep = ((rowCount - 1) / 64).coerceAtLeast(1)
+            for (index in 1 until columnCount step colStep) {
                 val x = -totalWidth / 2f + panelWidth * index
                 if (abs(x) >= totalWidth / 2f) continue
                 tile.addChildNode(
@@ -800,7 +802,7 @@ private fun buildSurfaceNode(
                     )
                 )
             }
-            for (index in 1 until rowCount) {
+            for (index in 1 until rowCount step rowStep) {
                 val y = -totalHeight / 2f + panelHeight * index
                 if (abs(y) >= totalHeight / 2f) continue
                 tile.addChildNode(

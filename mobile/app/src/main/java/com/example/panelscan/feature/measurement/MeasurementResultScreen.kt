@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.material3.AlertDialog
@@ -32,11 +33,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,13 +97,17 @@ fun MeasurementResultScreen(
     showPrice: Boolean = false,
     /** A photo of the measured wall goes with the saved project: say so. */
     savesWallPhoto: Boolean = false,
+    onRefreshCatalog: suspend () -> String? = { null },
     bottomPadding: Dp = 0.dp
 ) {
     val colors = PanelScan.colors
+    val scope = rememberCoroutineScope()
 
-    var widthText by remember { mutableStateOf(formatMeters(measurement.widthMeters)) }
-    var heightText by remember { mutableStateOf(formatMeters(measurement.heightMeters)) }
+    var widthText by rememberSaveable(measurement.widthMeters) { mutableStateOf(formatMeters(measurement.widthMeters)) }
+    var heightText by rememberSaveable(measurement.heightMeters) { mutableStateOf(formatMeters(measurement.heightMeters)) }
     var showPanelPicker by remember { mutableStateOf(false) }
+    var isRefreshingCatalog by remember { mutableStateOf(false) }
+    var refreshError by remember { mutableStateOf<String?>(null) }
     // One project per estimation visit: returning from the preview and opening it again
     // updates the same saved project instead of piling up duplicates.
     val projectId = rememberSaveable { UUID.randomUUID().toString() }
@@ -110,20 +118,55 @@ fun MeasurementResultScreen(
     val isValid = width > 0.0 && height > 0.0
 
     // A panel picked from the catalogue for the other surface type is not offered here:
-    // a wall measurement is estimated with wall panels.
+    // a wall measurement is estimated with wall panels, and a ceiling measurement tiles
+    // standard ceiling panels across any large or small ceiling dimensions.
     val catalogue by ProductCatalog.panels.collectAsState()
-    val compatible = remember(measurement.surfaceType, catalogue) { ProductCatalog.panelsFor(catalogue, measurement.surfaceType) }
+    val lastCatalogError by ProductCatalog.lastError.collectAsState()
+    val liveCompatible = remember(measurement.surfaceType, catalogue) {
+        ProductCatalog.panelsFor(catalogue, measurement.surfaceType)
+    }
+
+    LaunchedEffect(measurement.surfaceType, liveCompatible.isEmpty()) {
+        if (liveCompatible.isEmpty() && !isRefreshingCatalog) {
+            isRefreshingCatalog = true
+            refreshError = onRefreshCatalog()
+            isRefreshingCatalog = false
+        }
+    }
+
+    val compatible = remember(measurement.surfaceType, catalogue) {
+        ProductCatalog.panelsOrFallbackFor(catalogue, measurement.surfaceType)
+    }
+    val usingFallbackCatalog = liveCompatible.isEmpty()
+    val activeNetworkError = refreshError ?: lastCatalogError
     val panel = remember(compatible, preselectedPanelId) {
         preselectedPanelId?.let { id -> compatible.firstOrNull { it.id == id } } ?: compatible.firstOrNull()
     }
-    // The catalogue comes from the backend; until it has a panel for this surface there is nothing to estimate with.
     if (panel == null) {
-        NoPanelsAvailable(surfaceType = measurement.surfaceType, onBack = onBack, modifier = modifier)
+        NoPanelsAvailable(
+            surfaceType = measurement.surfaceType,
+            networkError = activeNetworkError,
+            isRefreshing = isRefreshingCatalog,
+            onRetry = {
+                if (!isRefreshingCatalog) {
+                    scope.launch {
+                        isRefreshingCatalog = true
+                        refreshError = onRefreshCatalog()
+                        isRefreshingCatalog = false
+                    }
+                }
+            },
+            onBack = onBack,
+            modifier = modifier
+        )
         return
     }
 
     val estimation = remember(width, height, panel, wastePercent) {
         if (isValid) EstimationLogic.calculateEstimation(width, height, panel, wastePercent) else null
+    }
+    val layout = remember(width, height, panel) {
+        if (isValid) EstimationLogic.layout(width, height, panel) else (0 to 0)
     }
 
     ScreenScaffold(modifier = modifier) {
@@ -144,6 +187,23 @@ fun MeasurementResultScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     StatusBadge(text = measurement.surfaceType.label(), tone = BadgeTone.Accent)
                     StatusBadge(text = source.label, showDot = true)
+                }
+
+                if (usingFallbackCatalog) {
+                    CatalogFallbackNotice(
+                        surfaceType = measurement.surfaceType,
+                        networkError = activeNetworkError,
+                        isRefreshing = isRefreshingCatalog,
+                        onRetry = {
+                            if (!isRefreshingCatalog) {
+                                scope.launch {
+                                    isRefreshingCatalog = true
+                                    refreshError = onRefreshCatalog()
+                                    isRefreshingCatalog = false
+                                }
+                            }
+                        }
+                    )
                 }
 
                 // ---- Surface
@@ -204,6 +264,12 @@ fun MeasurementResultScreen(
                 if (estimation != null) {
                     PanelCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(Spacing.md)) {
                         SectionTitle("Estimate")
+                        if (layout.first > 0 && layout.second > 0) {
+                            SpecRow(
+                                label = "Panel layout",
+                                value = "${layout.first} across × ${layout.second} ${if (layout.second == 1) "row" else "rows"}"
+                            )
+                        }
                         SpecRow(label = "Panels to cover the area", value = "${estimation.baseQuantity} panels")
                         SpecRow(
                             label = "Waste allowance",
@@ -463,16 +529,80 @@ private fun String.sanitisedDecimal(): String {
 }
 
 @Composable
-private fun NoPanelsAvailable(surfaceType: SurfaceType, onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun CatalogFallbackNotice(
+    surfaceType: SurfaceType,
+    networkError: String?,
+    isRefreshing: Boolean,
+    onRetry: () -> Unit
+) {
+    val colors = PanelScan.colors
+    val surfaceName = surfaceType.label().lowercase()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(PanelScan.shapes.card)
+            .background(colors.surfaceMuted)
+            .border(1.dp, colors.border, PanelScan.shapes.card)
+            .padding(Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Info,
+            contentDescription = null,
+            tint = colors.accent,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = when {
+                isRefreshing -> "Loading live $surfaceName panel prices and stock… Estimating with standard panel sizes."
+                networkError != null -> "Live catalogue could not be refreshed ($networkError). Your measured dimensions are preserved and estimated using standard $surfaceName panel sizes."
+                else -> "Estimating by tiling standard $surfaceName panel sizes across your measured area."
+            },
+            style = PanelScan.type.supporting,
+            color = colors.textSecondary,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onRetry, enabled = !isRefreshing) {
+            Icon(Icons.Rounded.Refresh, contentDescription = null, tint = colors.accent, modifier = Modifier.size(15.dp))
+            Text(if (isRefreshing) " Loading" else " Retry", style = PanelScan.type.label, color = colors.accent)
+        }
+    }
+}
+
+@Composable
+private fun NoPanelsAvailable(
+    surfaceType: SurfaceType,
+    networkError: String?,
+    isRefreshing: Boolean,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val surfaceName = surfaceType.label().lowercase()
     ScreenScaffold(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             PanelScanTopBar(title = "Estimation Result", onBack = onBack)
-            Text(
-                text = "No ${surfaceType.label().lowercase()} panels are available right now. Check your internet connection, then open the estimate again.",
-                style = PanelScan.type.body,
-                color = PanelScan.colors.textSecondary,
-                modifier = Modifier.padding(Spacing.gutter)
-            )
+            Column(
+                modifier = Modifier.padding(Spacing.gutter),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md)
+            ) {
+                Text(
+                    text = when {
+                        isRefreshing -> "Loading $surfaceName panels…"
+                        networkError != null -> "Could not load $surfaceName panels from the server: $networkError"
+                        else -> "No $surfaceName panels are currently published in the catalogue."
+                    },
+                    style = PanelScan.type.body,
+                    color = PanelScan.colors.textSecondary
+                )
+                PrimaryButton(
+                    text = if (isRefreshing) "Loading…" else "Retry loading panels",
+                    icon = Icons.Rounded.Refresh,
+                    enabled = !isRefreshing,
+                    onClick = onRetry
+                )
+            }
         }
     }
 }

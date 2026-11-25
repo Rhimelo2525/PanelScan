@@ -292,4 +292,184 @@ class ArMeasurementGeometryTest {
             assertEquals(0f, ArMeasurementGeometry.distanceToPlane(seg.to, wallPlane), 1e-4f)
         }
     }
+
+    @Test
+    fun `floor visible on screen does not occlude wall when center reticle aims at wall or baseboard`() {
+        val floorY = 0.0f
+        // Center reticle aimed at the baseboard (3 cm above the floor, 2.42 m away) while a floor
+        // plane is visible in the lower half of the camera view (~2.46 m away along the ray).
+        assertFalse(
+            ArMeasurementGeometry.isFloorOccludingWall(
+                wallHitY = 0.03f,
+                wallHitDistance = 2.42f,
+                floorPlaneY = floorY,
+                floorHitDistance = 2.46f
+            )
+        )
+        // Center reticle aimed right at the bottom wall-floor crease (-2 cm within 4 cm junction tolerance).
+        assertFalse(
+            ArMeasurementGeometry.isFloorOccludingWall(
+                wallHitY = -0.02f,
+                wallHitDistance = 2.45f,
+                floorPlaneY = floorY,
+                floorHitDistance = 2.43f
+            )
+        )
+        // Center reticle tilted below the baseboard directly onto the floor 25 cm in front of the wall:
+        // wall ray projection falls 18 cm below the floor and the floor hit is 30 cm closer than the wall.
+        assertTrue(
+            ArMeasurementGeometry.isFloorOccludingWall(
+                wallHitY = -0.18f,
+                wallHitDistance = 2.55f,
+                floorPlaneY = floorY,
+                floorHitDistance = 2.25f
+            )
+        )
+    }
+
+    @Test
+    fun `wall dot grid center stays above floor when aiming near baseboard`() {
+        val floorY = 0.0f
+        val radius = 0.80f
+        // Aiming at the baseboard (y = 0.04 m): dot center is clamped upward onto the wall above the floor.
+        val clampedY = ArMeasurementGeometry.clampWallDotsCenterY(hitY = 0.04f, floorY = floorY, radius = radius)
+        assertEquals(0.68f, clampedY, 1e-4f)
+        // Aiming higher up on the wall (y = 1.35 m): dot center follows the reticle unchanged.
+        assertEquals(1.35f, ArMeasurementGeometry.clampWallDotsCenterY(hitY = 1.35f, floorY = floorY, radius = radius), 1e-4f)
+    }
+
+    @Test
+    fun `dragging a grid corner constrains movement strictly to the locked wall plane and updates dimensions`() {
+        val wallPlane = PlaneSignature(0f, 0f, 1f, 0f, 1.3f, -2.0f)
+        val p0 = WorldPoint3(0f, 2.2f, -2.0f)
+        val p1 = WorldPoint3(2.0f, 2.2f, -2.0f)
+        val p2 = WorldPoint3(2.0f, 0.2f, -2.0f)
+
+        val initial = ArMeasurementGeometry.initialGridCorners(p0, p1, p2, wallPlane)
+        assertEquals(4, initial.size)
+        val (initialW, initialH) = ArMeasurementGeometry.quadDimensions(initial)
+        assertEquals(2.0, initialW, 1e-3)
+        assertEquals(2.0, initialH, 1e-3)
+
+        // Drag top-right corner (index 2) outward to x = 2.4 m, y = 2.5 m, even with an off-plane z = -1.6 m input:
+        // moveGridCornerOnPlane must keep all 4 corners strictly on the locked wall plane (z = -2.0 m)
+        // and preserve a flat axis-aligned rectangle flush against the wall.
+        val dragged = ArMeasurementGeometry.moveGridCornerOnPlane(
+            corners = initial,
+            cornerIndex = 2,
+            targetPoint = WorldPoint3(2.4f, 2.5f, -1.6f),
+            plane = wallPlane
+        )
+        dragged.forEach { corner ->
+            assertEquals(0f, ArMeasurementGeometry.distanceToPlane(corner, wallPlane), 1e-4f)
+            assertEquals(-2.0f, corner.z, 1e-4f)
+        }
+        assertEquals(2.4f, dragged[2].x, 1e-3f)
+        assertEquals(2.5f, dragged[2].y, 1e-3f)
+
+        // Bottom-left corner stays pinned, and adjacent corners stay axis-aligned to form a flat rectangle.
+        assertEquals(initial[0].x, dragged[0].x, 1e-4f)
+        assertEquals(initial[0].y, dragged[0].y, 1e-4f)
+        assertEquals(initial[3].x, dragged[3].x, 1e-4f)
+        assertEquals(2.5f, dragged[3].y, 1e-4f)
+        assertEquals(2.4f, dragged[1].x, 1e-4f)
+        assertEquals(initial[1].y, dragged[1].y, 1e-4f)
+
+        // Grid segments and dimensions dynamically update from the new corner positions.
+        val (newW, newH) = ArMeasurementGeometry.quadDimensions(dragged)
+        assertEquals(2.4, newW, 1e-3)
+        assertEquals(2.3, newH, 1e-3)
+        val segments = ArMeasurementGeometry.buildFixedGridSegmentsFromCorners(dragged)
+        assertTrue(segments.isNotEmpty())
+        segments.forEach { seg ->
+            assertEquals(0f, ArMeasurementGeometry.distanceToPlane(seg.from, wallPlane), 1e-4f)
+            assertEquals(0f, ArMeasurementGeometry.distanceToPlane(seg.to, wallPlane), 1e-4f)
+        }
+    }
+
+    @Test
+    fun `wall plane locks normal horizontal and constrains width horizontally and height vertically without depth skew`() {
+        // Wall plane with a tilted normal and points with depth spikes:
+        // verticalWallPlane locks normal.y = 0, constrainWallWidthPoint expands purely along
+        // cross(worldUp, wallNormal), and constrainWallHeightPoint expands purely along worldUp.
+        val tiltedWall = PlaneSignature(0.0f, 0.25f, 0.968f, 0f, 1.8f, -2.0f)
+        val anchorA = WorldPoint3(0f, 1.8f, -2.0f)
+        val lockedWall = ArMeasurementGeometry.verticalWallPlane(tiltedWall, anchorPoint = anchorA)
+        assertEquals(0f, lockedWall.normalY, 1e-6f)
+        assertEquals(1f, lockedWall.normalZ, 1e-5f)
+
+        // Raw Point B hit with both a depth spike (z = -3.8 m) and vertical drift (y = 1.55 m):
+        // constrained Point B stays at z = -2.0 m and y = 1.8 m, expanding purely horizontally.
+        val rawB = WorldPoint3(1.65f, 1.55f, -3.8f)
+        val widthB = ArMeasurementGeometry.constrainWallWidthPoint(anchorA, rawB, lockedWall)
+        assertEquals(1.65f, widthB.x, 1e-4f)
+        assertEquals(1.80f, widthB.y, 1e-4f)
+        assertEquals(-2.0f, widthB.z, 1e-4f)
+
+        // Raw Point C hit with sideways drift (x = 2.1 m) and depth spike (z = -4.2 m):
+        // constrained Point C stays at x = 1.65 m and z = -2.0 m, expanding purely vertically along Y.
+        val rawC = WorldPoint3(2.10f, 0.30f, -4.2f)
+        val heightC = ArMeasurementGeometry.constrainWallHeightPoint(anchorA, widthB, rawC, lockedWall)
+        assertEquals(1.65f, heightC.x, 1e-4f)
+        assertEquals(0.30f, heightC.y, 1e-4f)
+        assertEquals(-2.0f, heightC.z, 1e-4f)
+
+        // All 4 corners of initialGridCorners form a flat coplanar rectangle flush against z = -2.0 m.
+        val corners = ArMeasurementGeometry.initialGridCorners(anchorA, rawB, rawC, lockedWall)
+        assertEquals(4, corners.size)
+        corners.forEach { c ->
+            assertEquals(-2.0f, c.z, 1e-4f)
+            assertEquals(0f, ArMeasurementGeometry.distanceToPlane(c, lockedWall), 1e-4f)
+        }
+        val (w, h) = ArMeasurementGeometry.quadDimensions(corners)
+        assertEquals(1.65, w, 1e-3)
+        assertEquals(1.50, h, 1e-3)
+
+        // Extreme grazing ray (> 80° off normal) is rejected as a raycast depth spike.
+        val grazingRay = WorldPoint3(0.995f, 0f, -0.099f)
+        val farSpikeHit = WorldPoint3(12f, 1.8f, -2.0f)
+        assertTrue(
+            ArMeasurementGeometry.isWallRaycastDepthSpike(
+                cameraOrigin = WorldPoint3(0f, 1.5f, 0f),
+                rayDirection = grazingRay,
+                wallPlane = lockedWall,
+                hitPoint = farSpikeHit,
+                anchorPoint = anchorA
+            )
+        )
+    }
+
+    @Test
+    fun `screen projection and ray unprojection round-trip onto the locked wall plane`() {
+        // Identity view matrix (camera at origin looking down -Z) and standard perspective projection.
+        val view = floatArrayOf(
+            1f, 0f, 0f, 0f,
+            0f, 1f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            0f, 0f, 0f, 1f
+        )
+        val projection = floatArrayOf(
+            1.4f, 0f, 0f, 0f,
+            0f, 1.0f, 0f, 0f,
+            0f, 0f, -1f, -1f,
+            0f, 0f, -0.1f, 0f
+        )
+        val wallPlane = PlaneSignature(0f, 0f, 1f, 0f, 0f, -2.5f)
+        val original = WorldPoint3(0.65f, -0.45f, -2.5f)
+
+        val screen = ArMeasurementGeometry.projectWorldToScreen(original, view, projection)
+        assertNotNull(screen)
+
+        val unprojected = ArMeasurementGeometry.intersectScreenRayWithPlane(
+            normX = screen!!.first,
+            normY = screen.second,
+            viewMatrix = view,
+            projectionMatrix = projection,
+            plane = wallPlane
+        )
+        assertNotNull(unprojected)
+        assertEquals(original.x, unprojected!!.x, 1e-4f)
+        assertEquals(original.y, unprojected.y, 1e-4f)
+        assertEquals(original.z, unprojected.z, 1e-4f)
+    }
 }

@@ -430,6 +430,7 @@ fun PanelScanNavHost(
                     onDimensionsChanged = measurementViewModel::applyManualDimensions,
                     // AR → Estimation Result → 3D Preview → Cart
                     savesWallPhoto = measurementState.wallPhoto != null,
+                    onRefreshCatalog = productRepository::refresh,
                     onViewPreview = { project ->
                         // The photo first, so the save sends it along.
                         measurementState.wallPhoto?.let { wallPhotos.attach(project.id, it) }
@@ -447,6 +448,7 @@ fun PanelScanNavHost(
                     wastePercent = measurementState.wastePercent,
                     onBack = { navController.popBackStack() },
                     showPrice = pricesVisible,
+                    onRefreshCatalog = productRepository::refresh,
                     onProjectSaved = { project ->
                         measurementState.wallPhoto?.let { wallPhotos.attach(project.id, it) }
                         projectsViewModel.saveProject(project)

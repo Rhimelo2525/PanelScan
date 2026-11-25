@@ -24,6 +24,157 @@ object ArMeasurementGeometry {
     private val minNormalDot = kotlin.math.cos(Math.toRadians(MAX_NORMAL_DELTA_DEGREES)).toFloat()
 
     /**
+     * Vertical tolerance at the wall-floor junction (baseboard) so slight ARCore floor-plane
+     * elevation drift (1–4 cm) never treats the bottom edge of a wall as below the floor.
+     */
+    const val WALL_FLOOR_JUNCTION_TOLERANCE_M = 0.04f
+
+    /**
+     * Minimum distance by which a horizontal floor hit must lie in front of the wall ray
+     * intersection before the floor is considered to occlude the wall under the center reticle.
+     */
+    const val FLOOR_OCCLUSION_MARGIN_M = 0.06f
+
+    /**
+     * Minimum ray-to-wall-normal incidence cosine (`|dot(ray, normal)|`) when intersecting a
+     * locked wall plane, rejecting extreme grazing rays (> ~79°) that cause depth spikes.
+     */
+    const val MIN_WALL_RAY_INCIDENCE_COS = 0.18f
+
+    /**
+     * Maximum horizontal yaw deviation (cos 25° ≈ 0.906) allowed between a single-point
+     * estimated normal and the camera's horizontal viewing direction before snapping the initial
+     * wall normal to face the camera, preventing sideways depth-skewed wall planes.
+     */
+    private const val MIN_POINT_NORMAL_CAMERA_ALIGNMENT = 0.9063f
+
+    /**
+     * Locks a wall [plane] so its normal is strictly horizontal (`normalY = 0`, unit length in XZ),
+     * making the measurement plane perfectly vertical. Optionally re-anchors the plane origin to
+     * [anchorPoint] (such as Point A) so all measurements remain flush with that wall point.
+     */
+    fun verticalWallPlane(
+        plane: PlaneSignature,
+        anchorPoint: WorldPoint3? = null,
+        fallbackCameraDir: WorldPoint3? = null
+    ): PlaneSignature {
+        val horiz = normalised(plane.normalX, 0f, plane.normalZ)
+            ?: fallbackCameraDir?.let { normalised(-it.x, 0f, -it.z) }
+            ?: WorldPoint3(0f, 0f, 1f)
+        val center = anchorPoint ?: WorldPoint3(plane.centerX, plane.centerY, plane.centerZ)
+        return PlaneSignature(
+            normalX = horiz.x,
+            normalY = 0f,
+            normalZ = horiz.z,
+            centerX = center.x,
+            centerY = center.y,
+            centerZ = center.z
+        )
+    }
+
+    /**
+     * Returns the wall's strictly horizontal unit width axis `cross(worldUp, wallNormal) = (nz, 0, -nx)`,
+     * perpendicular to both `worldUp = (0, 1, 0)` and the horizontal wall normal `(nx, 0, nz)`.
+     */
+    fun wallHorizontalAxis(wallPlane: PlaneSignature): WorldPoint3 {
+        val n = normalised(wallPlane.normalX, 0f, wallPlane.normalZ) ?: WorldPoint3(0f, 0f, 1f)
+        // worldUp (0, 1, 0) x (n.x, 0, n.z) = (n.z, 0, -n.x)
+        return normalised(n.z, 0f, -n.x) ?: WorldPoint3(1f, 0f, 0f)
+    }
+
+    /**
+     * Constrains the Width point ([rawHit]) strictly along the locked vertical wall's horizontal
+     * axis `cross(worldUp, wallNormal)` starting from [anchorA], keeping Y level with [anchorA]
+     * and depth strictly flush with [wallPlane].
+     */
+    fun constrainWallWidthPoint(
+        anchorA: WorldPoint3,
+        rawHit: WorldPoint3,
+        wallPlane: PlaneSignature
+    ): WorldPoint3 {
+        val uAxis = wallHorizontalAxis(wallPlane)
+        val dx = rawHit.x - anchorA.x
+        val dz = rawHit.z - anchorA.z
+        val u = dx * uAxis.x + dz * uAxis.z
+        return WorldPoint3(
+            x = anchorA.x + u * uAxis.x,
+            y = anchorA.y,
+            z = anchorA.z + u * uAxis.z
+        )
+    }
+
+    /**
+     * Constrains the Height point ([rawHit]) strictly along the vertical Y-axis (`worldUp = (0, 1, 0)`)
+     * from [anchorB] on the locked vertical [wallPlane], keeping (x, z) flush with the wall at [anchorB].
+     */
+    fun constrainWallHeightPoint(
+        anchorA: WorldPoint3,
+        anchorB: WorldPoint3,
+        rawHit: WorldPoint3,
+        wallPlane: PlaneSignature
+    ): WorldPoint3 {
+        val lockedB = constrainWallWidthPoint(anchorA, anchorB, wallPlane)
+        return WorldPoint3(
+            x = lockedB.x,
+            y = rawHit.y,
+            z = lockedB.z
+        )
+    }
+
+    /**
+     * Rejects raycast depth spikes on a locked wall plane: returns true if the ray hits the
+     * wall plane at an extreme grazing angle or jumps to an implausible distance compared to
+     * the anchor's distance from the camera.
+     */
+    fun isWallRaycastDepthSpike(
+        cameraOrigin: WorldPoint3,
+        rayDirection: WorldPoint3,
+        wallPlane: PlaneSignature,
+        hitPoint: WorldPoint3,
+        anchorPoint: WorldPoint3?
+    ): Boolean {
+        val n = normalised(wallPlane.normalX, 0f, wallPlane.normalZ) ?: return true
+        val ray = normalised(rayDirection.x, rayDirection.y, rayDirection.z) ?: return true
+        val incidenceCos = abs(ray.x * n.x + ray.z * n.z)
+        if (incidenceCos < MIN_WALL_RAY_INCIDENCE_COS) return true
+        val hitDist = distance(cameraOrigin, hitPoint).toFloat()
+        if (anchorPoint != null) {
+            val anchorDist = distance(cameraOrigin, anchorPoint).toFloat().coerceAtLeast(0.4f)
+            val spanFromAnchor = distance(anchorPoint, hitPoint).toFloat()
+            if (hitDist > maxOf(anchorDist * 3.5f, 8.0f) || spanFromAnchor > 15.0f) return true
+        }
+        return false
+    }
+
+    /**
+     * In Wall mode, whether a horizontal floor hit at the center reticle genuinely lies in front
+     * of the vertical wall (meaning the center reticle itself is aimed below the baseboard onto
+     * the floor). As long as the center ray intersects the wall at or above the floor junction
+     * (`wallHitY >= floorPlaneY - WALL_FLOOR_JUNCTION_TOLERANCE_M`), the reticle is still aimed
+     * at the wall/baseboard and the floor does NOT occlude it.
+     */
+    fun isFloorOccludingWall(
+        wallHitY: Float,
+        wallHitDistance: Float,
+        floorPlaneY: Float,
+        floorHitDistance: Float
+    ): Boolean {
+        val belowWallBase = wallHitY < floorPlaneY - WALL_FLOOR_JUNCTION_TOLERANCE_M
+        val closerThanWall = floorHitDistance < wallHitDistance - FLOOR_OCCLUSION_MARGIN_M
+        return belowWallBase && closerThanWall
+    }
+
+    /**
+     * Clamps the vertical center Y of the wall dot grid so that when aiming near the bottom
+     * edge or baseboard of a wall above a tracked floor at [floorY], the dot grid remains on
+     * the wall above the baseboard instead of extending underground across the floor.
+     */
+    fun clampWallDotsCenterY(hitY: Float, floorY: Float?, radius: Float): Float {
+        if (floorY == null) return hitY
+        return maxOf(hitY, floorY + radius * 0.85f)
+    }
+
+    /**
      * What a surface is from its (unit) normal: facing up is the floor, facing
      * down the ceiling, sideways a wall. Steep in-between slopes are [HitKind.Other],
      * which neither a wall nor a ceiling measurement accepts.
@@ -94,9 +245,18 @@ object ArMeasurementGeometry {
         HitKind.HorizontalDownward -> PlaneSignature(0f, -1f, 0f, point.x, point.y, point.z)
         HitKind.HorizontalUpward -> PlaneSignature(0f, 1f, 0f, point.x, point.y, point.z)
         HitKind.VerticalPlane -> {
-            val horizontalFromNormal = estimatedNormal?.let { normalised(it.x, 0f, it.z) }
             val horizontalFromCamera = normalised(-cameraDirection.x, 0f, -cameraDirection.z)
-            val n = horizontalFromNormal ?: horizontalFromCamera ?: WorldPoint3(0f, 0f, 1f)
+            val horizontalFromNormal = estimatedNormal?.let { normalised(it.x, 0f, it.z) }
+            // Sparse AR feature/depth points often carry a noisy normal rotated sideways along the
+            // wall. If the estimated normal deviates by more than ~25° from facing the camera,
+            // lock the vertical wall plane normal to face the camera horizontally (normalY = 0).
+            val alignedNormal = if (horizontalFromNormal != null && horizontalFromCamera != null) {
+                val dot = abs(horizontalFromNormal.x * horizontalFromCamera.x + horizontalFromNormal.z * horizontalFromCamera.z)
+                if (dot >= MIN_POINT_NORMAL_CAMERA_ALIGNMENT) horizontalFromNormal else horizontalFromCamera
+            } else {
+                horizontalFromNormal ?: horizontalFromCamera
+            }
+            val n = alignedNormal ?: WorldPoint3(0f, 0f, 1f)
             val flip = if (n.x * -cameraDirection.x + n.z * -cameraDirection.z < 0f) -1f else 1f
             PlaneSignature(n.x * flip, 0f, n.z * flip, point.x, point.y, point.z)
         }
@@ -228,6 +388,98 @@ object ArMeasurementGeometry {
         val isOuterFrame: Boolean
     )
 
+    /** Orthogonally projects [point] onto [plane] so the result lies strictly on that plane. */
+    fun projectOntoPlane(point: WorldPoint3, plane: PlaneSignature): WorldPoint3 {
+        val normal = normalised(plane.normalX, plane.normalY, plane.normalZ) ?: return point
+        val signed = (point.x - plane.centerX) * normal.x +
+            (point.y - plane.centerY) * normal.y +
+            (point.z - plane.centerZ) * normal.z
+        return WorldPoint3(
+            x = point.x - normal.x * signed,
+            y = point.y - normal.y * signed,
+            z = point.z - normal.z * signed
+        )
+    }
+
+    /**
+     * Computes the initial 4 corners of the measured rectangle from the 3 placed points
+     * ([first], [second], [third]) in bottom-left, bottom-right, top-right, top-left order.
+     *
+     * On a vertical wall, the 4 corners are constructed strictly along the wall's horizontal
+     * axis `cross(worldUp, wallNormal)` (width) and the vertical Y-axis `worldUp` (height)
+     * on the locked vertical plane through [first], guaranteeing a flat, coplanar rectangle
+     * flush against the wall with zero depth skew.
+     */
+    fun initialGridCorners(
+        first: WorldPoint3,
+        second: WorldPoint3,
+        third: WorldPoint3,
+        plane: PlaneSignature? = null
+    ): List<WorldPoint3> {
+        val rawWallPlane = plane ?: run {
+            val ab = WorldPoint3(second.x - first.x, second.y - first.y, second.z - first.z)
+            val ac = WorldPoint3(third.x - first.x, third.y - first.y, third.z - first.z)
+            val cross = WorldPoint3(
+                ab.y * ac.z - ab.z * ac.y,
+                ab.z * ac.x - ab.x * ac.z,
+                ab.x * ac.y - ab.y * ac.x
+            )
+            val n = normalised(cross.x, cross.y, cross.z)
+            if (n != null && abs(n.y) < 0.5f) {
+                PlaneSignature(n.x, 0f, n.z, first.x, first.y, first.z)
+            } else null
+        }
+
+        if (rawWallPlane != null && abs(rawWallPlane.normalY) < 0.5f) {
+            val wallPlane = verticalWallPlane(rawWallPlane, anchorPoint = first)
+            val uAxis = wallHorizontalAxis(wallPlane)
+            val u1 = (second.x - first.x) * uAxis.x + (second.z - first.z) * uAxis.z
+            val dy1 = second.y - first.y
+            val u2 = (third.x - first.x) * uAxis.x + (third.z - first.z) * uAxis.z
+            val dy2 = third.y - first.y
+
+            // Determine which tap defined the horizontal width and which defined the vertical height.
+            val firstTapIsHorizontal = abs(u1) >= abs(dy1)
+            val widthU = if (firstTapIsHorizontal) u1 else u2
+            val heightY = if (firstTapIsHorizontal) third.y else second.y
+
+            val uMin = minOf(0f, widthU)
+            val uMax = maxOf(0f, widthU)
+            val yMin = minOf(first.y, heightY)
+            val yMax = maxOf(first.y, heightY)
+
+            val c0 = WorldPoint3(first.x + uMin * uAxis.x, yMin, first.z + uMin * uAxis.z)
+            val c1 = WorldPoint3(first.x + uMax * uAxis.x, yMin, first.z + uMax * uAxis.z)
+            val c2 = WorldPoint3(first.x + uMax * uAxis.x, yMax, first.z + uMax * uAxis.z)
+            val c3 = WorldPoint3(first.x + uMin * uAxis.x, yMax, first.z + uMin * uAxis.z)
+            return listOf(c0, c1, c2, c3)
+        }
+
+        val raw = WallPhotoGeometry.cornersFromTaps(
+            WallPhotoGeometry.Vec(first.x, first.y, first.z),
+            WallPhotoGeometry.Vec(second.x, second.y, second.z),
+            WallPhotoGeometry.Vec(third.x, third.y, third.z)
+        ).map { WorldPoint3(it.x, it.y, it.z) }
+        return if (plane != null) raw.map { projectOntoPlane(it, plane) } else raw
+    }
+
+    /**
+     * Width and height (in metres) of the 4-corner planar quad [corners] ordered
+     * `[bottomLeft, bottomRight, topRight, topLeft]`. For a rectangle this equals its exact
+     * width and height; when individual corners are fine-tuned along the wall plane, this
+     * returns the mean opposite-edge width and height in real time.
+     */
+    fun quadDimensions(corners: List<WorldPoint3>): Pair<Double, Double> {
+        if (corners.size < 4) return 0.0 to 0.0
+        val c0 = corners[0]
+        val c1 = corners[1]
+        val c2 = corners[2]
+        val c3 = corners[3]
+        val width = (distance(c0, c1) + distance(c3, c2)) * 0.5
+        val height = (distance(c0, c3) + distance(c1, c2)) * 0.5
+        return width to height
+    }
+
     /**
      * Builds the fixed 3D grid structure anchored to the measured rectangle defined by
      * [first], [second] and [third]: 4 outer frame beams plus evenly spaced interior
@@ -240,20 +492,32 @@ object ArMeasurementGeometry {
         cellTargetMeters: Float = 0.30f,
         minDivisions: Int = 3,
         maxDivisions: Int = 10
+    ): List<GridSegment> = buildFixedGridSegmentsFromCorners(
+        corners = initialGridCorners(first, second, third),
+        cellTargetMeters = cellTargetMeters,
+        minDivisions = minDivisions,
+        maxDivisions = maxDivisions
+    )
+
+    /**
+     * Builds the 4 outer perimeter frame beams and interior vertical/horizontal 3D grid lines
+     * directly from the 4 corners `[bottomLeft, bottomRight, topRight, topLeft]`.
+     */
+    fun buildFixedGridSegmentsFromCorners(
+        corners: List<WorldPoint3>,
+        cellTargetMeters: Float = 0.30f,
+        minDivisions: Int = 3,
+        maxDivisions: Int = 10
     ): List<GridSegment> {
-        val corners = WallPhotoGeometry.cornersFromTaps(
-            WallPhotoGeometry.Vec(first.x, first.y, first.z),
-            WallPhotoGeometry.Vec(second.x, second.y, second.z),
-            WallPhotoGeometry.Vec(third.x, third.y, third.z)
-        ).map { WorldPoint3(it.x, it.y, it.z) }
         if (corners.size < 4) return emptyList()
         val c0 = corners[0]
         val c1 = corners[1]
         val c2 = corners[2]
         val c3 = corners[3]
 
-        val width = distance(c0, c1).toFloat()
-        val height = distance(c0, c3).toFloat()
+        val (w, h) = quadDimensions(corners)
+        val width = w.toFloat()
+        val height = h.toFloat()
         if (width <= 0.02f || height <= 0.02f) return emptyList()
 
         val segments = ArrayList<GridSegment>()
@@ -277,6 +541,212 @@ object ArMeasurementGeometry {
             segments += GridSegment(lerpPoint(c0, c3, t), lerpPoint(c1, c2, t), isOuterFrame = false)
         }
         return segments
+    }
+
+    /**
+     * Projects a 3D world [point] into normalised 2D screen coordinates `(0..1, 0..1)` (top-left
+     * origin) using column-major 4x4 [viewMatrix] and [projectionMatrix]. Returns null if the
+     * point lies behind the camera's near plane.
+     */
+    fun projectWorldToScreen(
+        point: WorldPoint3,
+        viewMatrix: FloatArray,
+        projectionMatrix: FloatArray
+    ): Pair<Float, Float>? {
+        if (viewMatrix.size < 16 || projectionMatrix.size < 16) return null
+        val cam = WallPhotoGeometry.transform(viewMatrix, WallPhotoGeometry.Vec(point.x, point.y, point.z))
+        if (cam.z > -0.05f) return null
+        val (ndcX, ndcY) = WallPhotoGeometry.project(projectionMatrix, cam)
+        if (!ndcX.isFinite() || !ndcY.isFinite()) return null
+        val normX = (ndcX + 1f) * 0.5f
+        val normY = (1f - ndcY) * 0.5f
+        return normX to normY
+    }
+
+    /**
+     * Unprojects normalised 2D screen coordinates ([normX], [normY] in `0..1`, top-left origin)
+     * through column-major 4x4 [viewMatrix] and [projectionMatrix] into a 3D world ray and
+     * intersects it strictly with the locked surface [plane].
+     */
+    fun intersectScreenRayWithPlane(
+        normX: Float,
+        normY: Float,
+        viewMatrix: FloatArray,
+        projectionMatrix: FloatArray,
+        plane: PlaneSignature,
+        minDistance: Float = 0.20f,
+        maxDistance: Float = 25.0f
+    ): WorldPoint3? {
+        if (viewMatrix.size < 16 || projectionMatrix.size < 16) return null
+        val sx = projectionMatrix[0]
+        val sy = projectionMatrix[5]
+        if (abs(sx) <= 1e-6f || abs(sy) <= 1e-6f) return null
+
+        val ndcX = normX * 2f - 1f
+        val ndcY = 1f - normY * 2f
+        val camDirX = (ndcX + projectionMatrix[8]) / sx
+        val camDirY = (ndcY + projectionMatrix[9]) / sy
+        val camDirZ = -1f
+
+        // Transform camera-space ray direction and origin to world space using the transpose
+        // of the rigid view matrix's orthonormal 3x3 rotation block.
+        val worldDir = WorldPoint3(
+            x = viewMatrix[0] * camDirX + viewMatrix[1] * camDirY + viewMatrix[2] * camDirZ,
+            y = viewMatrix[4] * camDirX + viewMatrix[5] * camDirY + viewMatrix[6] * camDirZ,
+            z = viewMatrix[8] * camDirX + viewMatrix[9] * camDirY + viewMatrix[10] * camDirZ
+        )
+        val tx = viewMatrix[12]
+        val ty = viewMatrix[13]
+        val tz = viewMatrix[14]
+        val worldOrigin = WorldPoint3(
+            x = -(viewMatrix[0] * tx + viewMatrix[1] * ty + viewMatrix[2] * tz),
+            y = -(viewMatrix[4] * tx + viewMatrix[5] * ty + viewMatrix[6] * tz),
+            z = -(viewMatrix[8] * tx + viewMatrix[9] * ty + viewMatrix[10] * tz)
+        )
+        return intersectRayWithPlane(worldOrigin, worldDir, plane, minDistance, maxDistance)
+    }
+
+    /**
+     * Moves corner [cornerIndex] (`0 = bottomLeft, 1 = bottomRight, 2 = topRight, 3 = topLeft`)
+     * to [targetPoint] while strictly constraining all 4 corners to remain coplanar on [plane]
+     * and form an axis-aligned rectangle (horizontal width along `cross(worldUp, wallNormal)`,
+     * vertical height along `worldUp` on walls) without crossing opposite edges by [minEdgeMeters].
+     */
+    fun moveGridCornerOnPlane(
+        corners: List<WorldPoint3>,
+        cornerIndex: Int,
+        targetPoint: WorldPoint3,
+        plane: PlaneSignature,
+        minEdgeMeters: Float = 0.12f
+    ): List<WorldPoint3> {
+        if (corners.size < 4 || cornerIndex !in 0..3) return corners
+        if (abs(plane.normalY) < 0.5f) {
+            val wallPlane = verticalWallPlane(plane, anchorPoint = corners[0])
+            val uAxis = wallHorizontalAxis(wallPlane)
+            val origin = projectOntoPlane(corners[0], wallPlane)
+            fun toU(p: WorldPoint3): Float = (p.x - origin.x) * uAxis.x + (p.z - origin.z) * uAxis.z
+
+            val projectedCorners = corners.map { projectOntoPlane(it, wallPlane) }
+            var uLeft = (toU(projectedCorners[0]) + toU(projectedCorners[3])) * 0.5f
+            var uRight = (toU(projectedCorners[1]) + toU(projectedCorners[2])) * 0.5f
+            val leftIsMin = uLeft <= uRight
+            var yBottom = (projectedCorners[0].y + projectedCorners[1].y) * 0.5f
+            var yTop = (projectedCorners[2].y + projectedCorners[3].y) * 0.5f
+
+            val projectedTarget = projectOntoPlane(targetPoint, wallPlane)
+            val targetU = toU(projectedTarget)
+            val targetY = projectedTarget.y
+
+            fun clampLeft(u: Float): Float =
+                if (leftIsMin) minOf(u, uRight - minEdgeMeters) else maxOf(u, uRight + minEdgeMeters)
+            fun clampRight(u: Float): Float =
+                if (leftIsMin) maxOf(u, uLeft + minEdgeMeters) else minOf(u, uLeft - minEdgeMeters)
+
+            when (cornerIndex) {
+                0 -> { // bottom-left
+                    uLeft = clampLeft(targetU)
+                    yBottom = minOf(targetY, yTop - minEdgeMeters)
+                }
+                1 -> { // bottom-right
+                    uRight = clampRight(targetU)
+                    yBottom = minOf(targetY, yTop - minEdgeMeters)
+                }
+                2 -> { // top-right
+                    uRight = clampRight(targetU)
+                    yTop = maxOf(targetY, yBottom + minEdgeMeters)
+                }
+                else -> { // top-left
+                    uLeft = clampLeft(targetU)
+                    yTop = maxOf(targetY, yBottom + minEdgeMeters)
+                }
+            }
+
+            fun pointAt(u: Float, y: Float) = WorldPoint3(
+                x = origin.x + u * uAxis.x,
+                y = y,
+                z = origin.z + u * uAxis.z
+            )
+            return listOf(
+                pointAt(uLeft, yBottom),
+                pointAt(uRight, yBottom),
+                pointAt(uRight, yTop),
+                pointAt(uLeft, yTop)
+            )
+        }
+
+        val normal = normalised(plane.normalX, plane.normalY, plane.normalZ) ?: return corners
+        val planarCorners = corners.map { projectOntoPlane(it, plane) }
+        val c0 = planarCorners[0]
+        val c1 = planarCorners[1]
+        val c2 = planarCorners[2]
+        val c3 = planarCorners[3]
+
+        // Build an orthonormal 2D basis (uAxis across, vAxis up) lying strictly inside [plane].
+        val rawAcross = WorldPoint3(
+            x = (c1.x - c0.x) + (c2.x - c3.x),
+            y = (c1.y - c0.y) + (c2.y - c3.y),
+            z = (c1.z - c0.z) + (c2.z - c3.z)
+        )
+        val acrossDotN = rawAcross.x * normal.x + rawAcross.y * normal.y + rawAcross.z * normal.z
+        val uAxis = normalised(
+            rawAcross.x - normal.x * acrossDotN,
+            rawAcross.y - normal.y * acrossDotN,
+            rawAcross.z - normal.z * acrossDotN
+        ) ?: return planarCorners
+
+        var vAxis = normalised(
+            normal.y * uAxis.z - normal.z * uAxis.y,
+            normal.z * uAxis.x - normal.x * uAxis.z,
+            normal.x * uAxis.y - normal.y * uAxis.x
+        ) ?: return planarCorners
+        val rawUp = WorldPoint3(
+            x = (c3.x - c0.x) + (c2.x - c1.x),
+            y = (c3.y - c0.y) + (c2.y - c1.y),
+            z = (c3.z - c0.z) + (c2.z - c1.z)
+        )
+        if (vAxis.x * rawUp.x + vAxis.y * rawUp.y + vAxis.z * rawUp.z < 0f) {
+            vAxis = WorldPoint3(-vAxis.x, -vAxis.y, -vAxis.z)
+        }
+
+        fun toU(p: WorldPoint3): Float = (p.x - c0.x) * uAxis.x + (p.y - c0.y) * uAxis.y + (p.z - c0.z) * uAxis.z
+        fun toV(p: WorldPoint3): Float = (p.x - c0.x) * vAxis.x + (p.y - c0.y) * vAxis.y + (p.z - c0.z) * vAxis.z
+
+        val u0 = 0f; val v0 = 0f
+        val u1 = toU(c1); val v1 = toV(c1)
+        val u2 = toU(c2); val v2 = toV(c2)
+        val u3 = toU(c3); val v3 = toV(c3)
+
+        val projectedTarget = projectOntoPlane(targetPoint, plane)
+        val targetU = toU(projectedTarget)
+        val targetV = toV(projectedTarget)
+
+        val clampedU: Float
+        val clampedV: Float
+        when (cornerIndex) {
+            0 -> {
+                clampedU = minOf(targetU, minOf(u1, u2) - minEdgeMeters)
+                clampedV = minOf(targetV, minOf(v2, v3) - minEdgeMeters)
+            }
+            1 -> {
+                clampedU = maxOf(targetU, maxOf(u0, u3) + minEdgeMeters)
+                clampedV = minOf(targetV, minOf(v2, v3) - minEdgeMeters)
+            }
+            2 -> {
+                clampedU = maxOf(targetU, maxOf(u0, u3) + minEdgeMeters)
+                clampedV = maxOf(targetV, maxOf(v0, v1) + minEdgeMeters)
+            }
+            else -> {
+                clampedU = minOf(targetU, minOf(u1, u2) - minEdgeMeters)
+                clampedV = maxOf(targetV, maxOf(v0, v1) + minEdgeMeters)
+            }
+        }
+
+        val moved = WorldPoint3(
+            x = c0.x + uAxis.x * clampedU + vAxis.x * clampedV,
+            y = c0.y + uAxis.y * clampedU + vAxis.y * clampedV,
+            z = c0.z + uAxis.z * clampedU + vAxis.z * clampedV
+        )
+        return planarCorners.toMutableList().also { it[cornerIndex] = moved }
     }
 
     private fun lerpPoint(a: WorldPoint3, b: WorldPoint3, t: Float): WorldPoint3 = WorldPoint3(

@@ -36,6 +36,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -107,6 +109,7 @@ import com.example.panelscan.feature.measurement.ar.CornerAssistState
 import com.example.panelscan.feature.measurement.ar.CornerAssistStatus
 import com.example.panelscan.feature.measurement.ar.DebugCandidate
 import com.example.panelscan.feature.measurement.ar.DebugCandidateKind
+import com.example.panelscan.feature.measurement.ar.GridCornerHandle
 import com.example.panelscan.feature.measurement.ar.MeasureStep
 import com.example.panelscan.feature.measurement.ar.ReticleState
 import com.example.panelscan.feature.measurement.ar.arCopy
@@ -260,6 +263,16 @@ fun ARMeasurementScreen(
         }
 
         CornerSuggestionMarker(assist = arState.assist)
+
+        if (arState.step == MeasureStep.Complete && arState.cornerHandles.isNotEmpty()) {
+            DraggableGridCornerOverlay(
+                handles = arState.cornerHandles,
+                activeCornerIndex = arState.activeCornerIndex,
+                onBeginDrag = { normX, normY, aspect -> controller.beginCornerDrag(normX, normY, aspect) },
+                onDragTo = { normX, normY -> controller.dragCornerTo(normX, normY) },
+                onEndDrag = { controller.endCornerDrag() }
+            )
+        }
 
         if (arState.step != MeasureStep.Complete) {
             Reticle(
@@ -1473,6 +1486,140 @@ private fun BoxScope.CornerSuggestionMarker(assist: CornerAssistState) {
                         strokeWidth = stroke
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Interactive corner handle indicators overlaid on the 4 corners of the generated 3D wall grid
+ * on the "Measurement ready" (Step 6) screen. Touching and dragging any corner handle moves
+ * that corner strictly along the locked surface plane and updates the 3D grid and dimensions
+ * (Width, Height, Area) in real time.
+ */
+@Composable
+private fun BoxScope.DraggableGridCornerOverlay(
+    handles: List<GridCornerHandle>,
+    activeCornerIndex: Int?,
+    onBeginDrag: (normX: Float, normY: Float, viewAspect: Float) -> Int?,
+    onDragTo: (normX: Float, normY: Float) -> Boolean,
+    onEndDrag: () -> Unit
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .matchParentSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val w = size.width.toFloat().coerceAtLeast(1f)
+                    val h = size.height.toFloat().coerceAtLeast(1f)
+                    val grabbed = onBeginDrag(down.position.x / w, down.position.y / h, w / h)
+                    if (grabbed != null) {
+                        down.consume()
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                    ?: event.changes.firstOrNull()
+                                    ?: break
+                                if (!change.pressed) {
+                                    change.consume()
+                                    break
+                                }
+                                onDragTo(change.position.x / w, change.position.y / h)
+                                change.consume()
+                            }
+                        } finally {
+                            onEndDrag()
+                        }
+                    }
+                }
+            }
+    ) {
+        val viewWidth = maxWidth
+        val viewHeight = maxHeight
+
+        // Subtle connecting frame outline between visible corner handles while actively dragging
+        if (handles.size == 4 && handles.all { it.visible }) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val pts = handles.map { Offset(it.normalisedX * size.width, it.normalisedY * size.height) }
+                for (i in 0 until 4) {
+                    val a = pts[i]
+                    val b = pts[(i + 1) % 4]
+                    val activeEdge = activeCornerIndex == i || activeCornerIndex == (i + 1) % 4
+                    if (activeEdge) {
+                        drawLine(
+                            color = AccentCopper.copy(alpha = 0.85f),
+                            start = a,
+                            end = b,
+                            strokeWidth = 3.5f
+                        )
+                    }
+                }
+            }
+        }
+
+        handles.forEach { handle ->
+            if (!handle.visible) return@forEach
+            val isActive = activeCornerIndex == handle.index
+            val handleScale by animateFloatAsState(
+                targetValue = if (isActive) 1.24f else 1.0f,
+                animationSpec = PanelScanMotion.springSoft(),
+                label = "gridCornerScale_${handle.index}"
+            )
+            val ringColor by animateColorAsState(
+                targetValue = if (isActive) AccentCopper else ConfirmedGreen,
+                animationSpec = PanelScanMotion.spec(PanelScanMotion.Fast),
+                label = "gridCornerColor_${handle.index}"
+            )
+            val x = viewWidth * handle.normalisedX
+            val y = viewHeight * handle.normalisedY
+
+            Canvas(
+                modifier = Modifier
+                    .offset(x = x - 22.dp, y = y - 22.dp)
+                    .size(44.dp)
+                    .scale(handleScale)
+            ) {
+                val c = Offset(size.width / 2f, size.height / 2f)
+                val outerR = size.minDimension * 0.36f
+                val innerR = size.minDimension * 0.14f
+
+                // High-contrast dark backdrop halo so the handle stands out on both white walls and dark baseboards
+                drawCircle(
+                    color = ChromeSurface.copy(alpha = if (isActive) 0.88f else 0.76f),
+                    radius = outerR + 3f,
+                    center = c
+                )
+                // Outer interactive ring
+                drawCircle(
+                    color = ringColor,
+                    radius = outerR,
+                    center = c,
+                    style = Stroke(width = if (isActive) 3.4f else 2.6f)
+                )
+                // 4 cardinal grip ticks inside the ring
+                val tickIn = outerR * 0.56f
+                val tickOut = outerR * 0.92f
+                listOf(
+                    Offset(1f, 0f),
+                    Offset(-1f, 0f),
+                    Offset(0f, 1f),
+                    Offset(0f, -1f)
+                ).forEach { dir ->
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.85f),
+                        start = c + dir * tickIn,
+                        end = c + dir * tickOut,
+                        strokeWidth = 2.0f
+                    )
+                }
+                // Crisp center target dot
+                drawCircle(
+                    color = Color.White,
+                    radius = innerR,
+                    center = c
+                )
             }
         }
     }

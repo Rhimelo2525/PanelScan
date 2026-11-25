@@ -122,6 +122,21 @@ data class DebugCandidate(
     val kind: DebugCandidateKind
 )
 
+/**
+ * A draggable corner handle of the completed 3D measurement grid on the "Measurement ready"
+ * (Step 6) screen, projected into normalised view coordinates (0..1 across the AR view).
+ *
+ * Corners follow [com.example.panelscan.core.logic.WallPhotoGeometry.cornersFromTaps] order:
+ * 0 = bottom-left, 1 = bottom-right, 2 = top-right, 3 = top-left.
+ */
+@Immutable
+data class GridCornerHandle(
+    val index: Int,
+    val normalisedX: Float,
+    val normalisedY: Float,
+    val visible: Boolean = true
+)
+
 /** The current corner suggestion, in normalised view coordinates so Compose can place it. */
 @Immutable
 data class CornerAssistState(
@@ -207,7 +222,11 @@ data class ArUiState(
      * Every placed point is on screen. The wall photo is taken from the live camera when the
      * customer confirms, so it only matches the measurement while the dots are in view.
      */
-    val measuredAreaInView: Boolean = true
+    val measuredAreaInView: Boolean = true,
+    /** Projected 2D screen positions of the 4 draggable grid corners in Step 6 (Result). */
+    val cornerHandles: List<GridCornerHandle> = emptyList(),
+    /** Index (0..3) of the corner handle currently being dragged, or null. */
+    val activeCornerIndex: Int? = null
 ) {
     val areaSquareMeters: Double get() = widthMeters * heightMeters
 

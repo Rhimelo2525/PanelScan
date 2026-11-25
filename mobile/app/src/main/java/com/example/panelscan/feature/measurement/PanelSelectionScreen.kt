@@ -79,6 +79,7 @@ fun PanelSelectionScreen(
     preselectedPanelId: String? = null,
     wastePercent: Int = EstimationLogic.DEFAULT_WASTE_PERCENT,
     showPrice: Boolean = false,
+    onRefreshCatalog: suspend () -> String? = { null },
     bottomPadding: Dp = 0.dp
 ) {
     val colors = PanelScan.colors
@@ -94,13 +95,18 @@ fun PanelSelectionScreen(
 
     // The catalogue may still be loading from the backend when this opens.
     val catalogue by ProductCatalog.panels.collectAsState()
+    LaunchedEffect(selectedCategory, catalogue.isEmpty()) {
+        if (ProductCatalog.panelsFor(catalogue, selectedCategory).isEmpty()) {
+            onRefreshCatalog()
+        }
+    }
     LaunchedEffect(preselectedPanelId, catalogue) {
         if (selectedPanel == null && preselectedPanelId != null) {
             selectedPanel = ProductCatalog.findById(preselectedPanelId)
         }
     }
 
-    val panels = ProductCatalog.panelsFor(catalogue, selectedCategory)
+    val panels = ProductCatalog.panelsOrFallbackFor(catalogue, selectedCategory)
 
     val estimation = selectedPanel?.let {
         EstimationLogic.calculateEstimation(
