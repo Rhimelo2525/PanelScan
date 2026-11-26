@@ -134,7 +134,7 @@ export function AboutPage() {
                 <img src="/images/app-download-qr.svg" alt="QR code to download the PanelScan Android app" width={176} height={176} className="size-44 rounded-xl border border-border bg-white p-2" />
               </div>
               <Button className="mt-5 w-full" asChild>
-                <a href="/app" download><Download data-icon="inline-start" aria-hidden="true" />Download for Android</a>
+                <a href="/app" download="PanelScan-v1.9.apk"><Download data-icon="inline-start" aria-hidden="true" />Download for Android</a>
               </Button>
             </section>
 
