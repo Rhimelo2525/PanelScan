@@ -704,6 +704,7 @@ class ArMeasureController(
                 pointCount = placed.size,
                 widthMeters = measurement.first,
                 heightMeters = measurement.second,
+                areaSquareMeters = measurement.third,
                 transientMessage = activeTransient(now),
                 assistEnabled = assistEnabled,
                 torchAvailable = torchAvailable,
@@ -1900,30 +1901,28 @@ class ArMeasureController(
         val pointCandidate = quickPointHit(frame, view, session, origin, ray, dir)
         val rememberedCandidate = if (placed.isEmpty()) quickHitOnRememberedSurface(session, origin, ray) else null
 
-        // When a wall or ceiling is already confirmed (rememberedCandidate != null) and the center
-        // reticle ray still intersects that surface above the floor, only allow depth/point hits
-        // that are coplanar with the confirmed surface so aiming near the baseboard/floor corner
-        // never pulls the confirmed wall plane onto the floor.
+        // Allow live 3D depth/point wall hits above the floor to continuously refine quickLockedSurface
+        // before Point A is placed, rather than locking onto the very first frame's unrefined feature
+        // point (which is often underestimated before stereo baseline is established).
         val goodDepth = depthCandidate?.takeIf {
             it.confidence == HitConfidence.Good &&
-                (rememberedCandidate == null || ArMeasurementGeometry.areCoplanar(rememberedCandidate.surface, it.surface))
+                (surfaceType != SurfaceType.WALL || !isBelowTrackedFloor(session, it.position.y, origin.y))
         }
         val goodPoint = pointCandidate?.takeIf {
             it.confidence == HitConfidence.Good &&
-                (rememberedCandidate == null || ArMeasurementGeometry.areCoplanar(rememberedCandidate.surface, it.surface))
+                (surfaceType != SurfaceType.WALL || !isBelowTrackedFloor(session, it.position.y, origin.y))
         }
+        val direct3dHit = quickPlaneHit(frame, view, camPose.ty())
+            ?: session?.let { runCatching { projectCentreRayToTrackedPlane(it, frame) }.getOrNull() }
+            ?: goodDepth
+            ?: goodPoint
 
         // Filter depthCandidate and pointCandidate for Good confidence in the primary chain so a
         // noisy reflection or dark shadow spot (Mismatched/Other normal) never blocks fallback
         // to the remembered wall/ceiling plane.
-        val rawFound = quickHitOnPlane(session, origin, ray)
-            ?: quickPlaneHit(frame, view, camPose.ty())
-            ?: session?.let { runCatching { projectCentreRayToTrackedPlane(it, frame) }.getOrNull() }
-            ?: goodDepth
-            ?: goodPoint
+        val rawFound = quickHitOnPlane(session, origin, ray, direct3dHit)
+            ?: direct3dHit
             ?: rememberedCandidate
-            ?: depthCandidate?.takeIf { it.confidence == HitConfidence.Good }
-            ?: pointCandidate?.takeIf { it.confidence == HitConfidence.Good }
             ?: depthCandidate
             ?: pointCandidate
 
@@ -2007,6 +2006,7 @@ class ArMeasureController(
                 pointCount = placed.size,
                 widthMeters = measurement.first,
                 heightMeters = measurement.second,
+                areaSquareMeters = measurement.third,
                 transientMessage = activeTransient(now),
                 torchAvailable = torchAvailable,
                 torchEnabled = torchEnabled,
@@ -2026,10 +2026,26 @@ class ArMeasureController(
         val baseSurface = if (surfaceType == SurfaceType.WALL) {
             val anchorRef = placed.firstOrNull()?.position()?.toWorldPoint() ?: rawPosition.toWorldPoint()
             val lockedNormal = gridNormal ?: hit.surface.normal()
-            ArMeasurementGeometry.verticalWallPlane(
+            val initialWall = ArMeasurementGeometry.verticalWallPlane(
                 PlaneSignature(lockedNormal.x, 0f, lockedNormal.z, anchorRef.x, anchorRef.y, anchorRef.z),
                 anchorPoint = anchorRef
             )
+            // When placing Point B (Width end), refine the vertical wall plane normal from the
+            // 2-point horizontal chord (Point A -> Point B) so a single-point normal error at
+            // Point A cannot tilt the plane closer across a wide (5+ m) wall.
+            if (placed.size == 1) {
+                ArMeasurementGeometry.wallPlaneFromTwoPoints(
+                    anchorA = anchorRef,
+                    secondPoint = rawPosition.toWorldPoint(),
+                    referencePlane = hit.surface
+                ) ?: ArMeasurementGeometry.wallPlaneFromTwoPoints(
+                    anchorA = anchorRef,
+                    secondPoint = rawPosition.toWorldPoint(),
+                    referencePlane = initialWall
+                ) ?: ArMeasurementGeometry.verticalWallPlane(hit.surface, anchorPoint = anchorRef)
+            } else {
+                initialWall
+            }
         } else {
             hit.surface
         }
@@ -2066,7 +2082,7 @@ class ArMeasureController(
         val node = try { createMarker(view, anchor, placed.size) } catch (e: Throwable) {
             anchor.detach(); showTransient("Could not place the marker — try again"); return false
         }
-        if (placed.isEmpty()) {
+        if (placed.isEmpty() || (surfaceType == SurfaceType.WALL && placed.size == 1)) {
             gridNormal = surface.normal()
         }
         placed += PlacedPoint(anchor, node, position)
@@ -2085,17 +2101,24 @@ class ArMeasureController(
 
     /**
      * Quick measure: intersects the reticle ray with the locked wall/ceiling plane after Point A
-     * is placed. Uses the tracked [quickPlane] when active and coplanar with Point A's locked
-     * plane, or Point A's anchored [quickLockedSurface] with strictly horizontal wall normal
-     * (`normalY = 0`), constraining Width along `cross(worldUp, wallNormal)` and Height along
-     * `worldUp` while rejecting raycast depth spikes.
+     * is placed. When measuring Width on a wall (`placed.size == 1`) and a direct 3D surface hit
+     * ([direct3dHit]) is available at the reticle, refines the vertical wall plane normal using the
+     * 2-point horizontal chord `(Point A -> direct3dHit)` so the plane passes through the true 3D
+     * depth at both ends of a wide wall (e.g. 5+ m) instead of tilting closer from a single-point
+     * normal error at Point A.
      */
-    private fun quickHitOnPlane(session: Session?, origin: WorldPoint3, ray: WorldPoint3): ValidatedHit? {
+    private fun quickHitOnPlane(
+        session: Session?,
+        origin: WorldPoint3,
+        ray: WorldPoint3,
+        direct3dHit: ValidatedHit? = null
+    ): ValidatedHit? {
         if (placed.isEmpty() && quickPlane == null) return null
         if (surfaceType == SurfaceType.WALL && (ray.y < -0.90f || ray.y > 0.90f)) return null
         if (surfaceType == SurfaceType.CEILING && ray.y < 0.05f) return null
 
         val p0 = placed.firstOrNull()?.position()?.toWorldPoint()
+        val p1 = placed.getOrNull(1)?.position()?.toWorldPoint()
         var plane = quickPlane
         while (plane?.subsumedBy != null) plane = plane.subsumedBy
         quickPlane = plane
@@ -2109,11 +2132,41 @@ class ArMeasureController(
         }
 
         val rawSignature = when {
+            // Once both Point A and Point B are placed on a wall, derive the vertical wall plane
+            // from their live ARCore anchor chord (p0 -> p1) so both ends of the wall remain at
+            // their true 3D depths as ARCore SLAM refines the anchors.
+            surfaceType == SurfaceType.WALL && p0 != null && p1 != null -> {
+                val fallbackRef = lockedNormal?.let {
+                    PlaneSignature(it.x, 0f, it.z, p0.x, p0.y, p0.z)
+                }
+                ArMeasurementGeometry.wallPlaneFromTwoPoints(p0, p1, origin, fallbackRef)
+                    ?: activePlane?.let { planeSignature(it).copy(centerX = p0.x, centerY = p0.y, centerZ = p0.z) }
+                    ?: fallbackRef
+                    ?: return null
+            }
+            // While aiming at Point B (Width end) on a wall, prefer an active tracked vertical
+            // Plane normal or a 2-point vertical wall plane through (p0 -> direct3dHit) so the
+            // far end of a 5+ m wall uses true 3D depth instead of single-point normal extrapolation.
+            surfaceType == SurfaceType.WALL && p0 != null && placed.size == 1 -> {
+                val baseRef = activePlane?.let { planeSignature(it).copy(centerX = p0.x, centerY = p0.y, centerZ = p0.z) }
+                    ?: lockedNormal?.let { PlaneSignature(it.x, 0f, it.z, p0.x, p0.y, p0.z) }
+                    ?: quickLockedSurface?.copy(centerX = p0.x, centerY = p0.y, centerZ = p0.z)
+                val twoPoint = direct3dHit?.takeIf { it.confidence == HitConfidence.Good }?.let { direct ->
+                    val hitPos = direct.position.toWorldPoint()
+                    if (!ArMeasurementGeometry.isWallRaycastDepthSpike(origin, ray, baseRef ?: direct.surface, hitPos, p0)) {
+                        ArMeasurementGeometry.wallPlaneFromTwoPoints(p0, hitPos, origin, baseRef ?: direct.surface)
+                    } else null
+                }
+                twoPoint ?: baseRef ?: return null
+            }
+            activePlane != null -> {
+                val sig = planeSignature(activePlane)
+                if (p0 != null) sig.copy(centerX = p0.x, centerY = p0.y, centerZ = p0.z) else sig
+            }
             placed.isNotEmpty() && lockedNormal != null -> {
                 val anchor = p0!!
                 PlaneSignature(lockedNormal.x, lockedNormal.y, lockedNormal.z, anchor.x, anchor.y, anchor.z)
             }
-            activePlane != null -> planeSignature(activePlane)
             placed.isNotEmpty() -> {
                 val anchor = p0!!
                 val base = quickLockedSurface
@@ -2133,6 +2186,9 @@ class ArMeasureController(
             rawSignature
         }
         quickLockedSurface = signature
+        if (surfaceType == SurfaceType.WALL && placed.size >= 2) {
+            gridNormal = signature.normal()
+        }
 
         val rawPoint = ArMeasurementGeometry.intersectRayWithPlane(origin, ray, signature, MIN_HIT_DISTANCE_M, MAX_HIT_DISTANCE_M) ?: return null
         if (surfaceType == SurfaceType.CEILING && rawPoint.y <= origin.y + 0.12f) return null
@@ -2302,7 +2358,11 @@ class ArMeasureController(
                     isPointOnTrackedFloorPolygon(session, pose, hitWorld.y, origin.y) -> HitKind.HorizontalUpward
                 else -> rawKind
             }
-            val surface = ArMeasurementGeometry.surfacePlaneSignature(kind, hitWorld, ray, estimatedNormal)
+            val fallbackWallNormal = if (surfaceType == SurfaceType.WALL) {
+                quickPlane?.takeIf { it.trackingState == TrackingState.TRACKING }?.let { planeSignature(it).normal() }
+                    ?: quickLockedSurface?.normal()
+            } else null
+            val surface = ArMeasurementGeometry.surfacePlaneSignature(kind, hitWorld, ray, estimatedNormal, fallbackWallNormal)
             val projected = if (isCentreProbe) {
                 hitWorld
             } else {
@@ -2503,6 +2563,7 @@ class ArMeasureController(
                 pointCount = placed.size,
                 widthMeters = measurement.first,
                 heightMeters = measurement.second,
+                areaSquareMeters = measurement.third,
                 phase = if (step == MeasureStep.Complete) {
                     ArPhase.MeasurementComplete
                 } else if (quickMode) {
@@ -2527,11 +2588,14 @@ class ArMeasureController(
 
     /**
      * Returns the locked 3D plane signature that the 4 completed grid corners are constrained to.
+     * On a wall with at least 2 placed anchors (Point A and Point B), uses the 2-point vertical
+     * wall plane passing through both live ARCore anchors so SLAM scale refinements between the
+     * left and right sides of a wide wall are preserved.
      */
     private fun currentGridSurface(): PlaneSignature? {
         if (placed.isEmpty()) return null
         val p0 = placed[0].position().toWorldPoint()
-        val normal = gridNormal
+        val fallbackNormal = gridNormal
             ?: (if (quickMode) {
                 quickPlane?.takeIf { it.trackingState == TrackingState.TRACKING }?.let { planeSignature(it).normal() }
                     ?: quickLockedSurface?.normal()
@@ -2543,34 +2607,51 @@ class ArMeasureController(
                 placed[0].anchor.pose.getTransformedAxis(1, 1f, n, 0)
                 WorldPoint3(n[0], n[1], n[2])
             }
-        gridNormal = normal
-        return PlaneSignature(normal.x, normal.y, normal.z, p0.x, p0.y, p0.z)
+        val fallbackPlane = PlaneSignature(fallbackNormal.x, fallbackNormal.y, fallbackNormal.z, p0.x, p0.y, p0.z)
+        if (surfaceType == SurfaceType.WALL && placed.size >= 2) {
+            val p1 = placed[1].position().toWorldPoint()
+            val twoPoint = ArMeasurementGeometry.wallPlaneFromTwoPoints(
+                anchorA = p0,
+                secondPoint = p1,
+                referencePlane = fallbackPlane
+            )
+            if (twoPoint != null) {
+                gridNormal = twoPoint.normal()
+                return twoPoint
+            }
+        }
+        gridNormal = fallbackNormal
+        return fallbackPlane
     }
 
     private fun initializeGridCorners() {
         if (placed.size < 3) return
+        gridCornerOffsets.clear()
+        repeat(4) { gridCornerOffsets += WorldPoint3(0f, 0f, 0f) }
+    }
+
+    private fun liveBaseGridCorners(surface: PlaneSignature?): List<WorldPoint3> {
         val p0 = placed[0].position().toWorldPoint()
         val p1 = placed[1].position().toWorldPoint()
         val p2 = placed[2].position().toWorldPoint()
-        val surface = currentGridSurface()
-        val corners = ArMeasurementGeometry.initialGridCorners(p0, p1, p2, surface)
-        gridCornerOffsets.clear()
-        corners.forEach { c ->
-            gridCornerOffsets += WorldPoint3(c.x - p0.x, c.y - p0.y, c.z - p0.z)
-        }
+        return ArMeasurementGeometry.initialGridCorners(p0, p1, p2, surface)
     }
 
     /**
      * Live 3D world positions of the 4 grid corners `[bottomLeft, bottomRight, topRight, topLeft]`,
-     * anchored relative to Point A and projected strictly onto the locked surface plane.
+     * derived live from the 3 ARCore anchors (`placed[0]`, `placed[1]`, `placed[2]`) so multi-anchor
+     * SLAM bundle adjustments across wide walls continuously refine the dimensions, plus any
+     * independent per-corner manual drag offset in [gridCornerOffsets] projected onto the locked surface.
      */
     private fun currentGridCorners(): List<WorldPoint3> {
         if (placed.size < 3) return emptyList()
         if (gridCornerOffsets.size != 4) initializeGridCorners()
-        val p0 = placed[0].position().toWorldPoint()
         val surface = currentGridSurface()
-        return gridCornerOffsets.map { offset ->
-            val raw = WorldPoint3(p0.x + offset.x, p0.y + offset.y, p0.z + offset.z)
+        val baseCorners = liveBaseGridCorners(surface)
+        if (baseCorners.size < 4) return emptyList()
+        return baseCorners.mapIndexed { index, base ->
+            val offset = gridCornerOffsets[index]
+            val raw = WorldPoint3(base.x + offset.x, base.y + offset.y, base.z + offset.z)
             if (surface != null) ArMeasurementGeometry.projectOntoPlane(raw, surface) else raw
         }
     }
@@ -2652,10 +2733,16 @@ class ArMeasureController(
             targetPoint = hitOnPlane,
             plane = surface
         )
-        val p0 = placed[0].position().toWorldPoint()
-        gridCornerOffsets.clear()
-        updatedCorners.forEach { c ->
-            gridCornerOffsets += WorldPoint3(c.x - p0.x, c.y - p0.y, c.z - p0.z)
+        val baseCorners = liveBaseGridCorners(surface)
+        if (baseCorners.size == 4 && updatedCorners.size == 4) {
+            if (gridCornerOffsets.size != 4) initializeGridCorners()
+            val moved = updatedCorners[index]
+            val base = baseCorners[index]
+            gridCornerOffsets[index] = WorldPoint3(
+                x = moved.x - base.x,
+                y = moved.y - base.y,
+                z = moved.z - base.z
+            )
         }
         updateGuides()
         val measurement = computeMeasurement()
@@ -2664,6 +2751,7 @@ class ArMeasureController(
             it.copy(
                 widthMeters = measurement.first,
                 heightMeters = measurement.second,
+                areaSquareMeters = measurement.third,
                 cornerHandles = handles,
                 activeCornerIndex = index
             )
@@ -2687,29 +2775,34 @@ class ArMeasureController(
     // -------------------------------------------------------------- geometry
 
     /**
-     * width, height — derived live from anchor poses (and [previewPoint] while aiming at the
-     * next corner) so the user sees live progress while walking or panning across a large wall.
+     * width, height, area — derived live from anchor poses (and [previewPoint] while aiming at
+     * the next corner) or from the 4 independent quadrilateral corners once all 3 points are placed
+     * (using mean opposite-edge width/height and two-triangle quadrilateral area math).
      */
-    private fun computeMeasurement(previewPoint: Float3? = null): Pair<Double, Double> {
-        if (placed.isEmpty()) return 0.0 to 0.0
+    private fun computeMeasurement(previewPoint: Float3? = null): Triple<Double, Double, Double> {
+        if (placed.isEmpty()) return Triple(0.0, 0.0, 0.0)
         val p0 = placed[0].position()
         if (placed.size == 1) {
-            val preview = previewPoint ?: return 0.0 to 0.0
-            return ArMeasurementGeometry.distance(p0.toWorldPoint(), preview.toWorldPoint()) to 0.0
+            val preview = previewPoint ?: return Triple(0.0, 0.0, 0.0)
+            return Triple(ArMeasurementGeometry.distance(p0.toWorldPoint(), preview.toWorldPoint()), 0.0, 0.0)
         }
         val p1 = placed[1].position()
         val width = ArMeasurementGeometry.distance(p0.toWorldPoint(), p1.toWorldPoint())
         if (placed.size == 2) {
-            val preview = previewPoint ?: return width to 0.0
-            return ArMeasurementGeometry.rectangleSize(p0.toWorldPoint(), p1.toWorldPoint(), preview.toWorldPoint(), surfaceType)
+            val preview = previewPoint ?: return Triple(width, 0.0, 0.0)
+            val (w, h) = ArMeasurementGeometry.rectangleSize(p0.toWorldPoint(), p1.toWorldPoint(), preview.toWorldPoint(), surfaceType)
+            return Triple(w, h, w * h)
         }
         val corners = currentGridCorners()
         if (corners.size == 4) {
-            return ArMeasurementGeometry.quadDimensions(corners)
+            val (w, h) = ArMeasurementGeometry.quadDimensions(corners)
+            val area = ArMeasurementGeometry.quadArea(corners)
+            return Triple(w, h, area)
         }
         val p2 = placed[2].position()
         // On a wall the level side is the width, whichever side was tapped first.
-        return ArMeasurementGeometry.rectangleSize(p0.toWorldPoint(), p1.toWorldPoint(), p2.toWorldPoint(), surfaceType)
+        val (w, h) = ArMeasurementGeometry.rectangleSize(p0.toWorldPoint(), p1.toWorldPoint(), p2.toWorldPoint(), surfaceType)
+        return Triple(w, h, w * h)
     }
 
     /**
@@ -2734,8 +2827,14 @@ class ArMeasureController(
 
     /** Snapshot for the result screen. Plain numbers — no ARCore types leave this class. */
     fun snapshot(): Triple<Double, Double, Int> {
-        val (w, h) = computeMeasurement()
+        val (w, h, _) = computeMeasurement()
         return Triple(w, h, placed.size)
+    }
+
+    /** Full measurement snapshot including the exact two-triangle quadrilateral area. */
+    fun snapshotWithArea(): ArMeasurementSnapshot {
+        val (w, h, area) = computeMeasurement()
+        return ArMeasurementSnapshot(w, h, area, placed.size)
     }
 
     // ------------------------------------------------------------ wall photo
@@ -3454,10 +3553,10 @@ class ArMeasureController(
 
     private companion object {
         /** Quick measure: at most this many recent reticle positions, from the last QUICK_SAMPLE_WINDOW_MS, are averaged. */
-        const val QUICK_SAMPLES = 8
-        const val QUICK_SAMPLE_WINDOW_MS = 500L
+        const val QUICK_SAMPLES = 5
+        const val QUICK_SAMPLE_WINDOW_MS = 180L
         /** Positions further apart than this mean the phone was moving: the latest one is used instead. */
-        const val QUICK_STEADY_SPREAD_M = 0.03f
+        const val QUICK_STEADY_SPREAD_M = 0.012f
         /** A first point this close to a tracked wall plane is taken to lie on it. */
         const val QUICK_PLANE_TOLERANCE_M = 0.04f
         /** Small reticle neighborhood offset (px) probed when the exact centre pixel misses a feature point. */
@@ -3508,3 +3607,10 @@ private fun distance(a: Float3, b: Float3): Float {
     val dz = a.z - b.z
     return sqrt(dx * dx + dy * dy + dz * dz)
 }
+
+data class ArMeasurementSnapshot(
+    val widthMeters: Double,
+    val heightMeters: Double,
+    val areaSquareMeters: Double,
+    val pointCount: Int
+)

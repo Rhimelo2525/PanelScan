@@ -339,7 +339,7 @@ class ArMeasurementGeometryTest {
     }
 
     @Test
-    fun `dragging a grid corner constrains movement strictly to the locked wall plane and updates dimensions`() {
+    fun `dragging a grid corner moves only that corner independently on the locked wall plane and updates quad area and bilinear grid`() {
         val wallPlane = PlaneSignature(0f, 0f, 1f, 0f, 1.3f, -2.0f)
         val p0 = WorldPoint3(0f, 2.2f, -2.0f)
         val p1 = WorldPoint3(2.0f, 2.2f, -2.0f)
@@ -350,36 +350,70 @@ class ArMeasurementGeometryTest {
         val (initialW, initialH) = ArMeasurementGeometry.quadDimensions(initial)
         assertEquals(2.0, initialW, 1e-3)
         assertEquals(2.0, initialH, 1e-3)
+        assertEquals(4.0, ArMeasurementGeometry.quadArea(initial), 1e-3)
 
-        // Drag top-right corner (index 2) outward to x = 2.4 m, y = 2.5 m, even with an off-plane z = -1.6 m input:
+        // Drag top-right corner (index 2) outward to x = 2.6 m, y = 2.5 m, even with an off-plane z = -1.6 m input:
         // moveGridCornerOnPlane must keep all 4 corners strictly on the locked wall plane (z = -2.0 m)
-        // and preserve a flat axis-aligned rectangle flush against the wall.
-        val dragged = ArMeasurementGeometry.moveGridCornerOnPlane(
+        // and move ONLY corner 2 while leaving corners 0 (BL), 1 (BR), and 3 (TL) 100% untouched.
+        val draggedTR = ArMeasurementGeometry.moveGridCornerOnPlane(
             corners = initial,
             cornerIndex = 2,
-            targetPoint = WorldPoint3(2.4f, 2.5f, -1.6f),
+            targetPoint = WorldPoint3(2.6f, 2.5f, -1.6f),
             plane = wallPlane
         )
-        dragged.forEach { corner ->
+        draggedTR.forEach { corner ->
             assertEquals(0f, ArMeasurementGeometry.distanceToPlane(corner, wallPlane), 1e-4f)
             assertEquals(-2.0f, corner.z, 1e-4f)
         }
-        assertEquals(2.4f, dragged[2].x, 1e-3f)
-        assertEquals(2.5f, dragged[2].y, 1e-3f)
+        assertEquals(2.6f, draggedTR[2].x, 1e-3f)
+        assertEquals(2.5f, draggedTR[2].y, 1e-3f)
 
-        // Bottom-left corner stays pinned, and adjacent corners stay axis-aligned to form a flat rectangle.
-        assertEquals(initial[0].x, dragged[0].x, 1e-4f)
-        assertEquals(initial[0].y, dragged[0].y, 1e-4f)
-        assertEquals(initial[3].x, dragged[3].x, 1e-4f)
-        assertEquals(2.5f, dragged[3].y, 1e-4f)
-        assertEquals(2.4f, dragged[1].x, 1e-4f)
-        assertEquals(initial[1].y, dragged[1].y, 1e-4f)
+        // The other 3 corners (0 = BL, 1 = BR, 3 = TL) must remain 100% unchanged.
+        assertEquals(initial[0].x, draggedTR[0].x, 1e-4f)
+        assertEquals(initial[0].y, draggedTR[0].y, 1e-4f)
+        assertEquals(initial[1].x, draggedTR[1].x, 1e-4f)
+        assertEquals(initial[1].y, draggedTR[1].y, 1e-4f)
+        assertEquals(initial[3].x, draggedTR[3].x, 1e-4f)
+        assertEquals(initial[3].y, draggedTR[3].y, 1e-4f)
 
-        // Grid segments and dimensions dynamically update from the new corner positions.
-        val (newW, newH) = ArMeasurementGeometry.quadDimensions(dragged)
-        assertEquals(2.4, newW, 1e-3)
-        assertEquals(2.3, newH, 1e-3)
-        val segments = ArMeasurementGeometry.buildFixedGridSegmentsFromCorners(dragged)
+        // Drag bottom-right corner (index 1) sideways to x = 2.6 m (keeping y = 0.2 m) so the bottom
+        // width is 2.6 m and top edge is a trapezoid: corner 2 (TR) and corners 0, 3 stay untouched.
+        val draggedBR = ArMeasurementGeometry.moveGridCornerOnPlane(
+            corners = initial,
+            cornerIndex = 1,
+            targetPoint = WorldPoint3(2.8f, 0.2f, -2.0f),
+            plane = wallPlane
+        )
+        assertEquals(2.8f, draggedBR[1].x, 1e-4f)
+        assertEquals(0.2f, draggedBR[1].y, 1e-4f)
+        // Top-right corner (index 2) did NOT move sideways when bottom-right (index 1) was dragged!
+        assertEquals(initial[2].x, draggedBR[2].x, 1e-4f)
+        assertEquals(initial[2].y, draggedBR[2].y, 1e-4f)
+        assertEquals(initial[0].x, draggedBR[0].x, 1e-4f)
+        assertEquals(initial[3].x, draggedBR[3].x, 1e-4f)
+
+        // Trapezoid has bottom width = 2.8 m, top width = 2.0 m, vertical height = 2.0 m:
+        // Two-triangle quadrilateral area = 0.5 * (2.8 + 2.0) * 2.0 = 4.8 m².
+        // Average width = (2.8 + 2.0) / 2 = 2.4 m.
+        val (trapW, trapH) = ArMeasurementGeometry.quadDimensions(draggedBR)
+        assertEquals(2.4, trapW, 1e-3)
+        assertTrue(trapH > 2.0)
+        assertEquals(4.8, ArMeasurementGeometry.quadArea(draggedBR), 1e-3)
+
+        // Bilinear grid segments interpolate across the custom quadrilateral and stay on the wall plane.
+        val midPoint = ArMeasurementGeometry.bilinearQuadPoint(
+            draggedBR[0],
+            draggedBR[1],
+            draggedBR[2],
+            draggedBR[3],
+            0.5f,
+            0.5f
+        )
+        assertEquals(1.2f, midPoint.x, 1e-4f)
+        assertEquals(1.2f, midPoint.y, 1e-4f)
+        assertEquals(-2.0f, midPoint.z, 1e-4f)
+
+        val segments = ArMeasurementGeometry.buildFixedGridSegmentsFromCorners(draggedBR)
         assertTrue(segments.isNotEmpty())
         segments.forEach { seg ->
             assertEquals(0f, ArMeasurementGeometry.distanceToPlane(seg.from, wallPlane), 1e-4f)
@@ -471,5 +505,59 @@ class ArMeasurementGeometryTest {
         assertEquals(original.x, unprojected!!.x, 1e-4f)
         assertEquals(original.y, unprojected.y, 1e-4f)
         assertEquals(original.z, unprojected.z, 1e-4f)
+    }
+
+    @Test
+    fun `two-point wall plane refinement eliminates wide-wall width and height underestimation from initial normal tilt`() {
+        // Real wall at z = -2.50 m, width = 5.13 m (x from -2.565 m to +2.565 m), height = 2.18 m (y from 2.18 m down to 0.00 m).
+        val cameraOrigin = WorldPoint3(0f, 1.45f, 0f)
+        val pointA = WorldPoint3(-2.565f, 2.18f, -2.50f)
+        val truePointB = WorldPoint3(2.565f, 2.18f, -2.50f)
+        val rayToBottomRight = WorldPoint3(
+            truePointB.x - cameraOrigin.x,
+            0.00f - cameraOrigin.y,
+            truePointB.z - cameraOrigin.z
+        )
+
+        // Suppose Point A's initial single-point normal was tilted 5° toward the camera (which previously
+        // pulled the virtual wall plane ~45 cm closer to the camera at the right end, shrinking 5.13 m -> ~4.79 m
+        // and 2.18 m -> ~1.98 m).
+        val tiltedInitialPlane = PlaneSignature(
+            normalX = -0.08715f,
+            normalY = 0f,
+            normalZ = 0.99619f,
+            centerX = pointA.x,
+            centerY = pointA.y,
+            centerZ = pointA.z
+        )
+
+        // Refining the vertical wall plane from the 2-point horizontal chord (pointA -> truePointB)
+        // recovers the exact wall plane (normal = (0, 0, 1) at z = -2.50 m).
+        val refinedPlane = ArMeasurementGeometry.wallPlaneFromTwoPoints(
+            anchorA = pointA,
+            secondPoint = truePointB,
+            cameraOrigin = cameraOrigin,
+            referencePlane = tiltedInitialPlane
+        )
+        assertNotNull(refinedPlane)
+        assertEquals(0f, refinedPlane!!.normalX, 1e-4f)
+        assertEquals(0f, refinedPlane.normalY, 1e-4f)
+        assertEquals(1f, refinedPlane.normalZ, 1e-4f)
+
+        val constrainedB = ArMeasurementGeometry.constrainWallWidthPoint(pointA, truePointB, refinedPlane)
+        val hitC = ArMeasurementGeometry.intersectRayWithPlane(
+            origin = cameraOrigin,
+            direction = rayToBottomRight,
+            plane = refinedPlane,
+            minDistance = 0.20f,
+            maxDistance = 25.0f
+        )
+        assertNotNull(hitC)
+        val constrainedC = ArMeasurementGeometry.constrainWallHeightPoint(pointA, constrainedB, hitC!!, refinedPlane)
+
+        val corners = ArMeasurementGeometry.initialGridCorners(pointA, constrainedB, constrainedC, refinedPlane)
+        val (measuredWidth, measuredHeight) = ArMeasurementGeometry.quadDimensions(corners)
+        assertEquals(5.13, measuredWidth, 1e-3)
+        assertEquals(2.18, measuredHeight, 1e-3)
     }
 }

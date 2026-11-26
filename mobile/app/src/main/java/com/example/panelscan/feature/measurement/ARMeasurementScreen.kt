@@ -382,8 +382,13 @@ fun ARMeasurementScreen(
                 if (!takingWallPhoto) {
                     takingWallPhoto = true
                     controller.stopRecording()
-                    val (w, h, points) = controller.snapshot()
-                    viewModel.applyArMeasurement(w, h, points)
+                    val snap = controller.snapshotWithArea()
+                    viewModel.applyArMeasurement(
+                        snap.widthMeters,
+                        snap.heightMeters,
+                        snap.pointCount,
+                        snap.areaSquareMeters
+                    )
                     // A photo of the wall for the 3D preview's background; a moment, then on.
                     scope.launch {
                         val photo = controller.captureWallPhoto(WallPhotoStore(context.filesDir).newPendingFile())
@@ -405,12 +410,13 @@ fun ARMeasurementScreen(
         }
     }
 
-    LaunchedEffect(arState.widthMeters, arState.heightMeters, arState.pointCount, arState.replaying) {
+    LaunchedEffect(arState.widthMeters, arState.heightMeters, arState.areaSquareMeters, arState.pointCount, arState.replaying) {
         if (arState.pointCount > 0 && !arState.replaying) {
             viewModel.applyArMeasurement(
                 arState.widthMeters,
                 arState.heightMeters,
-                arState.pointCount
+                arState.pointCount,
+                arState.areaSquareMeters
             )
         }
     }

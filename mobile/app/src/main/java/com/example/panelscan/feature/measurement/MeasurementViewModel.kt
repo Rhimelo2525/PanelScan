@@ -101,14 +101,19 @@ class MeasurementViewModel : ViewModel() {
 
     /**
      * Receives a finished AR measurement as plain numbers. The AR screen owns the anchors
-     * and computes width/height from live poses; nothing session-bound crosses this line.
+     * and computes width/height/area from live poses; nothing session-bound crosses this line.
      */
-    fun applyArMeasurement(width: Double, height: Double, pointCount: Int) {
+    fun applyArMeasurement(
+        width: Double,
+        height: Double,
+        pointCount: Int,
+        areaSquareMeters: Double = width * height
+    ) {
         _uiState.update {
             it.copy(
                 widthMeters = width,
                 heightMeters = height,
-                areaSquareMeters = width * height,
+                areaSquareMeters = areaSquareMeters,
                 capturedPointCount = pointCount,
                 source = MeasurementSource.AR_SCAN
             )

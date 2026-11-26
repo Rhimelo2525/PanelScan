@@ -188,6 +188,7 @@ data class ArUiState(
     val pointCount: Int = 0,
     val widthMeters: Double = 0.0,
     val heightMeters: Double = 0.0,
+    val areaSquareMeters: Double = widthMeters * heightMeters,
     val transientMessage: String? = null,
     val assistEnabled: Boolean = true,
     /** Whether the active ARCore camera advertises flash hardware. */
@@ -228,8 +229,6 @@ data class ArUiState(
     /** Index (0..3) of the corner handle currently being dragged, or null. */
     val activeCornerIndex: Int? = null
 ) {
-    val areaSquareMeters: Double get() = widthMeters * heightMeters
-
     /** Quick measure places a point only where the reticle is on something real (never in mid-air). */
     val canPlace: Boolean get() = phase.allowsPlacement && step != MeasureStep.Complete && (!quickMode || surfaceDetected)
 

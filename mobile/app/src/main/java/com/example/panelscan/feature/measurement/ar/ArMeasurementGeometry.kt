@@ -42,11 +42,26 @@ object ArMeasurementGeometry {
     const val MIN_WALL_RAY_INCIDENCE_COS = 0.18f
 
     /**
-     * Maximum horizontal yaw deviation (cos 25° ≈ 0.906) allowed between a single-point
+     * Maximum horizontal yaw deviation (cos 55° ≈ 0.5736) allowed between a single-point
      * estimated normal and the camera's horizontal viewing direction before snapping the initial
-     * wall normal to face the camera, preventing sideways depth-skewed wall planes.
+     * wall normal to face the camera. Allowing up to 55° ensures that aiming at the far left or
+     * right corner of a wide (5+ m) wall from the center of the room preserves the wall's true
+     * surface normal instead of rotating the plane to face the angled camera line of sight.
      */
-    private const val MIN_POINT_NORMAL_CAMERA_ALIGNMENT = 0.9063f
+    private const val MIN_POINT_NORMAL_CAMERA_ALIGNMENT = 0.5736f
+
+    /**
+     * Minimum horizontal span (in metres) between Point A and a second 3D wall point before
+     * refining the vertical wall plane normal from the 2-point horizontal chord `A -> B`.
+     */
+    const val MIN_TWO_POINT_WALL_SPAN_M = 0.25f
+
+    /**
+     * Maximum horizontal angle (cos 38° ≈ 0.788) between Point A's initial wall normal and the
+     * 2-point chord normal `perp(B - A)` so an adjacent perpendicular wall at 90° is rejected
+     * while any 1°–35° single-point normal drift at Point A is corrected to the true wall plane.
+     */
+    private const val MIN_TWO_POINT_NORMAL_AGREEMENT_COS = 0.7880f
 
     /**
      * Locks a wall [plane] so its normal is strictly horizontal (`normalY = 0`, unit length in XZ),
@@ -69,6 +84,59 @@ object ArMeasurementGeometry {
             centerX = center.x,
             centerY = center.y,
             centerZ = center.z
+        )
+    }
+
+    /**
+     * Derives the exact vertical wall [PlaneSignature] passing through both 3D wall points
+     * [anchorA] and [secondPoint].
+     *
+     * A single point [anchorA] at one corner of a wide wall (e.g. 5.13 m) often has a 4°–10°
+     * normal error that tilts the extrapolated plane 25–45 cm closer to the camera at the far
+     * end, causing systematic underestimation of both Width and Height. Fitting the vertical
+     * wall plane normal perpendicular to the horizontal chord `(secondPoint - anchorA)` ensures
+     * the plane passes through the true 3D depth of both ends of the wall.
+     *
+     * Returns `null` if the horizontal span is less than [MIN_TWO_POINT_WALL_SPAN_M] or if the
+     * implied normal deviates from [referencePlane] by more than ~38° (e.g. an adjacent wall).
+     */
+    fun wallPlaneFromTwoPoints(
+        anchorA: WorldPoint3,
+        secondPoint: WorldPoint3,
+        cameraOrigin: WorldPoint3? = null,
+        referencePlane: PlaneSignature? = null
+    ): PlaneSignature? {
+        val dx = secondPoint.x - anchorA.x
+        val dz = secondPoint.z - anchorA.z
+        val horizSpan = sqrt(dx * dx + dz * dz)
+        if (horizSpan < MIN_TWO_POINT_WALL_SPAN_M) return null
+
+        // Perpendicular to horizontal chord (dx, 0, dz) in XZ is (-dz, 0, dx).
+        val rawNormal = normalised(-dz, 0f, dx) ?: return null
+        val refNormal = referencePlane?.let { normalised(it.normalX, 0f, it.normalZ) }
+        if (refNormal != null) {
+            val dot = abs(rawNormal.x * refNormal.x + rawNormal.z * refNormal.z)
+            if (dot < MIN_TWO_POINT_NORMAL_AGREEMENT_COS) return null
+        }
+
+        val flip = when {
+            cameraOrigin != null -> {
+                val toCamX = cameraOrigin.x - anchorA.x
+                val toCamZ = cameraOrigin.z - anchorA.z
+                if (rawNormal.x * toCamX + rawNormal.z * toCamZ < 0f) -1f else 1f
+            }
+            refNormal != null -> {
+                if (rawNormal.x * refNormal.x + rawNormal.z * refNormal.z < 0f) -1f else 1f
+            }
+            else -> 1f
+        }
+        return PlaneSignature(
+            normalX = rawNormal.x * flip,
+            normalY = 0f,
+            normalZ = rawNormal.z * flip,
+            centerX = anchorA.x,
+            centerY = anchorA.y,
+            centerZ = anchorA.z
         )
     }
 
@@ -240,21 +308,25 @@ object ArMeasurementGeometry {
         kind: HitKind,
         point: WorldPoint3,
         cameraDirection: WorldPoint3,
-        estimatedNormal: WorldPoint3? = null
+        estimatedNormal: WorldPoint3? = null,
+        fallbackWallNormal: WorldPoint3? = null
     ): PlaneSignature = when (kind) {
         HitKind.HorizontalDownward -> PlaneSignature(0f, -1f, 0f, point.x, point.y, point.z)
         HitKind.HorizontalUpward -> PlaneSignature(0f, 1f, 0f, point.x, point.y, point.z)
         HitKind.VerticalPlane -> {
             val horizontalFromCamera = normalised(-cameraDirection.x, 0f, -cameraDirection.z)
             val horizontalFromNormal = estimatedNormal?.let { normalised(it.x, 0f, it.z) }
-            // Sparse AR feature/depth points often carry a noisy normal rotated sideways along the
-            // wall. If the estimated normal deviates by more than ~25° from facing the camera,
-            // lock the vertical wall plane normal to face the camera horizontally (normalY = 0).
-            val alignedNormal = if (horizontalFromNormal != null && horizontalFromCamera != null) {
-                val dot = abs(horizontalFromNormal.x * horizontalFromCamera.x + horizontalFromNormal.z * horizontalFromCamera.z)
-                if (dot >= MIN_POINT_NORMAL_CAMERA_ALIGNMENT) horizontalFromNormal else horizontalFromCamera
+            val horizontalFromFallback = fallbackWallNormal?.let { normalised(it.x, 0f, it.z) }
+            val candidateNormal = horizontalFromNormal ?: horizontalFromFallback
+            // Keep the surface normal (from depth/feature point or already-detected wall plane)
+            // as long as the camera is viewing the wall within ~55° of its normal, so panning
+            // to the left/right corners of a wide wall does not rotate the wall plane normal
+            // to follow the angled camera ray.
+            val alignedNormal = if (candidateNormal != null && horizontalFromCamera != null) {
+                val dot = abs(candidateNormal.x * horizontalFromCamera.x + candidateNormal.z * horizontalFromCamera.z)
+                if (dot >= MIN_POINT_NORMAL_CAMERA_ALIGNMENT) candidateNormal else (horizontalFromFallback ?: horizontalFromCamera)
             } else {
-                horizontalFromNormal ?: horizontalFromCamera
+                candidateNormal ?: horizontalFromCamera
             }
             val n = alignedNormal ?: WorldPoint3(0f, 0f, 1f)
             val flip = if (n.x * -cameraDirection.x + n.z * -cameraDirection.z < 0f) -1f else 1f
@@ -464,10 +536,11 @@ object ArMeasurementGeometry {
     }
 
     /**
-     * Width and height (in metres) of the 4-corner planar quad [corners] ordered
+     * Average width and height (in metres) of the 4-corner planar quad [corners] ordered
      * `[bottomLeft, bottomRight, topRight, topLeft]`. For a rectangle this equals its exact
-     * width and height; when individual corners are fine-tuned along the wall plane, this
-     * returns the mean opposite-edge width and height in real time.
+     * width and height; when individual corners are moved independently on the wall plane to
+     * form a custom quadrilateral/trapezoid, this returns the mean opposite-edge width and
+     * height in real time.
      */
     fun quadDimensions(corners: List<WorldPoint3>): Pair<Double, Double> {
         if (corners.size < 4) return 0.0 to 0.0
@@ -478,6 +551,52 @@ object ArMeasurementGeometry {
         val width = (distance(c0, c1) + distance(c3, c2)) * 0.5
         val height = (distance(c0, c3) + distance(c1, c2)) * 0.5
         return width to height
+    }
+
+    /**
+     * Exact area (in m²) of the 4-corner planar quadrilateral [corners] ordered
+     * `[bottomLeft, bottomRight, topRight, topLeft]`, computed by splitting the quad along
+     * diagonal `c0 -> c2` into two triangles `(c0, c1, c2)` and `(c0, c2, c3)`:
+     * `0.5 * ||(c1 - c0) x (c2 - c0)|| + 0.5 * ||(c2 - c0) x (c3 - c0)||`.
+     */
+    fun quadArea(corners: List<WorldPoint3>): Double {
+        if (corners.size < 4) return 0.0
+        val c0 = corners[0]
+        val c1 = corners[1]
+        val c2 = corners[2]
+        val c3 = corners[3]
+        return triangleArea(c0, c1, c2) + triangleArea(c0, c2, c3)
+    }
+
+    private fun triangleArea(a: WorldPoint3, b: WorldPoint3, c: WorldPoint3): Double {
+        val abX = (b.x - a.x).toDouble()
+        val abY = (b.y - a.y).toDouble()
+        val abZ = (b.z - a.z).toDouble()
+        val acX = (c.x - a.x).toDouble()
+        val acY = (c.y - a.y).toDouble()
+        val acZ = (c.z - a.z).toDouble()
+        val crossX = abY * acZ - abZ * acY
+        val crossY = abZ * acX - abX * acZ
+        val crossZ = abX * acY - abY * acX
+        return 0.5 * sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ)
+    }
+
+    /**
+     * Bilinearly interpolates a 3D point on the 4-corner quadrilateral
+     * `[c0 = bottomLeft, c1 = bottomRight, c2 = topRight, c3 = topLeft]` at normalised
+     * coordinates `([u], [v])` in `[0, 1] x [0, 1]`.
+     */
+    fun bilinearQuadPoint(
+        c0: WorldPoint3,
+        c1: WorldPoint3,
+        c2: WorldPoint3,
+        c3: WorldPoint3,
+        u: Float,
+        v: Float
+    ): WorldPoint3 {
+        val bottom = lerpPoint(c0, c1, u)
+        val top = lerpPoint(c3, c2, u)
+        return lerpPoint(bottom, top, v)
     }
 
     /**
@@ -501,7 +620,9 @@ object ArMeasurementGeometry {
 
     /**
      * Builds the 4 outer perimeter frame beams and interior vertical/horizontal 3D grid lines
-     * directly from the 4 corners `[bottomLeft, bottomRight, topRight, topLeft]`.
+     * using bilinear interpolation across the 4 independent corners
+     * `[bottomLeft, bottomRight, topRight, topLeft]`, allowing the grid to form any custom
+     * 4-sided quadrilateral or trapezoid matching the exact edges of the wall.
      */
     fun buildFixedGridSegmentsFromCorners(
         corners: List<WorldPoint3>,
@@ -521,24 +642,48 @@ object ArMeasurementGeometry {
         if (width <= 0.02f || height <= 0.02f) return emptyList()
 
         val segments = ArrayList<GridSegment>()
-        // 1. 4 outer perimeter frame beams
-        segments += GridSegment(c0, c1, isOuterFrame = true)
-        segments += GridSegment(c1, c2, isOuterFrame = true)
-        segments += GridSegment(c2, c3, isOuterFrame = true)
-        segments += GridSegment(c3, c0, isOuterFrame = true)
+        // 1. 4 outer perimeter frame beams connecting the 4 independent corners
+        segments += GridSegment(
+            bilinearQuadPoint(c0, c1, c2, c3, 0f, 0f),
+            bilinearQuadPoint(c0, c1, c2, c3, 1f, 0f),
+            isOuterFrame = true
+        )
+        segments += GridSegment(
+            bilinearQuadPoint(c0, c1, c2, c3, 1f, 0f),
+            bilinearQuadPoint(c0, c1, c2, c3, 1f, 1f),
+            isOuterFrame = true
+        )
+        segments += GridSegment(
+            bilinearQuadPoint(c0, c1, c2, c3, 1f, 1f),
+            bilinearQuadPoint(c0, c1, c2, c3, 0f, 1f),
+            isOuterFrame = true
+        )
+        segments += GridSegment(
+            bilinearQuadPoint(c0, c1, c2, c3, 0f, 1f),
+            bilinearQuadPoint(c0, c1, c2, c3, 0f, 0f),
+            isOuterFrame = true
+        )
 
-        // 2. Interior vertical 3D grid lines
+        // 2. Interior vertical 3D grid lines via bilinear interpolation along u
         val cols = (width / cellTargetMeters).toInt().coerceIn(minDivisions, maxDivisions)
         for (col in 1 until cols) {
-            val t = col.toFloat() / cols
-            segments += GridSegment(lerpPoint(c0, c1, t), lerpPoint(c3, c2, t), isOuterFrame = false)
+            val u = col.toFloat() / cols
+            segments += GridSegment(
+                from = bilinearQuadPoint(c0, c1, c2, c3, u, 0f),
+                to = bilinearQuadPoint(c0, c1, c2, c3, u, 1f),
+                isOuterFrame = false
+            )
         }
 
-        // 3. Interior horizontal 3D grid lines
+        // 3. Interior horizontal 3D grid lines via bilinear interpolation along v
         val rows = (height / cellTargetMeters).toInt().coerceIn(minDivisions, maxDivisions)
         for (row in 1 until rows) {
-            val t = row.toFloat() / rows
-            segments += GridSegment(lerpPoint(c0, c3, t), lerpPoint(c1, c2, t), isOuterFrame = false)
+            val v = row.toFloat() / rows
+            segments += GridSegment(
+                from = bilinearQuadPoint(c0, c1, c2, c3, 0f, v),
+                to = bilinearQuadPoint(c0, c1, c2, c3, 1f, v),
+                isOuterFrame = false
+            )
         }
         return segments
     }
@@ -607,10 +752,10 @@ object ArMeasurementGeometry {
     }
 
     /**
-     * Moves corner [cornerIndex] (`0 = bottomLeft, 1 = bottomRight, 2 = topRight, 3 = topLeft`)
-     * to [targetPoint] while strictly constraining all 4 corners to remain coplanar on [plane]
-     * and form an axis-aligned rectangle (horizontal width along `cross(worldUp, wallNormal)`,
-     * vertical height along `worldUp` on walls) without crossing opposite edges by [minEdgeMeters].
+     * Moves ONLY corner [cornerIndex] (`0 = bottomLeft, 1 = bottomRight, 2 = topRight, 3 = topLeft`)
+     * to [targetPoint] on the locked surface [plane], leaving the other 3 corners 100% untouched
+     * so all 4 corners move independently and can form any custom 4-sided quadrilateral/trapezoid
+     * while staying coplanar on [plane] without crossing opposite edges by [minEdgeMeters].
      */
     fun moveGridCornerOnPlane(
         corners: List<WorldPoint3>,
@@ -627,51 +772,48 @@ object ArMeasurementGeometry {
             fun toU(p: WorldPoint3): Float = (p.x - origin.x) * uAxis.x + (p.z - origin.z) * uAxis.z
 
             val projectedCorners = corners.map { projectOntoPlane(it, wallPlane) }
-            var uLeft = (toU(projectedCorners[0]) + toU(projectedCorners[3])) * 0.5f
-            var uRight = (toU(projectedCorners[1]) + toU(projectedCorners[2])) * 0.5f
-            val leftIsMin = uLeft <= uRight
-            var yBottom = (projectedCorners[0].y + projectedCorners[1].y) * 0.5f
-            var yTop = (projectedCorners[2].y + projectedCorners[3].y) * 0.5f
+            val u0 = toU(projectedCorners[0]); val y0 = projectedCorners[0].y
+            val u1 = toU(projectedCorners[1]); val y1 = projectedCorners[1].y
+            val u2 = toU(projectedCorners[2]); val y2 = projectedCorners[2].y
+            val u3 = toU(projectedCorners[3]); val y3 = projectedCorners[3].y
+            val leftIsMin = (u0 + u3) <= (u1 + u2)
 
             val projectedTarget = projectOntoPlane(targetPoint, wallPlane)
             val targetU = toU(projectedTarget)
             val targetY = projectedTarget.y
 
-            fun clampLeft(u: Float): Float =
-                if (leftIsMin) minOf(u, uRight - minEdgeMeters) else maxOf(u, uRight + minEdgeMeters)
-            fun clampRight(u: Float): Float =
-                if (leftIsMin) maxOf(u, uLeft + minEdgeMeters) else minOf(u, uLeft - minEdgeMeters)
+            fun clampLeftAgainst(u: Float, rightNeighborU: Float): Float =
+                if (leftIsMin) minOf(u, rightNeighborU - minEdgeMeters) else maxOf(u, rightNeighborU + minEdgeMeters)
+            fun clampRightAgainst(u: Float, leftNeighborU: Float): Float =
+                if (leftIsMin) maxOf(u, leftNeighborU + minEdgeMeters) else minOf(u, leftNeighborU - minEdgeMeters)
 
+            val clampedU: Float
+            val clampedY: Float
             when (cornerIndex) {
-                0 -> { // bottom-left
-                    uLeft = clampLeft(targetU)
-                    yBottom = minOf(targetY, yTop - minEdgeMeters)
+                0 -> { // bottom-left: only clamp against bottom-right (u1) and top-left (y3)
+                    clampedU = clampLeftAgainst(targetU, u1)
+                    clampedY = minOf(targetY, y3 - minEdgeMeters)
                 }
-                1 -> { // bottom-right
-                    uRight = clampRight(targetU)
-                    yBottom = minOf(targetY, yTop - minEdgeMeters)
+                1 -> { // bottom-right: only clamp against bottom-left (u0) and top-right (y2)
+                    clampedU = clampRightAgainst(targetU, u0)
+                    clampedY = minOf(targetY, y2 - minEdgeMeters)
                 }
-                2 -> { // top-right
-                    uRight = clampRight(targetU)
-                    yTop = maxOf(targetY, yBottom + minEdgeMeters)
+                2 -> { // top-right: only clamp against top-left (u3) and bottom-right (y1)
+                    clampedU = clampRightAgainst(targetU, u3)
+                    clampedY = maxOf(targetY, y1 + minEdgeMeters)
                 }
-                else -> { // top-left
-                    uLeft = clampLeft(targetU)
-                    yTop = maxOf(targetY, yBottom + minEdgeMeters)
+                else -> { // top-left: only clamp against top-right (u2) and bottom-left (y0)
+                    clampedU = clampLeftAgainst(targetU, u2)
+                    clampedY = maxOf(targetY, y0 + minEdgeMeters)
                 }
             }
 
-            fun pointAt(u: Float, y: Float) = WorldPoint3(
-                x = origin.x + u * uAxis.x,
-                y = y,
-                z = origin.z + u * uAxis.z
+            val moved = WorldPoint3(
+                x = origin.x + clampedU * uAxis.x,
+                y = clampedY,
+                z = origin.z + clampedU * uAxis.z
             )
-            return listOf(
-                pointAt(uLeft, yBottom),
-                pointAt(uRight, yBottom),
-                pointAt(uRight, yTop),
-                pointAt(uLeft, yTop)
-            )
+            return projectedCorners.toMutableList().also { it[cornerIndex] = moved }
         }
 
         val normal = normalised(plane.normalX, plane.normalY, plane.normalZ) ?: return corners
@@ -724,20 +866,20 @@ object ArMeasurementGeometry {
         val clampedV: Float
         when (cornerIndex) {
             0 -> {
-                clampedU = minOf(targetU, minOf(u1, u2) - minEdgeMeters)
-                clampedV = minOf(targetV, minOf(v2, v3) - minEdgeMeters)
+                clampedU = minOf(targetU, u1 - minEdgeMeters)
+                clampedV = minOf(targetV, v3 - minEdgeMeters)
             }
             1 -> {
-                clampedU = maxOf(targetU, maxOf(u0, u3) + minEdgeMeters)
-                clampedV = minOf(targetV, minOf(v2, v3) - minEdgeMeters)
+                clampedU = maxOf(targetU, u0 + minEdgeMeters)
+                clampedV = minOf(targetV, v2 - minEdgeMeters)
             }
             2 -> {
-                clampedU = maxOf(targetU, maxOf(u0, u3) + minEdgeMeters)
-                clampedV = maxOf(targetV, maxOf(v0, v1) + minEdgeMeters)
+                clampedU = maxOf(targetU, u3 + minEdgeMeters)
+                clampedV = maxOf(targetV, v1 + minEdgeMeters)
             }
             else -> {
-                clampedU = minOf(targetU, minOf(u1, u2) - minEdgeMeters)
-                clampedV = maxOf(targetV, maxOf(v0, v1) + minEdgeMeters)
+                clampedU = minOf(targetU, u2 - minEdgeMeters)
+                clampedV = maxOf(targetV, v0 + minEdgeMeters)
             }
         }
 
